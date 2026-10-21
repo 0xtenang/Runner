@@ -2,7 +2,7 @@
 
 A simple, Strava-style running app with a move-to-earn layer: equip a sneaker, run inside its pace zone, and earn **EARN** coins, mystery boxes and new sneakers.
 
-**Try it:** https://0xtenang.github.io/Runner/
+**Try it:** https://runearn.fun
 
 > Beta: everything is stored on your own phone. EARN coins are in-app points with no cash value.
 
