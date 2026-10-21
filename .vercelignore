@@ -1,0 +1,10 @@
+# The phone-app (Capacitor) project isn't part of the website.
+android
+ios
+www
+node_modules
+scripts
+package.json
+package-lock.json
+capacitor.config.json
+NATIVE.md

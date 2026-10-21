@@ -6,6 +6,12 @@
 export const PRIVY_APP_ID = 'cmvi422kz004c0hjjmtt56ut4';
 // Optional app client ID (Dashboard → App clients). Leave empty if unused.
 export const PRIVY_CLIENT_ID = '';
+// Phone app only: where Google/Apple sign-in returns to. That page hands the
+// result back to the app. Must be listed in Privy → Settings → Advanced →
+// Allowed OAuth redirect URLs.
+export const NATIVE_OAUTH_REDIRECT = 'https://www.runearn.fun/redirect';
+// Phone app's ID and link scheme (also in capacitor.config.json).
+export const NATIVE_APP_ID = 'fun.runearn.app';
 
 // Robinhood Chain (Arbitrum L2, ETH for gas). Values from docs.robinhood.com/chain.
 export const ROBINHOOD_CHAIN = {

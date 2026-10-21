@@ -3,7 +3,8 @@
 // private key to import. Privy's SDK is React-based; we load React + Privy as
 // ES modules from esm.sh (no build step) and mount a tiny invisible React
 // "bridge" that mirrors Privy's state into this plain EventTarget.
-import { PRIVY_APP_ID, PRIVY_CLIENT_ID, ROBINHOOD_CHAIN, ROBINHOOD_TESTNET } from './config.js';
+import { PRIVY_APP_ID, PRIVY_CLIENT_ID, ROBINHOOD_CHAIN, ROBINHOOD_TESTNET, NATIVE_OAUTH_REDIRECT } from './config.js';
+import { isNative } from './geo.js';
 
 const REACT = 'https://esm.sh/react@18.3.1';
 const REACT_DOM = 'https://esm.sh/react-dom@18.3.1/client';
@@ -160,11 +161,13 @@ class Auth extends EventTarget {
         appearance: {
           theme: dark ? 'dark' : 'light',
           accentColor: '#a3e635',
-          logo: new URL('icon.svg', location.href).href,
+          logo: isNative ? 'https://www.runearn.fun/icon.svg' : new URL('icon.svg', location.href).href,
           landingHeader: 'Sign in to RUNNER',
           loginMessage: 'Your wallet is created automatically — no seed phrase needed.',
         },
         embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },
+        // The phone app opens Google/Apple in the system browser, which Google allows.
+        ...(isNative ? { customOAuthRedirectUrl: NATIVE_OAUTH_REDIRECT, allowOAuthInEmbeddedBrowsers: true } : {}),
         defaultChain: ROBINHOOD_CHAIN,
         supportedChains: [ROBINHOOD_CHAIN, ROBINHOOD_TESTNET],
       },
@@ -212,3 +215,22 @@ class Auth extends EventTarget {
 }
 
 export const auth = new Auth();
+
+// In the phone app, Google/Apple sign-in opens in Safari/Chrome (Google blocks
+// sign-in inside apps). Afterwards runearn.fun/redirect sends the browser back
+// into the app with a one-time code in the link; reloading the app with that
+// code lets Privy finish signing in.
+if (isNative) {
+  const App = globalThis.Capacitor.registerPlugin('App');
+  const finishOAuth = (url) => {
+    if (!url) return;
+    try {
+      const q = new URL(url).searchParams;
+      if (!(q.has('privy_oauth_code') && q.has('privy_oauth_state') && q.has('privy_oauth_provider'))) return;
+      if (location.search === `?${q}`) return;
+      location.assign(`${location.pathname}?${q}${location.hash}`);
+    } catch (e) { console.warn('Bad sign-in link', e); }
+  };
+  App.addListener('appUrlOpen', ({ url }) => finishOAuth(url));
+  App.getLaunchUrl().then((r) => finishOAuth(r?.url)).catch(() => {});
+}

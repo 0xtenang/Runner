@@ -1,8 +1,8 @@
 // Network-first app shell cache so the app opens offline (e.g. on a run with no signal).
-const CACHE = 'runner-v9';
+const CACHE = 'runner-v10';
 const SHELL = [
   './', 'index.html', 'styles.css', 'icon.svg', 'manifest.webmanifest',
-  'js/app.js', 'js/db.js', 'js/stats.js', 'js/parsers.js', 'js/recorder.js', 'js/ble.js', 'js/game.js', 'js/earn-view.js', 'js/onboarding.js', 'js/auth.js', 'js/config.js', 'js/wallet.js',
+  'js/app.js', 'js/db.js', 'js/stats.js', 'js/parsers.js', 'js/recorder.js', 'js/ble.js', 'js/game.js', 'js/earn-view.js', 'js/onboarding.js', 'js/auth.js', 'js/config.js', 'js/wallet.js', 'js/geo.js',
 ];
 
 self.addEventListener('install', (e) => {

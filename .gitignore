@@ -2,3 +2,5 @@
 .claude/
 share-qr.html
 .scratch/
+node_modules/
+www/

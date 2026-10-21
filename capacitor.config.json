@@ -1,0 +1,12 @@
+{
+  "appId": "fun.runearn.app",
+  "appName": "RUNNER",
+  "webDir": "www",
+  "backgroundColor": "#0b0b0c",
+  "android": {
+    "useLegacyBridge": true
+  },
+  "plugins": {
+    "App": { "urlScheme": "fun.runearn.app" }
+  }
+}

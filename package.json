@@ -1,0 +1,12 @@
+{
+  "name": "runner",
+  "private": true,
+  "description": "RUNNER phone apps (Capacitor). The website needs no build; see NATIVE.md.",
+  "type": "module",
+  "scripts": {
+    "web:copy": "node scripts/copy-web.mjs",
+    "sync": "node scripts/copy-web.mjs && cap sync",
+    "ios": "node scripts/copy-web.mjs && cap sync ios && cap open ios",
+    "android": "node scripts/copy-web.mjs && cap sync android && cap open android"
+  }
+}

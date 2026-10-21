@@ -1,4 +1,5 @@
 import { haversine } from './stats.js';
+import { watchLocation } from './geo.js';
 
 const DEFAULT_CENTER = [-7.7956, 110.3695]; // Yogyakarta — used by the simulator if no fix yet
 const MAX_ACCURACY_M = 35;   // ignore fixes worse than this
@@ -40,24 +41,16 @@ export class Recorder extends EventTarget {
   ensureGps() {
     if (this.watchId != null) return;
     if (this.sim) return this._startSim();
-    if (!('geolocation' in navigator)) {
-      this._emit('gpserror', { message: 'This browser has no GPS access.' });
-      return;
-    }
-    this.watchId = navigator.geolocation.watchPosition(
-      (p) => this._onFix({
-        lat: p.coords.latitude, lon: p.coords.longitude,
-        ele: p.coords.altitude, acc: p.coords.accuracy, t: p.timestamp || Date.now(),
-      }),
-      (e) => this._emit('gpserror', { message: e.code === 1 ? 'Location blocked — allow it in browser settings' : 'Searching for GPS…' }),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
+    this.watchId = watchLocation(
+      (f) => this._onFix(f),
+      (message) => this._emit('gpserror', { message })
     );
   }
 
   stopGps() {
     if (this.watchId == null) return;
     if (this.watchId === 'sim') clearInterval(this.simTimer);
-    else navigator.geolocation.clearWatch(this.watchId);
+    else this.watchId();
     this.watchId = null;
   }
 

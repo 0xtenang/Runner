@@ -2,6 +2,7 @@ import { db } from './db.js';
 import { parseFile, SUPPORTED } from './parsers.js';
 import { HeartRateMonitor } from './ble.js';
 import { Recorder } from './recorder.js';
+import { isNative } from './geo.js';
 import { annotate, computeSplits, downsample, speedSeries, units, fmtDist, fmtDur, fmtPace, fmtElev } from './stats.js';
 import { game, EarnSession, SNEAKER_TYPES, earnPerEnergy, COIN } from './game.js';
 import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange, addressAvatar } from './earn-view.js';
@@ -375,6 +376,7 @@ function fmtClock(sec, long = false) {
 const keepAwake = {
   lock: null, video: null, timer: null,
   async on() {
+    if (isNative) return; // the phone app keeps recording with the screen off
     try { if (navigator.wakeLock) { this.lock = await navigator.wakeLock.request('screen'); return; } } catch { /* fall back */ }
     try {
       if (!this.video) {
@@ -503,7 +505,7 @@ function renderRecord() {
           <span>${hrm.connected ? (hr ? `${hr} bpm` : 'Connected') : 'Sensor'}</span>
         </button>
       </div>
-      <div class="keep-open">${ICON.sun}<span><b>Keep RUNNER open, screen on.</b> Locking the phone pauses GPS.</span></div>
+      ${isNative ? '' : `<div class="keep-open">${ICON.sun}<span><b>Keep RUNNER open, screen on.</b> Locking the phone pauses GPS.</span></div>`}
       <div class="sheet-list">
         ${s ? `
         <a class="sheet-row" href="#/earn">
@@ -1207,7 +1209,7 @@ window.addEventListener('hashchange', route);
 window.addEventListener('beforeunload', (e) => {
   if (rec.state !== 'idle') { e.preventDefault(); e.returnValue = ''; }
 });
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+if ('serviceWorker' in navigator && location.protocol !== 'file:' && !isNative) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 // ---------------------------------------------------------------- account ↔ progress
