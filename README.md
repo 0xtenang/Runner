@@ -2,7 +2,7 @@
 
 A simple, Strava-style running app with a move-to-earn layer: equip a sneaker, run inside its pace zone, and earn **EARN** coins, mystery boxes and new sneakers.
 
-**Try it:** https://0xtenang.github.io/runner/
+**Try it:** https://0xtenang.github.io/Runner/
 
 > Beta: everything is stored on your own phone. EARN coins are in-app points with no cash value.
 
@@ -36,7 +36,7 @@ A simple, Strava-style running app with a move-to-earn layer: equip a sneaker, r
 
 ## Send feedback
 
-Found a bug or have an idea? [Open an issue](https://github.com/0xtenang/runner/issues/new) — include your phone model, browser and what happened. You can also reach it from **Settings → Send feedback** in the app.
+Found a bug or have an idea? [Open an issue](https://github.com/0xtenang/Runner/issues/new) — include your phone model, browser and what happened. You can also reach it from **Settings → Send feedback** in the app.
 
 ## Run locally
 

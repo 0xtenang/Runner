@@ -16,7 +16,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const view = $('#view');
 
 const VERSION = '0.1 beta';
-const FEEDBACK_URL = 'https://github.com/0xtenang/runner/issues/new';
+const FEEDBACK_URL = 'https://github.com/0xtenang/Runner/issues/new';
 const SOURCE_LABEL = { gps: 'RUNNER', fit: 'FIT file', gpx: 'GPX file', tcx: 'TCX file' };
 const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
