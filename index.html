@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>RUNNER</title>
+  <meta name="description" content="Run in the real world and earn coins with your sneakers. GPS run tracking with Garmin and smartwatch import.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="tb-left" id="tb-left"></div>
+    <div class="tb-title" id="tb-title"></div>
+    <div class="tb-right" id="tb-right"></div>
+  </header>
+
+  <main id="view"></main>
+
+  <a id="rec-banner" class="rec-banner" href="#/record" hidden>
+    <span class="dot"></span><span>Recording</span><b id="rec-banner-time">0:00</b>
+  </a>
+
+  <nav class="tabbar" aria-label="Main">
+    <a href="#/home" data-tab="home">
+      <svg viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-4.5v-5.5h-5V21H5a1 1 0 0 1-1-1z"/></svg>
+      <span>Home</span>
+    </a>
+    <a href="#/record" data-tab="record">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5" class="fill"/></svg>
+      <span>Record</span>
+    </a>
+    <a href="#/earn" data-tab="earn">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v9M9.6 9.6h3.6a1.9 1.9 0 0 1 0 3.8H10.4"/></svg>
+      <span>Earn</span>
+    </a>
+    <a href="#/you" data-tab="you">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1.4-3.7 4.3-5.6 7.5-5.6s6.1 1.9 7.5 5.6"/></svg>
+      <span>You</span>
+    </a>
+  </nav>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
