@@ -3,7 +3,7 @@
 // Privy (sign in with Google / Apple / email + embedded wallets).
 // The App ID is public — it's safe to commit. Get it from dashboard.privy.io →
 // your app → Settings. Leave it empty to hide sign-in (guest-only mode).
-export const PRIVY_APP_ID = '';
+export const PRIVY_APP_ID = 'cmvi422kz004c0hjjmtt56ut4';
 // Optional app client ID (Dashboard → App clients). Leave empty if unused.
 export const PRIVY_CLIENT_ID = '';
 
