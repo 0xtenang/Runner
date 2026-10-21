@@ -186,6 +186,7 @@ function freshState() {
   return {
     onboarded: false, // the starter sneaker is picked during onboarding
     profile: { name: 'Runner' },
+    wallet: null, // { address, privyId, method, email, linkedAt } once signed in
     coins: 0,
     energy: maxEnergy(1),
     energyAt: Date.now(),
@@ -201,6 +202,7 @@ function freshState() {
 function migrate(st) {
   st.onboarded ??= st.sneakers.length > 0;
   st.profile ??= { name: 'Runner' };
+  st.wallet ??= null;
   for (const s of st.sneakers) {
     s.points ??= { efficiency: 0, luck: 0, resilience: 0 };
     s.mints ??= 0;
@@ -265,6 +267,14 @@ class Game extends EventTarget {
   _log(amount, kind, note, extra = {}) {
     this.state.ledger.unshift({ t: Date.now(), amount: round2(amount), kind, note, ...extra });
     this.state.ledger = this.state.ledger.slice(0, 200);
+  }
+
+  /** Ties this device's progress to a signed-in account and its embedded wallet. */
+  async linkWallet({ address, privyId, method, email }) {
+    const first = !this.state.wallet;
+    this.state.wallet = { address, privyId, method, email, linkedAt: this.state.wallet?.linkedAt || Date.now() };
+    if (first) this._log(0, 'wallet', `Wallet created on Robinhood Chain · ${address.slice(0, 6)}…${address.slice(-4)}`);
+    await this.save();
   }
 
   async setName(name) {

@@ -4,7 +4,8 @@ import { HeartRateMonitor } from './ble.js';
 import { Recorder } from './recorder.js';
 import { annotate, computeSplits, downsample, speedSeries, units, fmtDist, fmtDur, fmtPace, fmtElev } from './stats.js';
 import { game, EarnSession, SNEAKER_TYPES, earnPerEnergy, COIN } from './game.js';
-import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange } from './earn-view.js';
+import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange, addressAvatar } from './earn-view.js';
+import { auth, shortAddress, explorerUrl } from './auth.js';
 import { runOnboarding } from './onboarding.js';
 
 // RUNNER is run-only: every activity is a run, recorded or imported.
@@ -37,6 +38,7 @@ const ICON = {
   ruler: '<svg viewBox="0 0 24 24"><path d="M4 15 15 4l5 5L9 20z"/><path d="M8 11l2 2M11 8l2 2M14 5l1 1"/></svg>',
   sim: '<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.4-6-10a6 6 0 1 1 12 0c0 4.6-6 10-6 10z"/><circle cx="12" cy="11" r="2"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>',
+  user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1.4-3.7 4.3-5.6 7.5-5.6s6.1 1.9 7.5 5.6"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
 };
 
@@ -724,7 +726,8 @@ async function renderYou(tab = 'progress') {
     <section class="profile">
       <div class="prof-head">
         ${avatar('xl')}
-        <div><h1>${esc(runnerName())}</h1><span>${runs.length} run${runs.length === 1 ? '' : 's'}</span></div>
+        <div><h1>${esc(runnerName())}</h1><span>${runs.length} run${runs.length === 1 ? '' : 's'}</span>
+          ${auth.signedIn ? `<a class="addr-chip" href="${explorerUrl(auth.state.address)}" target="_blank" rel="noopener">${addressAvatar(auth.state.address, 18)}${shortAddress(auth.state.address)}</a>` : ''}</div>
       </div>
       <div class="prof-actions">
         <button class="btn pill" id="b-edit">Edit profile</button>
@@ -835,6 +838,13 @@ function renderSettings() {
   view.innerHTML = `
     <section class="page">
       <div class="card list-card">
+        ${auth.state.configured ? `
+        <div class="setting">
+          <div class="row">${ICON.user}<div><b>Account</b><div class="muted small">${auth.signedIn
+            ? `${esc(auth.state.user?.method || '')}${auth.state.user?.email ? ` · ${esc(auth.state.user.email)}` : ''} · wallet ${shortAddress(auth.state.address)}`
+            : 'Guest — sign in with Google, Apple or email to get your wallet'}</div></div></div>
+          <button class="btn sm ${auth.signedIn ? '' : 'primary'}" id="b-account">${auth.signedIn ? 'Sign out' : 'Sign in'}</button>
+        </div>` : ''}
         <div class="setting">
           <div class="row">${ICON.ruler}<div><b>Units</b><div class="muted small">Distance and pace</div></div></div>
           <div class="seg" id="units">
@@ -868,6 +878,18 @@ function renderSettings() {
     units.set(b.dataset.u);
     renderSettings();
   };
+  const acct = $('#b-account');
+  if (acct) {
+    acct.onclick = async () => {
+      if (!auth.signedIn) { try { await auth.login(); } catch (err) { toast(err.message, 4000); } return; }
+      if (!confirm('Sign out? Your runs and sneakers stay on this phone and come back when you sign in again.')) return;
+      await auth.logout();
+      toast('Signed out');
+    };
+    const rerender = () => renderSettings();
+    auth.addEventListener('change', rerender);
+    onCleanup(() => auth.removeEventListener('change', rerender));
+  }
   $('#sim').onchange = (e) => {
     if (rec.state !== 'idle') { e.target.checked = rec.sim; toast('Finish your current run first'); return; }
     settings.sim = e.target.checked;
@@ -1012,7 +1034,45 @@ window.addEventListener('beforeunload', (e) => {
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+// ---------------------------------------------------------------- account ↔ progress
+// Progress lives on this device. When someone signs in, we tie it to their
+// account's wallet; if a *different* account signs in, we don't mix the two.
+let resolvingConflict = false;
+async function syncWallet() {
+  const s = auth.state;
+  if (!s.authenticated || !s.address || !s.user || !game.state || resolvingConflict) return;
+  const w = game.state.wallet;
+  const info = { address: s.address, privyId: s.user.id, method: s.user.method, email: s.user.email };
+  if (!w || w.privyId === s.user.id) {
+    if (!w || w.address !== s.address || w.email !== s.user.email) {
+      await game.linkWallet(info);
+      if (!w) {
+        if (game.state.profile.name === 'Runner' && s.user.name) await game.setName(s.user.name);
+        toast(`Wallet ready · ${shortAddress(s.address)}`);
+      }
+    }
+    return;
+  }
+  resolvingConflict = true;
+  const fresh = confirm(`This phone has RUNNER progress for ${w.email || shortAddress(w.address)}.\n\nOK: start fresh for ${s.user.email || 'this account'} (removes the other account's runs and sneakers from this phone).\nCancel: sign out.`);
+  if (fresh) {
+    await db.clearAll();
+    await game.reset();
+    await game.linkWallet(info);
+    if (s.user.name) await game.setName(s.user.name);
+    await runOnboarding();
+    location.hash = '#/home';
+    route();
+  } else {
+    await auth.logout();
+  }
+  resolvingConflict = false;
+}
+auth.addEventListener('change', syncWallet);
+
 await game.load();
+// Restore a previous Privy session in the background (never blocks the app).
+if (auth.state.configured) auth.load();
 if (!game.state.onboarded) await runOnboarding();
 await recoverUnfinished();
 route();

@@ -471,3 +471,19 @@ body.no-scroll { overflow: hidden; }
   .start-btn svg { width: 82px; height: 82px; }
   .round-opt .round { width: 58px; height: 58px; }
 }
+
+/* ---------- account & wallet ---------- */
+.wallet-id { display: grid; gap: 10px; }
+.wallet-id.guest { background: linear-gradient(135deg, var(--accent-soft), var(--surface) 70%); }
+.wallet-id.guest b { font-size: 18px; }
+.wallet-id.guest p { margin: 0; }
+.wallet-id.guest .btn { justify-self: start; }
+.addr-row { display: flex; align-items: center; gap: 12px; }
+.addr { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .01em; flex: 1; min-width: 0; }
+.addr-avatar { display: inline-block; flex: none; border-radius: 50%; }
+.addr-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 4px 10px 4px 4px; border-radius: 99px; background: var(--surface-2); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.prof-head > div > span { display: block; }
+.ob-auth { display: grid; gap: 10px; justify-items: center; text-align: center; }
+.ob-auth .btn { width: 100%; min-height: 56px; font-size: 17px; border-radius: 99px; }
+.ob-signed { padding: 12px 14px; border-radius: 14px; background: var(--accent-soft); color: var(--accent-strong); font-weight: 700; font-size: 14px; text-align: center; }
+.ob-sign-status { margin: 0; text-align: center; color: var(--muted); font-size: 14px; }

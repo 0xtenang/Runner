@@ -1,6 +1,7 @@
 // "Earn" tab: wallet, energy, sneakers, attribute points, minting, mystery
 // boxes, marketplace, history.
 import { units, fmtPace } from './stats.js';
+import { auth, shortAddress, explorerUrl, CHAIN_NAME } from './auth.js';
 import {
   game, COIN, SNEAKER_TYPES, RARITIES, MAX_LEVEL, MINUTES_PER_ENERGY, ATTRS, POINTS_PER_LEVEL, MINT_LEVEL, MAX_MINTS,
   attrs, earnPerEnergy, levelUpCost, repairCost, durabilityLossPerEnergy, boxChancePerEnergy, dailyListings,
@@ -155,6 +156,40 @@ export function showReveal({ kicker, title, sneaker, coins, note, buttons = [{ i
   });
 }
 
+/** Small colour blob derived from the address, so people can recognise their wallet at a glance. */
+export function addressAvatar(addr, size = 36) {
+  const h1 = parseInt(addr.slice(2, 6), 16) % 360, h2 = parseInt(addr.slice(-4), 16) % 360;
+  return `<span class="addr-avatar" style="width:${size}px;height:${size}px;background:linear-gradient(135deg,hsl(${h1} 80% 60%),hsl(${h2} 80% 45%))" aria-hidden="true"></span>`;
+}
+
+function walletCard() {
+  const st = auth.state;
+  if (!st.configured) return '';
+  if (auth.signedIn) {
+    return `
+      <div class="card wallet-id">
+        <div class="row between"><span class="lbl">Your wallet · ${CHAIN_NAME}</span><span class="badge">Connected</span></div>
+        <div class="addr-row">
+          ${addressAvatar(st.address)}
+          <b class="addr" title="${st.address}">${shortAddress(st.address)}</b>
+          <button class="btn sm" data-act="copy-addr">Copy</button>
+        </div>
+        <span class="muted small">Signed in with ${esc(st.user?.method || 'Privy')}${st.user?.email ? ` · ${esc(st.user.email)}` : ''}</span>
+        <div class="actions-row">
+          <a class="btn sm" href="${explorerUrl(st.address)}" target="_blank" rel="noopener">View on explorer</a>
+          <button class="btn sm" data-act="export-key">Export private key</button>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="card wallet-id guest">
+      <b>Get your own wallet</b>
+      <p class="muted small">Sign in with Google, Apple or email and a ${CHAIN_NAME} wallet is created for you — no seed phrase or private key to import. Your coins and sneakers get linked to it.</p>
+      ${st.error ? `<p class="small" style="color:var(--bad);margin:0">${esc(st.error)}</p>` : ''}
+      <button class="btn primary pill" data-act="signin" ${st.loading && !st.ready ? 'disabled' : ''}>${st.loading && !st.ready ? 'Loading sign-in…' : 'Sign in'}</button>
+    </div>`;
+}
+
 export function renderEarn(view, { toast, onCleanup }) {
   // UI-only state that survives redraws.
   let staged = null;               // { id, efficiency, luck, resilience } points not yet saved
@@ -272,6 +307,7 @@ export function renderEarn(view, { toast, onCleanup }) {
 
     view.innerHTML = `
       <section class="page">
+        ${walletCard()}
         <div class="card wallet">
           <div>
             <span class="lbl">Balance</span>
@@ -369,6 +405,14 @@ export function renderEarn(view, { toast, onCleanup }) {
     const id = b.dataset.id;
     try {
       switch (b.dataset.act) {
+        case 'signin': await auth.login(); break;
+        case 'copy-addr':
+          await navigator.clipboard.writeText(auth.state.address);
+          toast('Wallet address copied');
+          break;
+        case 'export-key':
+          if (confirm('Your private key gives full control of this wallet. Never share it with anyone. Continue?')) await auth.exportWallet();
+          break;
         case 'select': staged = null; await game.select(id); toast('Sneaker equipped'); break;
         case 'level': {
           await game.levelUp(id);
@@ -418,6 +462,7 @@ export function renderEarn(view, { toast, onCleanup }) {
     }
   };
   game.addEventListener('change', draw);
-  onCleanup(() => { game.removeEventListener('change', draw); view.onclick = null; view.onchange = null; });
+  auth.addEventListener('change', draw);
+  onCleanup(() => { game.removeEventListener('change', draw); auth.removeEventListener('change', draw); view.onclick = null; view.onchange = null; });
   draw();
 }

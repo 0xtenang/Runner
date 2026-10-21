@@ -1,6 +1,7 @@
-// First-launch onboarding: welcome → how earning works → pick a free starter
-// sneaker → name, units, location and heart-rate setup.
+// First-launch onboarding: welcome (sign in or guest) → how earning works →
+// pick a free starter sneaker → name, units, location and heart-rate setup.
 import { game, SNEAKER_TYPES, MINUTES_PER_ENERGY, COIN } from './game.js';
+import { auth, shortAddress } from './auth.js';
 import { sneakerSvg, showReveal, paceRange } from './earn-view.js';
 import { units } from './stats.js';
 
@@ -16,6 +17,7 @@ export function runOnboarding() {
     let step = 0;
     let choice = 'jogger';
     let locStatus = '';
+    let signStatus = '';
     let name = game.state.profile?.name && game.state.profile.name !== 'Runner' ? game.state.profile.name : '';
     const el = document.createElement('div');
     el.className = 'onboard';
@@ -36,7 +38,9 @@ export function runOnboarding() {
           <li><b>Track every run</b><span>Live GPS map, pace, splits and heart rate.</span></li>
           <li><b>Earn ${COIN} coins</b><span>Equip a sneaker and earn while you run.</span></li>
           <li><b>Bring your watch</b><span>Import runs from Garmin, COROS, Polar, Suunto, Apple Watch and more.</span></li>
-        </ul>`,
+        </ul>
+        ${auth.signedIn ? `<div class="ob-signed">✓ Signed in${auth.state.user?.email ? ` as ${esc(auth.state.user.email)}` : ''} · wallet ${shortAddress(auth.state.address)}</div>` : ''}
+        ${signStatus ? `<p class="ob-sign-status" role="status">${esc(signStatus)}</p>` : ''}`,
       () => `
         <h2 class="ob-title">How earning works</h2>
         <ol class="ob-steps">
@@ -83,6 +87,9 @@ export function runOnboarding() {
         </div>`,
     ];
 
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const offerSignIn = () => step === 0 && auth.state.configured && !auth.signedIn;
+
     const draw = () => {
       const last = step === screens.length - 1;
       el.innerHTML = `
@@ -92,10 +99,33 @@ export function runOnboarding() {
             <div class="ob-dots" aria-label="Step ${step + 1} of ${screens.length}">${screens.map((_, i) => `<i class="${i === step ? 'on' : ''}"></i>`).join('')}</div>
           </div>
           <div class="ob-body">${screens[step]()}</div>
-          <button class="btn primary ob-next" data-ob="next">${last ? 'Start moving' : step === 2 ? `Choose ${SNEAKER_TYPES[choice].label}` : step === 0 ? 'Get started' : 'Next'}</button>
+          ${offerSignIn() ? `
+            <div class="ob-auth">
+              <button class="btn primary ob-signin" data-ob="signin">Continue with Google, Apple or email</button>
+              <button class="btn ob-guest" data-ob="next">Continue as guest</button>
+              <span class="muted small">Signing in creates your own ${'Robinhood Chain'} wallet — no seed phrase or private key to import.</span>
+            </div>` : `
+            <button class="btn primary ob-next" data-ob="next">${last ? 'Start moving' : step === 2 ? `Choose ${SNEAKER_TYPES[choice].label}` : step === 0 ? 'Get started' : 'Next'}</button>`}
         </div>`;
-      el.querySelector('.ob-next').focus({ preventScroll: true });
+      el.querySelector('.ob-next, .ob-signin')?.focus({ preventScroll: true });
     };
+
+    // Advance automatically once sign-in completes (Privy finishes asynchronously).
+    const onAuth = () => {
+      if (step === 0 && auth.signedIn) {
+        const u = auth.state.user;
+        if (!name) name = u?.name || (u?.email ? u.email.split('@')[0] : '');
+        signStatus = '';
+        step = 1;
+        draw();
+      } else if (step === 0 && auth.state.error && signStatus) {
+        signStatus = auth.state.error;
+        draw();
+      }
+    };
+    auth.addEventListener('change', onAuth);
+    // Warm up Privy in the background so the sign-in sheet opens quickly.
+    if (auth.state.configured) auth.load();
 
     el.addEventListener('input', (e) => { if (e.target.id === 'ob-name') name = e.target.value; });
 
@@ -117,11 +147,24 @@ export function runOnboarding() {
       const nav = e.target.closest('[data-ob]');
       if (!nav) return;
       if (nav.dataset.ob === 'back') { step--; draw(); return; }
+      if (nav.dataset.ob === 'signin') {
+        signStatus = 'Opening sign-in…';
+        draw();
+        try {
+          await auth.login();
+          signStatus = 'Finish signing in in the window that opened.';
+        } catch (err) {
+          signStatus = err.message;
+        }
+        draw();
+        return;
+      }
       if (step < screens.length - 1) { step++; draw(); return; }
       // Finish
       nav.disabled = true;
       await game.setName(name);
       const s = await game.claimStarter(choice, STARTERS.find((x) => x.type === choice).hue);
+      auth.removeEventListener('change', onAuth);
       el.classList.add('out');
       document.body.classList.remove('no-scroll');
       setTimeout(() => el.remove(), 200);
