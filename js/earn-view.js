@@ -2,6 +2,7 @@
 // boxes, marketplace, history.
 import { units, fmtPace } from './stats.js';
 import { auth, shortAddress, explorerUrl, CHAIN_NAME } from './auth.js';
+import { getBalance, getEthUsd, toUsd, getTransfers, estimateFee, parseEth, formatEth, isAddress, txUrl } from './wallet.js';
 import {
   game, COIN, SNEAKER_TYPES, RARITIES, MAX_LEVEL, MINUTES_PER_ENERGY, ATTRS, POINTS_PER_LEVEL, MINT_LEVEL, MAX_MINTS,
   attrs, earnPerEnergy, levelUpCost, repairCost, durabilityLossPerEnergy, boxChancePerEnergy, dailyListings,
@@ -162,23 +163,83 @@ export function addressAvatar(addr, size = 36) {
   return `<span class="addr-avatar" style="width:${size}px;height:${size}px;background:linear-gradient(135deg,hsl(${h1} 80% 60%),hsl(${h2} 80% 45%))" aria-hidden="true"></span>`;
 }
 
+// ---------------------------------------------------------------- on-chain wallet
+// Cached chain data for the signed-in wallet (refreshed every 30 s or on demand).
+let chain = { address: null, balance: null, usd: null, txs: null, error: null, loading: false, at: 0 };
+
+async function refreshChain(force = false) {
+  const addr = auth.state.address;
+  if (!addr || chain.loading) return;
+  if (!force && chain.address === addr && Date.now() - chain.at < 30000) return;
+  if (chain.address !== addr) chain = { address: addr, balance: null, usd: null, txs: null, error: null, loading: false, at: 0 };
+  chain.loading = true;
+  try {
+    const [balance, usd] = await Promise.all([getBalance(addr), getEthUsd()]);
+    Object.assign(chain, { balance, usd, error: null });
+    chain.txs = await getTransfers(addr).catch(() => chain.txs || []);
+  } catch (e) {
+    chain.error = e.message;
+  }
+  chain.loading = false;
+  chain.at = Date.now();
+  auth.dispatchEvent(new Event('change')); // redraw anything showing the wallet
+}
+
+const fmtUsd = (n) => (n == null ? '' : `≈ $${n < 0.01 && n > 0 ? '<0.01' : n.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`);
+const ago = (t) => {
+  if (!t) return '';
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
 function walletCard() {
   const st = auth.state;
   if (!st.configured) return '';
   if (auth.signedIn) {
+    refreshChain();
+    const bal = chain.address === st.address ? chain.balance : null;
+    const txs = chain.address === st.address ? chain.txs : null;
     return `
       <div class="card wallet-id">
-        <div class="row between"><span class="lbl">Your wallet · ${CHAIN_NAME}</span><span class="badge">Connected</span></div>
+        <div class="row between"><span class="lbl">Wallet · ${CHAIN_NAME}</span><span class="badge">Connected</span></div>
         <div class="addr-row">
           ${addressAvatar(st.address)}
           <b class="addr" title="${st.address}">${shortAddress(st.address)}</b>
           <button class="btn sm" data-act="copy-addr">Copy</button>
         </div>
-        <span class="muted small">Signed in with ${esc(st.user?.method || 'Privy')}${st.user?.email ? ` · ${esc(st.user.email)}` : ''}</span>
-        <div class="actions-row">
-          <a class="btn sm" href="${explorerUrl(st.address)}" target="_blank" rel="noopener">View on explorer</a>
-          <button class="btn sm" data-act="export-key">Export private key</button>
+        <div class="eth-bal">
+          <div>
+            <span class="lbl">ETH balance</span>
+            <b>${bal == null ? (chain.error ? '–' : '…') : formatEth(bal)} <small>ETH</small></b>
+            <span class="muted small">${bal == null ? (chain.error ? esc(chain.error) : 'Loading…') : fmtUsd(toUsd(bal, chain.usd))}</span>
+          </div>
+          <button class="icon-round" data-act="refresh-bal" aria-label="Refresh balance" ${chain.loading ? 'disabled' : ''}>
+            <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>
+          </button>
         </div>
+        <div class="wallet-actions">
+          <button class="btn primary pill" data-act="deposit">
+            <svg viewBox="0 0 24 24"><path d="M12 4v13M6 11l6 6 6-6M5 20h14"/></svg>Deposit
+          </button>
+          <button class="btn pill" data-act="withdraw" ${!bal ? 'disabled' : ''}>
+            <svg viewBox="0 0 24 24"><path d="M12 20V7M6 13l6-6 6 6M5 4h14"/></svg>Withdraw
+          </button>
+        </div>
+        ${txs?.length ? `
+          <div class="tx-list">
+            <span class="lbl">Recent activity</span>
+            ${txs.map((t) => `
+              <a class="tx-row" href="${txUrl(t.hash)}" target="_blank" rel="noopener">
+                <span class="tx-ico ${t.incoming ? 'in' : 'out'}">${t.incoming ? '↓' : '↑'}</span>
+                <span class="tx-main"><b>${t.ok ? (t.incoming ? 'Received' : 'Sent') : 'Failed'}</b><span class="muted small">${t.incoming ? 'from' : 'to'} ${shortAddress(t.counterparty || '')} · ${ago(t.time)}</span></span>
+                <b class="tx-amt ${t.incoming ? 'pos' : ''}">${t.incoming ? '+' : '−'}${t.value < 10n ** 14n ? '<0.0001' : formatEth(t.value, 4)}</b>
+              </a>`).join('')}
+          </div>` : ''}
+        <div class="wallet-links">
+          <a href="${explorerUrl(st.address)}" target="_blank" rel="noopener">View on explorer</a>
+          <button data-act="export-key">Export private key</button>
+        </div>
+        <span class="muted small">Signed in with ${esc(st.user?.method || 'Privy')}${st.user?.email ? ` · ${esc(st.user.email)}` : ''}</span>
       </div>`;
   }
   return `
@@ -188,6 +249,140 @@ function walletCard() {
       ${st.error ? `<p class="small" style="color:var(--bad);margin:0">${esc(st.error)}</p>` : ''}
       <button class="btn primary pill" data-act="signin" ${st.loading && !st.ready ? 'disabled' : ''}>${st.loading && !st.ready ? 'Loading sign-in…' : 'Sign in'}</button>
     </div>`;
+}
+
+/** Bottom sheet used by Deposit / Withdraw. Returns a close() function. */
+function openSheet(html, onMount) {
+  const el = document.createElement('div');
+  el.className = 'sheet-overlay';
+  el.innerHTML = `<div class="sheet-panel" role="dialog" aria-modal="true"><div class="sheet-grab"></div>${html}</div>`;
+  document.body.appendChild(el);
+  document.body.classList.add('no-scroll');
+  const close = () => { el.classList.add('out'); document.body.classList.remove('no-scroll'); setTimeout(() => el.remove(), 180); };
+  el.addEventListener('click', (e) => { if (e.target === el || e.target.closest('[data-close]')) close(); });
+  onMount?.(el, close);
+  return close;
+}
+
+function loadQrLib() {
+  if (window.QRCode) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    sc.onload = resolve; sc.onerror = reject;
+    document.head.appendChild(sc);
+  });
+}
+
+function openDeposit(toast) {
+  const addr = auth.state.address;
+  openSheet(`
+    <h2 class="sheet-title">Deposit ETH</h2>
+    <p class="muted">Send ETH on <b>${CHAIN_NAME}</b> to your RUNNER wallet.</p>
+    <div class="qr-box" id="dep-qr" role="img" aria-label="QR code of your wallet address"></div>
+    <div class="addr-full">${addr}</div>
+    <button class="btn primary pill block" data-dep="copy">Copy address</button>
+    <div class="note warn"><b>Only send on ${CHAIN_NAME} (network ID 4663).</b> ETH sent on Ethereum, Arbitrum, Base or any other network won't arrive here and may be lost.</div>
+    <ul class="dep-tips">
+      <li><b>Robinhood app:</b> send ETH and choose the ${CHAIN_NAME} network.</li>
+      <li><b>Another wallet or exchange:</b> only if it lets you withdraw to ${CHAIN_NAME}.</li>
+      <li>Deposits usually show up within a minute — tap refresh on your balance.</li>
+    </ul>
+    <button class="btn pill block" data-close>Done</button>`, async (el) => {
+    el.querySelector('[data-dep="copy"]').onclick = async () => {
+      await navigator.clipboard.writeText(addr);
+      toast('Wallet address copied');
+    };
+    try {
+      await loadQrLib();
+      new window.QRCode(el.querySelector('#dep-qr'), { text: addr, width: 200, height: 200, colorDark: '#111111', colorLight: '#ffffff', correctLevel: window.QRCode.CorrectLevel.M });
+    } catch { el.querySelector('#dep-qr').textContent = 'QR code unavailable — copy the address instead.'; }
+  });
+}
+
+function openWithdraw(toast) {
+  const from = auth.state.address;
+  let balance = chain.balance ?? 0n;
+  let fee = null, feeTimer;
+  openSheet(`
+    <h2 class="sheet-title">Withdraw ETH</h2>
+    <p class="muted">Send ETH from your RUNNER wallet to another address on <b>${CHAIN_NAME}</b>.</p>
+    <label class="field"><span class="lbl">To address</span>
+      <input id="w-to" placeholder="0x…" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <label class="field"><span class="lbl">Amount</span>
+      <span class="amt-row"><input id="w-amt" inputmode="decimal" placeholder="0.00" autocomplete="off"><span class="amt-unit">ETH</span><button type="button" class="btn sm" id="w-max">Max</button></span></label>
+    <div class="w-meta" id="w-meta"></div>
+    <div class="w-err" id="w-err" role="alert"></div>
+    <div class="note">Make sure the address is on <b>${CHAIN_NAME}</b>. Transfers can't be reversed.</div>
+    <button class="btn primary pill block" id="w-send" disabled>Review & send</button>
+    <button class="btn pill block" data-close>Cancel</button>`, (el, close) => {
+    const $ = (q) => el.querySelector(q);
+    const to = $('#w-to'), amt = $('#w-amt'), send = $('#w-send'), meta = $('#w-meta'), err = $('#w-err');
+
+    const update = () => {
+      const value = parseEth(amt.value);
+      const toOk = isAddress(to.value);
+      const feeTxt = fee == null ? 'estimating…' : `${formatEth(fee, 7)} ETH`;
+      meta.innerHTML = `Available: <b>${formatEth(balance, 6)} ETH</b> · Network fee ≈ ${feeTxt}`;
+      let msg = '';
+      if (to.value && !toOk) msg = 'That doesn\'t look like a wallet address (0x followed by 40 characters).';
+      else if (toOk && to.value.trim().toLowerCase() === from.toLowerCase()) msg = 'That\'s your own RUNNER wallet.';
+      else if (amt.value && value == null) msg = 'Enter an amount like 0.01';
+      else if (value != null && value <= 0n && amt.value) msg = 'Amount must be more than 0.';
+      else if (value != null && fee != null && value + fee > balance) msg = 'Not enough ETH to cover the amount plus the network fee.';
+      err.textContent = msg;
+      const ready = toOk && value != null && value > 0n && fee != null && !msg;
+      send.disabled = !ready;
+      send.textContent = ready ? `Send ${formatEth(value, 6)} ETH` : 'Review & send';
+    };
+
+    const refreshFee = () => {
+      clearTimeout(feeTimer);
+      feeTimer = setTimeout(async () => {
+        const target = isAddress(to.value) ? to.value.trim() : from;
+        const value = parseEth(amt.value) || 0n;
+        try { fee = await estimateFee(from, target, value > balance ? 0n : value); } catch { fee = null; err.textContent = 'Couldn\'t estimate the network fee — check your connection.'; }
+        update();
+      }, 350);
+    };
+
+    to.oninput = () => { update(); refreshFee(); };
+    amt.oninput = () => { update(); refreshFee(); };
+    $('#w-max').onclick = async () => {
+      if (fee == null) { try { fee = await estimateFee(from, isAddress(to.value) ? to.value.trim() : from, 0n); } catch { /* shown below */ } }
+      const max = fee == null ? 0n : balance - fee;
+      amt.value = max > 0n ? formatEth(max, 18) : '0';
+      update();
+    };
+    send.onclick = async () => {
+      const value = parseEth(amt.value);
+      const dest = to.value.trim();
+      send.disabled = true;
+      send.textContent = 'Confirm in the Privy window…';
+      try {
+        const hash = await auth.sendEth(dest, value);
+        el.querySelector('.sheet-panel').innerHTML = `
+          <div class="sheet-grab"></div>
+          <div class="w-done">
+            <span class="w-done-ico">✓</span>
+            <h2 class="sheet-title">Sent ${formatEth(value, 6)} ETH</h2>
+            <p class="muted">to ${shortAddress(dest)} on ${CHAIN_NAME}. It usually confirms within seconds.</p>
+            <a class="btn pill block" href="${txUrl(hash)}" target="_blank" rel="noopener">View transaction</a>
+            <button class="btn primary pill block" data-close>Done</button>
+          </div>`;
+        setTimeout(() => refreshChain(true), 4000);
+      } catch (e) {
+        const m = String(e?.message || e);
+        update(); // restore the button first — update() also resets the message line
+        err.textContent = /reject|denied|cancel/i.test(m) ? 'Cancelled — nothing was sent.' : `Couldn't send: ${m.slice(0, 140)}`;
+      }
+    };
+
+    getBalance(from).then((b) => { balance = b; update(); }).catch(() => {});
+    update();
+    refreshFee();
+    to.focus();
+  });
 }
 
 export function renderEarn(view, { toast, onCleanup }) {
@@ -310,8 +505,9 @@ export function renderEarn(view, { toast, onCleanup }) {
         ${walletCard()}
         <div class="card wallet">
           <div>
-            <span class="lbl">Balance</span>
+            <span class="lbl">In-app balance</span>
             <div class="wallet-amt">${coinTag(st.coins)} <small>${COIN}</small></div>
+            <span class="muted small">${COIN} points from your runs — spend them on sneakers below. Withdrawing ${COIN} isn't available yet.</span>
           </div>
           <div>
             <div class="row between"><span class="lbl">Energy</span><b class="energy-num">⚡ ${energy.toFixed(1)} / ${max}</b></div>
@@ -406,6 +602,9 @@ export function renderEarn(view, { toast, onCleanup }) {
     try {
       switch (b.dataset.act) {
         case 'signin': await auth.login(); break;
+        case 'refresh-bal': await refreshChain(true); break;
+        case 'deposit': openDeposit(toast); break;
+        case 'withdraw': openWithdraw(toast); break;
         case 'copy-addr':
           await navigator.clipboard.writeText(auth.state.address);
           toast('Wallet address copied');

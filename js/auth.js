@@ -127,7 +127,7 @@ class Auth extends EventTarget {
       const { exportWallet } = Privy.useExportWallet();
       const embedded = wallets.find((w) => w.walletClientType === 'privy') || null;
       const address = embedded?.address || user?.wallet?.address || null;
-      React.useEffect(() => { auth._api = { login, logout, exportWallet }; });
+      React.useEffect(() => { auth._api = { login, logout, exportWallet }; auth._wallet = embedded; });
       React.useEffect(() => {
         auth._set({
           ready, authenticated, user: summarize(user), address, loading: !ready,
@@ -187,6 +187,22 @@ class Auth extends EventTarget {
   async logout() {
     if (this._api) await this._api.logout();
     this._set({ authenticated: false, user: null, address: null });
+  }
+
+  /**
+   * Sends ETH on Robinhood Chain from the embedded wallet. Privy shows its own
+   * confirmation screen with the amount and fee before anything is signed.
+   * Resolves with the transaction hash.
+   */
+  async sendEth(to, valueWei) {
+    const w = this._wallet;
+    if (!w) throw new Error('Wallet not ready yet — try again in a moment.');
+    await w.switchChain(ROBINHOOD_CHAIN.id);
+    const provider = await w.getEthereumProvider();
+    return provider.request({
+      method: 'eth_sendTransaction',
+      params: [{ from: w.address, to, value: `0x${valueWei.toString(16)}` }],
+    });
   }
 
   async exportWallet() {

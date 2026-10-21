@@ -13,9 +13,12 @@ export const ROBINHOOD_CHAIN = {
   name: 'Robinhood Chain',
   network: 'robinhood-chain',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: ['https://rpc.mainnet.chain.robinhood.com'] } },
+  // dRPC first: robinhood.com domains are blocked by some ISPs (e.g. in Indonesia),
+  // so the official endpoint is only a fallback.
+  rpcUrls: { default: { http: ['https://robinhood.drpc.org', 'https://rpc.mainnet.chain.robinhood.com'] } },
   blockExplorers: { default: { name: 'Blockscout', url: 'https://robinhoodchain.blockscout.com' } },
 };
+export const BLOCKSCOUT_API = 'https://robinhoodchain.blockscout.com/api/v2';
 
 export const ROBINHOOD_TESTNET = {
   id: 46630,
