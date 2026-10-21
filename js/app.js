@@ -38,6 +38,11 @@ const ICON = {
   ruler: '<svg viewBox="0 0 24 24"><path d="M4 15 15 4l5 5L9 20z"/><path d="M8 11l2 2M11 8l2 2M14 5l1 1"/></svg>',
   sim: '<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.4-6-10a6 6 0 1 1 12 0c0 4.6-6 10-6 10z"/><circle cx="12" cy="11" r="2"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>',
+  layers: '<svg viewBox="0 0 24 24"><path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="M2.5 12.5 12 17.5l9.5-5M2.5 16.5 12 21.5l9.5-5"/></svg>',
+  locate: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.2" class="fill"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
+  expand: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>',
+  collapse: '<svg viewBox="0 0 24 24"><path d="M20 4l-6 6M14 5v5h5M4 20l6-6M10 19v-5H5"/></svg>',
+  sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1.4-3.7 4.3-5.6 7.5-5.6s6.1 1.9 7.5 5.6"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
 };
@@ -266,7 +271,7 @@ function lazyMaps(acts) {
         boxZoom: false, keyboard: false, touchZoom: false, tap: false,
       });
       map.attributionControl.setPrefix(false);
-      L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(map);
+      baseLayer().addTo(map);
       const line = routeLine(a.preview);
       map.fitBounds(line.getBounds(), { padding: [20, 20] }); // a map needs a view before layers are added
       line.addTo(map);
@@ -309,20 +314,139 @@ async function renderHome() {
   lazyMaps(runs.filter((a) => a.preview?.length > 1));
 }
 
+// ---------------------------------------------------------------- map styles
+// Free tile sources suitable for a beta. Heavy production use should move to a
+// keyed provider (e.g. MapTiler / Stadia) to respect the OSM tile usage policy.
+const MAP_STYLES = {
+  standard: { label: 'Standard', url: TILE_URL, attr: TILE_ATTR, max: 19, swatch: 'linear-gradient(135deg,#efe9dd,#cfe3c2)' },
+  light: { label: 'Light', url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr: `${TILE_ATTR} &copy; <a href="https://carto.com/attributions">CARTO</a>`, max: 20, sub: 'abcd', swatch: 'linear-gradient(135deg,#fafafa,#e3e3e3)' },
+  dark: { label: 'Dark', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr: `${TILE_ATTR} &copy; <a href="https://carto.com/attributions">CARTO</a>`, max: 20, sub: 'abcd', swatch: 'linear-gradient(135deg,#2b2b2e,#111)' },
+  satellite: { label: 'Satellite', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr: 'Imagery &copy; Esri, Maxar, Earthstar Geographics', max: 19, swatch: 'linear-gradient(135deg,#4f6b3c,#2a3d2a)' },
+  terrain: { label: 'Terrain', url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr: `${TILE_ATTR}, SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)`, max: 17, swatch: 'linear-gradient(135deg,#d9e4bd,#b9c79a)' },
+};
+const mapPref = {
+  get() { try { const v = localStorage.getItem('runearn.map'); return MAP_STYLES[v] ? v : 'standard'; } catch { return 'standard'; } },
+  set(v) { try { localStorage.setItem('runearn.map', v); } catch { /* ignore */ } },
+};
+function baseLayer(key = mapPref.get()) {
+  const st = MAP_STYLES[key];
+  return L.tileLayer(st.url, { attribution: st.attr, maxZoom: st.max, subdomains: st.sub || 'abc' });
+}
+
+// ---------------------------------------------------------------- live run state
+// Kept outside the Record screen so it keeps counting while you browse other tabs.
+let live = { startedAt: 0, splits: [], lastTick: 0, gapSec: 0, lastGap: 0 };
+rec.addEventListener('state', () => {
+  if (rec.state === 'recording' && live.startedAt !== rec.startedAt) {
+    live = { startedAt: rec.startedAt, splits: [], lastTick: Date.now(), gapSec: 0, lastGap: 0 };
+  }
+});
+rec.addEventListener('tick', () => {
+  const now = Date.now();
+  if (rec.state !== 'recording') { live.lastTick = now; return; }
+  // Phones suspend web apps in the background (screen locked / app switched),
+  // so ticks stop. A long gap between ticks means tracking was paused.
+  const gap = (now - live.lastTick) / 1000;
+  if (live.lastTick && gap > 8) {
+    live.gapSec += gap;
+    live.lastGap = gap;
+    toast(`GPS was paused for ${fmtDur(gap)} while RUNNER wasn't on screen. Keep the app open with the screen on while you run.`, 6000);
+  }
+  live.lastTick = now;
+  const unit = units.meters();
+  const done = live.splits.length;
+  if (rec.distance >= (done + 1) * unit) {
+    const prevAt = live.splits[done - 1]?.at || 0;
+    live.splits.push({ at: rec.activeSeconds, time: rec.activeSeconds - prevAt });
+  }
+});
+
+/** "00:00" / "1:02:03", or always "00:00:00" when long = true. */
+function fmtClock(sec, long = false) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), x = sec % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  return long ? `${p(h)}:${p(m)}:${p(x)}` : h ? `${h}:${p(m)}:${p(x)}` : `${p(m)}:${p(x)}`;
+}
+
+// Screen wake: Wake Lock API where available, otherwise a tiny muted inline
+// video (helps older iPhone home-screen apps). Best effort — browsers still
+// suspend the page if the user locks the phone.
+const keepAwake = {
+  lock: null, video: null, timer: null,
+  async on() {
+    try { if (navigator.wakeLock) { this.lock = await navigator.wakeLock.request('screen'); return; } } catch { /* fall back */ }
+    try {
+      if (!this.video) {
+        const c = Object.assign(document.createElement('canvas'), { width: 2, height: 2 });
+        const ctx = c.getContext('2d');
+        let n = 0;
+        this.timer = setInterval(() => { ctx.fillStyle = n++ % 2 ? '#000' : '#010101'; ctx.fillRect(0, 0, 2, 2); }, 1000);
+        const v = document.createElement('video');
+        v.muted = true; v.playsInline = true; v.setAttribute('playsinline', '');
+        v.srcObject = c.captureStream(1);
+        v.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none';
+        document.body.appendChild(v);
+        this.video = v;
+      }
+      await this.video.play();
+    } catch { /* nothing more we can do */ }
+  },
+  off() {
+    this.lock?.release?.().catch(() => {});
+    this.lock = null;
+    if (this.video) { this.video.pause(); this.video.remove(); this.video = null; clearInterval(this.timer); }
+  },
+};
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && rec.state !== 'idle') keepAwake.on();
+});
+
 // ---------------------------------------------------------------- record
+let recView = (() => { try { return localStorage.getItem('runearn.recview') === 'stats' ? 'stats' : 'map'; } catch { return 'map'; } })();
+
 function renderRecord() {
+  const U = units.label();
   view.innerHTML = `
     <section class="rec" id="rec">
       <div id="rmap" class="rec-map"></div>
       <a class="icon-btn rec-close" href="#/home" aria-label="Close (recording continues)">${ICON.down}</a>
       <div class="gps-pill" id="gps"><i></i><span>Locating…</span></div>
+      <div class="rec-bottom">
+      <div class="map-ctrls">
+        <button class="icon-btn" data-ctl="layers" aria-label="Map style">${ICON.layers}</button>
+        <button class="icon-btn" data-ctl="locate" aria-label="Center on my location">${ICON.locate}</button>
+      </div>
+      <div class="rec-card">
+        <div class="rec-card-top"><span>Run</span><button class="rc-toggle" data-ctl="expand" aria-label="Show big stats">${ICON.expand}</button></div>
+        <div class="rc-stats">
+          <div><b data-f="time">00:00</b><span>Time</span></div>
+          <div><b data-f="avg">–:––</b><span>Avg. pace (/${U})</span></div>
+          <div><b data-f="dist">0.00</b><span>Distance (${U})</span></div>
+        </div>
+      </div>
       <div class="rec-sheet" id="sheet"></div>
+      </div>
+      <div class="stats-view" id="stats-view" hidden>
+        <div class="sv-top"><b data-f="clock">00:00:00</b><button class="rc-toggle" data-ctl="collapse" aria-label="Back to map">${ICON.collapse}</button></div>
+        <div class="earn-status" data-f="earn"></div>
+        <div class="sv-block"><b data-f="split">–:––</b><span>Split avg. pace (/${U})</span></div>
+        <div class="sv-block"><b class="sv-huge" data-f="dist">0.00</b><span>Distance (${U})</span></div>
+        <div class="sv-splits" data-f="bars"></div>
+        <span class="sv-cap">Splits (${U})</span>
+        <div class="live-mini">
+          <div><span>Heart rate</span><b class="hr-val" data-f="hr">–</b></div>
+          <div><span>Earned</span><b data-f="coins">${coinTag(0)}</b></div>
+          <div><span>Energy</span><b data-f="energy">–</b></div>
+        </div>
+        <div class="sv-ctrls" data-f="ctrls"></div>
+      </div>
     </section>`;
 
   const start = rec.lastFix ? [rec.lastFix.lat, rec.lastFix.lon] : [-7.7956, 110.3695];
   const map = L.map('rmap', { zoomControl: false }).setView(start, rec.lastFix ? 16 : 13);
   map.attributionControl.setPrefix(false);
-  L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(map);
+  let base = baseLayer().addTo(map);
   const casing = L.polyline(rec.points.map((p) => [p.lat, p.lon]), { color: '#fff', weight: 9, opacity: 0.9 }).addTo(map);
   const line = L.polyline(rec.points.map((p) => [p.lat, p.lon]), { color: MAP_ROUTE, weight: 5 }).addTo(map);
   const me = L.circleMarker(start, { radius: 8, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 });
@@ -330,6 +454,8 @@ function renderRecord() {
   let follow = true;
   map.on('dragstart', () => { follow = false; });
   onCleanup(() => map.remove());
+
+  const setF = (name, html, isHtml = false) => $$(`[data-f="${name}"]`).forEach((el) => { if (isHtml) el.innerHTML = html; else el.textContent = html; });
 
   const gps = $('#gps');
   const onPos = (e) => {
@@ -353,6 +479,11 @@ function renderRecord() {
     catch (err) { if (err.name !== 'NotFoundError') toast(err.message, 4000); }
   };
 
+  const ctrls = () => (rec.state === 'recording'
+    ? `<button class="pill-btn pause" data-ctl="pause">${ICON.pause}<span>Pause</span></button>`
+    : `<button class="pill-btn resume" data-ctl="resume">${ICON.play}<span>Resume</span></button>
+       <button class="pill-btn finish" data-ctl="finish">${ICON.stop}<span>Finish</span></button>`);
+
   // ----- before the run: Strava-style start sheet
   const idleSheet = () => {
     const s = game.active;
@@ -366,12 +497,13 @@ function renderRecord() {
           <span class="round">${s ? sneakerSvg(s, 'sneaker-art xs') : ICON.coin}</span>
           <span>${s ? z.short : 'Sneaker'}</span>
         </a>
-        <button class="start-btn" id="b-start" aria-label="Start run">${ICON.play}<span>Start</span></button>
-        <button class="round-opt" id="b-sensor" aria-label="Heart-rate sensor">
+        <button class="start-btn" data-ctl="start" aria-label="Start run">${ICON.play}<span>Start</span></button>
+        <button class="round-opt" data-ctl="sensor" aria-label="Heart-rate sensor">
           <span class="round ${hrm.connected ? 'on' : ''}">${ICON.heart}</span>
           <span>${hrm.connected ? (hr ? `${hr} bpm` : 'Connected') : 'Sensor'}</span>
         </button>
       </div>
+      <div class="keep-open">${ICON.sun}<span><b>Keep RUNNER open, screen on.</b> Locking the phone pauses GPS.</span></div>
       <div class="sheet-list">
         ${s ? `
         <a class="sheet-row" href="#/earn">
@@ -380,54 +512,60 @@ function renderRecord() {
           <span>⚡ ${energy.toFixed(1)}/${game.maxEnergy} · earn at ${paceRange(z)}</span></div>
           ${ICON.chev}
         </a>` : ''}
-        <button class="sheet-row" id="b-sensor2">
-          ${ICON.heart}
-          <div><b>${hrm.connected ? esc(hrm.device?.name || 'Heart-rate sensor') : 'Add a sensor'}</b><span>${hrm.connected ? 'Connected · +10% coins' : 'Heart-rate strap or watch · +10% coins'}</span></div>
-          ${ICON.chev}
-        </button>
-        <a class="sheet-row" href="#/settings">
-          ${ICON.gear}
-          <div><b>Settings</b><span>Units${rec.sim ? ' · GPS simulator is ON' : ', GPS simulator'}</span></div>
-          ${ICON.chev}
-        </a>
-      </div>`;
+      </div>
+      ${rec.sim ? '<a class="sim-note" href="#/settings">GPS simulator is ON — turn off in Settings</a>' : ''}`;
   };
 
-  // ----- during the run: big stats + earning status
+  // ----- during the run (map view): status, quick numbers, controls
   const liveSheet = () => `
-    <div class="earn-status" id="earn-status"></div>
-    <div class="live-big"><span>Time</span><b id="r-time">0:00</b></div>
-    <div class="live-grid">
-      <div><span>Avg pace</span><b id="r-avg">–</b><small>/${units.label()}</small></div>
-      <div><span>Distance</span><b id="r-dist">0.00</b><small>${units.label()}</small></div>
-    </div>
+    <div class="sheet-handle"></div>
+    <div class="earn-status" data-f="earn"></div>
     <div class="live-mini">
-      <div><span>Pace now</span><b id="r-cur">–</b></div>
-      <div><span>Heart rate</span><b id="r-hr" class="hr-val">–</b></div>
-      <div><span>Earned</span><b id="r-coins">${coinTag(0)}</b></div>
-      <div><span>Energy</span><b id="r-energy">–</b></div>
+      <div><span>Pace now</span><b data-f="cur">–</b></div>
+      <div><span>Heart rate</span><b class="hr-val" data-f="hr">–</b></div>
+      <div><span>Earned</span><b data-f="coins">${coinTag(0)}</b></div>
+      <div><span>Energy</span><b data-f="energy">–</b></div>
     </div>
-    <div class="rec-controls">
-      ${rec.state === 'recording'
-        ? `<button class="ctl ctl-pause" id="b-pause" aria-label="Pause">${ICON.pause}</button>`
-        : `<button class="ctl ctl-resume" id="b-resume" aria-label="Resume">${ICON.play}<span>Resume</span></button>
-           <button class="ctl ctl-finish" id="b-finish" aria-label="Finish">${ICON.stop}<span>Finish</span></button>`}
-    </div>`;
+    <div class="sv-ctrls" data-f="ctrls">${ctrls()}</div>`;
+
+  const renderBars = () => {
+    const unit = units.meters();
+    const lastAt = live.splits.at(-1)?.at || 0;
+    const curDist = rec.distance - live.splits.length * unit;
+    const curTime = rec.activeSeconds - lastAt;
+    const done = live.splits.slice(-2).map((sp) => ({ pace: sp.time, label: fmtPace(unit, sp.time, false) }));
+    const cur = { pace: curDist > 20 ? (curTime / curDist) * unit : null, label: curDist > 20 ? fmtPace(curDist, curTime, false) : '–:––', current: true };
+    const bars = [...done, cur];
+    while (bars.length < 3) bars.push({ empty: true });
+    const fastest = Math.min(...bars.filter((b) => b.pace).map((b) => b.pace));
+    return bars.map((b) => (b.empty ? '<div class="bar empty"></div>' : `
+      <div class="bar ${b.current ? 'current' : ''}">
+        <span>${b.label}</span>
+        <i style="height:${b.pace ? Math.round(30 + 60 * (fastest / b.pace)) : 30}px"></i>
+      </div>`)).join('');
+  };
 
   const updateLive = () => {
-    if (rec.state === 'idle' || !$('#r-time')) return;
-    $('#r-time').textContent = fmtDur(rec.activeSeconds);
-    $('#r-dist').textContent = fmtDist(rec.distance, false);
-    $('#r-avg').textContent = fmtPace(rec.distance, rec.activeSeconds, false);
+    const unit = units.meters();
+    const recording = rec.state !== 'idle';
+    setF('time', recording ? fmtClock(rec.activeSeconds) : '00:00');
+    setF('clock', fmtClock(recording ? rec.activeSeconds : 0, true));
+    setF('avg', recording ? fmtPace(rec.distance, rec.activeSeconds, false) : '–:––');
+    setF('dist', fmtDist(recording ? rec.distance : 0, false));
+    const lastAt = live.splits.at(-1)?.at || 0;
+    const curDist = rec.distance - live.splits.length * unit;
+    setF('split', recording && curDist > 20 ? fmtPace(curDist, rec.activeSeconds - lastAt, false) : '–:––');
     const v = rec.currentSpeed();
-    $('#r-cur').textContent = v ? fmtPace(v, 1, false) : '–';
-    $('#r-hr').textContent = hrm.current() ?? (rec.sim && rec.lastFix?.hr) ?? '–';
-    $('#r-coins').innerHTML = coinTag(earn?.coins || 0);
-    $('#r-energy').textContent = earn?.sneaker ? `⚡ ${earn.energyLeft.toFixed(1)}` : '–';
+    setF('cur', v ? fmtPace(v, 1, false) : '–');
+    setF('hr', String(hrm.current() ?? (rec.sim && rec.lastFix?.hr) ?? '–'));
+    setF('coins', coinTag(earn?.coins || 0), true);
+    setF('energy', earn?.sneaker ? `⚡ ${earn.energyLeft.toFixed(1)}` : '–');
+    setF('bars', renderBars(), true);
 
     const z = earn?.sneaker && SNEAKER_TYPES[earn.sneaker.type];
     const pace = v ? `${fmtPace(v, 1, false)} /${units.label()}` : '';
-    const msg = rec.state === 'paused' ? ['off', 'Paused']
+    const msg = !recording ? ['off', 'Ready']
+      : rec.state === 'paused' ? ['off', 'Paused']
       : !z ? ['off', 'No sneaker equipped — tracking only']
       : {
         earning: ['earning', `Earning${hrm.current() ? ' · HR bonus +10%' : ''}`],
@@ -438,36 +576,79 @@ function renderRecord() {
         vehicle: ['bad', 'Vehicle speed detected — not earning'],
         nosneaker: ['off', 'No sneaker equipped'],
       }[earn?.status || 'waiting'];
-    const st = $('#earn-status');
-    st.className = `earn-status ${msg[0]}`;
-    st.textContent = msg[1];
+    $$('[data-f="earn"]').forEach((el) => { el.className = `earn-status ${msg[0]}`; el.textContent = msg[1]; });
+  };
+
+  const applyView = () => {
+    $('#stats-view').hidden = recView !== 'stats';
+    $('#rec').classList.toggle('stats-mode', recView === 'stats');
   };
 
   const renderSheet = () => {
-    const live = rec.state !== 'idle';
-    $('#rec').classList.toggle('live', live);
-    $('#sheet').innerHTML = live ? liveSheet() : idleSheet();
+    const isLive = rec.state !== 'idle';
+    $('#rec').classList.toggle('live', isLive);
+    $('#sheet').innerHTML = isLive ? liveSheet() : idleSheet();
+    $$('[data-f="ctrls"]').forEach((el) => { el.innerHTML = isLive ? ctrls() : `<button class="pill-btn resume" data-ctl="start">${ICON.play}<span>Start</span></button>`; });
+    applyView();
     setTimeout(() => map.invalidateSize(), 50);
-    if (!live) {
-      $('#b-start').onclick = async () => {
+    updateLive();
+  };
+
+  const openLayers = (btn) => {
+    document.querySelector('.layers-pop')?.remove();
+    const pop = document.createElement('div');
+    pop.className = 'layers-pop';
+    pop.innerHTML = `<b>Map style</b>${Object.entries(MAP_STYLES).map(([k, st]) => `
+      <button data-style="${k}" class="${mapPref.get() === k ? 'on' : ''}"><i style="background:${st.swatch}"></i>${st.label}</button>`).join('')}`;
+    $('#rec').appendChild(pop);
+    const r = btn.getBoundingClientRect();
+    pop.style.top = `${Math.max(12, r.top - 8)}px`;
+    pop.onclick = (e) => {
+      const b = e.target.closest('[data-style]');
+      if (!b) return;
+      mapPref.set(b.dataset.style);
+      map.removeLayer(base);
+      base = baseLayer().addTo(map);
+      base.bringToBack();
+      pop.remove();
+    };
+    setTimeout(() => document.addEventListener('click', function off(e) {
+      if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('click', off); }
+    }), 0);
+  };
+
+  $('#rec').onclick = async (e) => {
+    const b = e.target.closest('[data-ctl]');
+    if (!b) return;
+    switch (b.dataset.ctl) {
+      case 'start':
         rec.start('run');
         follow = true;
         line.setLatLngs([]);
         casing.setLatLngs([]);
-        await requestWakeLock();
-      };
-      $('#b-sensor').onclick = connectSensor;
-      $('#b-sensor2').onclick = connectSensor;
-    } else if (rec.state === 'recording') {
-      $('#b-pause').onclick = () => rec.pause();
-    } else {
-      $('#b-resume').onclick = () => rec.resume();
-      $('#b-finish').onclick = finishRecording;
+        await keepAwake.on();
+        break;
+      case 'pause': rec.pause(); break;
+      case 'resume': rec.resume(); break;
+      case 'finish': finishRecording(); break;
+      case 'sensor': connectSensor(); break;
+      case 'layers': openLayers(b); break;
+      case 'locate':
+        if (!rec.lastFix) { toast('Waiting for GPS…'); break; }
+        follow = true;
+        map.setView([rec.lastFix.lat, rec.lastFix.lon], Math.max(map.getZoom(), 17));
+        break;
+      case 'expand':
+      case 'collapse':
+        recView = b.dataset.ctl === 'expand' ? 'stats' : 'map';
+        try { localStorage.setItem('runearn.recview', recView); } catch { /* ignore */ }
+        applyView();
+        setTimeout(() => map.invalidateSize(), 50);
+        break;
     }
-    updateLive();
   };
-  const onHr = () => (rec.state === 'idle' ? renderSheet() : updateLive());
 
+  const onHr = () => (rec.state === 'idle' ? renderSheet() : updateLive());
   rec.addEventListener('position', onPos);
   rec.addEventListener('gpserror', onErr);
   rec.addEventListener('point', onPoint);
@@ -496,15 +677,17 @@ async function finishRecording() {
     if (confirm('Not enough GPS data was recorded to save this run. Discard it?')) {
       rec.discard();
       db.kvDel('inprogress').catch(() => {});
-      releaseWakeLock();
+      keepAwake.off();
     }
     return;
   }
   const session = earn?.toJSON();
+  const gapSec = Math.round(live.gapSec);
   const out = rec.finish();
-  releaseWakeLock();
+  keepAwake.off();
   const { act, points } = buildActivity({ startTime: out.startedAt, points: out.points }, 'gps');
   act.movingTime = Math.min(act.movingTime || out.activeSeconds, out.activeSeconds) || out.activeSeconds;
+  if (gapSec > 0) act.gapSec = gapSec;
   if (session) act.earn = await game.settle(session, act.id);
   await db.saveActivity(act, points);
   await db.kvDel('inprogress').catch(() => {});
@@ -515,14 +698,6 @@ async function finishRecording() {
     : 'Run saved', 3500);
   location.hash = `#/activity/${act.id}`;
 }
-
-async function requestWakeLock() {
-  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* not supported or denied */ }
-}
-function releaseWakeLock() { wakeLock?.release?.().catch(() => {}); wakeLock = null; }
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && rec.state !== 'idle') requestWakeLock();
-});
 
 // ---------------------------------------------------------------- run detail
 function lineChart(canvas, data, { color, reverse = false, fmtY, fill = false }) {
@@ -601,6 +776,7 @@ async function renderActivity(id) {
             <div><span class="lbl">Elapsed time</span><b>${fmtTime(a.elapsedTime)}</b></div>
           </div>
         </div>
+        ${a.gapSec > 20 ? `<div class="note warn">GPS was paused for ${fmtTime(a.gapSec)} during this run because RUNNER wasn't on screen (phone locked or another app open). Distance from that time may be missing.</div>` : ''}
         ${earnCard(a)}
         ${splits.length ? `
           <div class="card">
@@ -635,7 +811,7 @@ async function renderActivity(id) {
   if (gpsPts.length > 1) {
     const map = L.map('amap', { zoomControl: false, scrollWheelZoom: false });
     map.attributionControl.setPrefix(false);
-    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(map);
+    baseLayer().addTo(map);
     // Draw each recorded segment separately so pauses don't draw a straight line.
     const segs = [[]];
     for (const p of gpsPts) { if (p.b && segs.at(-1).length) segs.push([]); segs.at(-1).push([p.lat, p.lon]); }
