@@ -18,15 +18,11 @@ A simple, Strava-style running app with a run-to-earn layer: own a **RUNNER Gene
 
 ## What to test
 
-1. **Onboarding** — pick a starter sneaker and enter your name.
+1. **Onboarding** — sign in (or continue as a guest) and enter your name.
 2. **Record a real outdoor run** — tap Record → Start. Check the GPS line, distance and pace look right (compare with your watch if you have one).
 3. **Earning** — with a sneaker NFT equipped, the bar says *Earning*, *Too fast* or *Too slow* for its pace zone. RUNNER appears when you finish.
-4. **Import from your watch** — You → Devices → choose files:
-   - **Garmin:** Garmin Connect (web) → open a run → ⚙ → *Export Original* (.zip)
-   - **COROS / Suunto:** export the run as .fit
-   - **Polar:** Polar Flow → *Export session* (.tcx / .gpx)
-   - **Apple Watch:** export with HealthFit or RunGap (.fit / .gpx)
-5. **Get a sneaker** — sign in, open Earn → *Browse sneakers*, pick one and buy it with test ETH (Common 0.005 · Uncommon 0.015 · Rare 0.04 · Epic 0.1).
+4. **Heart rate** — You → Settings → *Heart-rate sensor* → pair a Bluetooth chest strap or a watch that broadcasts heart rate (+10% while earning).
+5. **Get a sneaker** (once the NFT is live) — sign in, open Earn → *Browse sneakers*, pick one and buy it with ETH on Robinhood Chain (Common 0.005 · Uncommon 0.015 · Rare 0.04 · Epic 0.1).
 6. **Earn tab** — level up, assign attribute points (Efficiency / Resilience) and repair with RUNNER.
 
 ## Known limitations
@@ -34,7 +30,7 @@ A simple, Strava-style running app with a run-to-earn layer: own a **RUNNER Gene
 - **iPhone:** Safari pauses GPS when the screen locks — keep the screen on while running (the app asks it to stay awake).
 - **Bluetooth heart-rate sensors** work in Chrome on Android / desktop, not on iPhone.
 - Data lives on each device — no accounts, friends or leaderboards yet.
-- Only runs recorded live with GPS earn RUNNER; imported runs count for stats and streaks.
+- Only runs recorded live with GPS in the app earn RUNNER.
 - You need at least one RUNNER Genesis sneaker NFT to earn.
 
 ## Send feedback
@@ -49,7 +45,7 @@ It's a static web app — no build step:
 python3 -m http.server 5190
 ```
 
-Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / ZIP files for testing imports.
+Then open http://localhost:5190.
 
 ## RUNNER Genesis NFT contract
 

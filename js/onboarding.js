@@ -33,7 +33,7 @@ export function runOnboarding() {
         <ul class="ob-list">
           <li><b>Track every run</b><span>Live GPS map, pace, splits and heart rate.</span></li>
           <li><b>Earn ${COIN} tokens</b><span>Own a sneaker NFT and earn ${COIN} while you run.</span></li>
-          <li><b>Bring your watch</b><span>Import runs from Garmin, COROS, Polar, Suunto, Apple Watch and more.</span></li>
+          <li><b>Live heart rate</b><span>Pair a Bluetooth chest strap or a watch that broadcasts heart rate for a +10% bonus.</span></li>
         </ul>
         ${auth.signedIn ? `<div class="ob-signed">✓ Signed in${auth.state.user?.email ? ` as ${esc(auth.state.user.email)}` : ''} · wallet ${shortAddress(auth.state.address)}</div>` : ''}
         ${signStatus ? `<p class="ob-sign-status" role="status">${esc(signStatus)}</p>` : ''}`,
@@ -65,7 +65,7 @@ export function runOnboarding() {
             <button class="btn sm" id="ob-loc">Allow</button>
           </div>
           <div class="setting">
-            <div><b>Heart rate (optional)</b><div class="muted small">Connect a chest strap or watch later under <b>Devices</b> for a +10% earning bonus.</div></div>
+            <div><b>Heart rate (optional)</b><div class="muted small">Connect a chest strap or watch later in <b>Settings → Heart-rate sensor</b> for a +10% earning bonus.</div></div>
           </div>
         </div>`,
     ];

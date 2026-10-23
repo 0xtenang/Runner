@@ -1,5 +1,4 @@
 import { db } from './db.js';
-import { parseFile, SUPPORTED } from './parsers.js';
 import { HeartRateMonitor } from './ble.js';
 import { Recorder } from './recorder.js';
 import { isNative } from './geo.js';
@@ -36,7 +35,6 @@ const ICON = {
   stop: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" class="fill"/></svg>',
   heart: '<svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.3a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/><path d="M3.5 12.5h4l1.5-2.5 2.5 5 1.5-2.5h7.5"/></svg>',
   coin: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v9M9.6 9.6h3.6a1.9 1.9 0 0 1 0 3.8H10.4"/></svg>',
-  upload: '<svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>',
   watch: '<svg viewBox="0 0 24 24"><rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6l.5-3h5L15 6M9 18l.5 3h5l.5-3M12 10v2.5l1.5 1"/></svg>',
   ruler: '<svg viewBox="0 0 24 24"><path d="M4 15 15 4l5 5L9 20z"/><path d="M8 11l2 2M11 8l2 2M14 5l1 1"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>',
@@ -289,7 +287,7 @@ function lazyMaps(acts) {
 }
 
 async function renderHome() {
-  setTopbar({ left: iconLink('#/devices', ICON.plus, 'Import runs from your watch'), title: logo, right: walletChip() });
+  setTopbar({ title: logo, right: walletChip() });
   const runs = await listRuns();
   const streak = weekStreak(runs);
   const ranThisWeek = runs.some((a) => a.startTime >= startOfWeek());
@@ -307,10 +305,9 @@ async function renderHome() {
         <div class="post empty">
           ${ICON.watch}
           <h3>No runs yet</h3>
-          <p class="muted">Record a run with your phone, or bring your history over from Garmin, COROS, Polar or another watch.</p>
+          <p class="muted">Record your first run with your phone — RUNNER tracks the route, pace and splits.</p>
           <div class="actions-row" style="justify-content:center">
             <a class="btn primary pill" href="#/record">Record a run</a>
-            <a class="btn pill" href="#/devices">Import from watch</a>
           </div>
         </div>`}
     </section>`;
@@ -927,7 +924,7 @@ async function renderYou(tab = 'progress') {
       </div>
       <div class="prof-actions">
         <button class="btn pill" id="b-edit">Edit profile</button>
-        <a class="btn pill" href="#/devices">Devices</a>
+        <a class="btn pill" href="#/devices">Heart rate</a>
       </div>
       <div class="tabs" role="tablist">
         <a role="tab" href="#/you/progress" class="${tab === 'progress' ? 'on' : ''}">Progress</a>
@@ -1049,7 +1046,7 @@ function renderSettings() {
           </div>
         </div>
         <a class="setting" href="#/devices">
-          <div class="row">${ICON.watch}<div><b>Devices & import</b><div class="muted small">Garmin and other watches, heart-rate sensors</div></div></div>
+          <div class="row">${ICON.heart}<div><b>Heart-rate sensor</b><div class="muted small">Chest straps and watches that broadcast heart rate</div></div></div>
           ${ICON.chev}
         </a>
         <a class="setting" href="/whitepaper" target="_blank" rel="noopener">
@@ -1097,34 +1094,11 @@ function renderSettings() {
   };
 }
 
-// ---------------------------------------------------------------- devices & import
-const BRANDS = [
-  { name: 'Garmin', steps: [
-    'Garmin Connect on the web: open a run → gear icon (⚙) → <b>Export Original</b>. Import the downloaded .zip here.',
-    'Or plug the watch into a computer by USB and open <b>GARMIN/Activity</b> — import the .fit files (select many at once).',
-  ] },
-  { name: 'COROS', steps: ['In the COROS app open a run → share/export → choose <b>.fit</b>, then import it here.'] },
-  { name: 'Polar', steps: ['Polar Flow web → open a training session → <b>Export session</b> → TCX or GPX.'] },
-  { name: 'Suunto', steps: ['In the Suunto app open the workout → menu → <b>Export</b> (FIT or GPX where offered).'] },
-  { name: 'Apple Watch', steps: ['Use an exporter app such as HealthFit or RunGap to save runs as <b>.fit</b> or <b>.gpx</b> to Files, then import here.'] },
-  { name: 'Other watches', steps: ['Any app that exports <b>FIT, GPX or TCX</b> works. Look for "Export" or "Share file" on the run.'] },
-];
-
+// ---------------------------------------------------------------- heart-rate sensor
 function renderDevices() {
-  setTopbar({ left: backLink('#/you'), title: 'Devices' });
+  setTopbar({ left: backLink('#/you'), title: 'Heart-rate sensor' });
   view.innerHTML = `
     <section class="page">
-      <div class="card">
-        <h4>Import runs from your watch</h4>
-        <label class="drop" id="drop">
-          ${ICON.upload}
-          <b>Choose files or drop them here</b>
-          <span class="muted small">FIT · GPX · TCX · ZIP (Garmin export) — only runs are imported</span>
-          <input type="file" id="file" multiple accept=".fit,.gpx,.tcx,.zip" hidden>
-        </label>
-        <div class="import-log" id="log"></div>
-      </div>
-
       <div class="card">
         <h4>Heart-rate sensor</h4>
         <div class="row between">
@@ -1136,21 +1110,7 @@ function renderDevices() {
           : 'Bluetooth isn\'t available in this browser. Use Chrome on Android, Windows, macOS or ChromeOS.'}</p>
       </div>
 
-      <div class="card">
-        <h4>How to export from your watch</h4>
-        <div class="brands">
-          ${BRANDS.map((b) => `<details><summary>${b.name}</summary><ol>${b.steps.map((s) => `<li>${s}</li>`).join('')}</ol></details>`).join('')}
-        </div>
-      </div>
-
-      <div class="note">Imported runs count toward your stats and streak but don't earn ${COIN} — only runs recorded live with GPS earn, so rewards can't be faked with edited files.</div>
     </section>`;
-
-  const drop = $('#drop'), input = $('#file');
-  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
-  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-  drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); importFiles([...e.dataTransfer.files]); });
-  input.addEventListener('change', () => { importFiles([...input.files]); input.value = ''; });
 
   const hrVal = () => { const el = $('#hr-val'); if (el) el.textContent = hrm.current() ?? '–'; };
   const hrChange = () => renderDevices();
@@ -1167,39 +1127,6 @@ function renderDevices() {
       $('#hr-status').textContent = e.name === 'NotFoundError' ? 'No sensor selected.' : e.message;
     }
   };
-}
-
-async function importFiles(files) {
-  const log = $('#log');
-  const line = (name, cls, msg) => {
-    if (!log) return;
-    const el = document.createElement('div');
-    el.innerHTML = `<span>${esc(name)}</span><span class="${cls}">${esc(msg)}</span>`;
-    log.prepend(el);
-  };
-  const existing = await db.listActivities();
-  let added = 0;
-  for (const file of files) {
-    const ext = file.name.split('.').pop().toLowerCase();
-    if (!SUPPORTED.includes(ext)) { line(file.name, 'err', 'Unsupported file'); continue; }
-    try {
-      const parsed = await parseFile(file);
-      for (const p of parsed) {
-        if (p.type !== 'run') { line(file.name, 'skip', 'Skipped — not a run'); continue; }
-        const { act, points } = buildActivity(p, p.format);
-        const dupe = existing.find((e) => Math.abs(e.startTime - act.startTime) < 60000 && Math.abs(e.distance - act.distance) < Math.max(200, e.distance * 0.05));
-        if (dupe) { line(file.name, 'skip', 'Already imported'); continue; }
-        await db.saveActivity(act, points);
-        existing.push(act);
-        added++;
-        line(`${act.name} · ${fmtDist(act.distance)}`, 'ok', 'Imported');
-      }
-    } catch (e) {
-      console.warn(e);
-      line(file.name, 'err', e.message);
-    }
-  }
-  if (added) toast(`Imported ${added} run${added === 1 ? '' : 's'}`);
 }
 
 // ---------------------------------------------------------------- boot
