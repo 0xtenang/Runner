@@ -40,6 +40,7 @@ const ICON = {
   watch: '<svg viewBox="0 0 24 24"><rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6l.5-3h5L15 6M9 18l.5 3h5l.5-3M12 10v2.5l1.5 1"/></svg>',
   ruler: '<svg viewBox="0 0 24 24"><path d="M4 15 15 4l5 5L9 20z"/><path d="M8 11l2 2M11 8l2 2M14 5l1 1"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>',
+  doc: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 15.5h7M9 8.5h3"/></svg>',
   layers: '<svg viewBox="0 0 24 24"><path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="M2.5 12.5 12 17.5l9.5-5M2.5 16.5 12 21.5l9.5-5"/></svg>',
   locate: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.2" class="fill"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
   expand: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>',
@@ -1049,6 +1050,10 @@ function renderSettings() {
         </div>
         <a class="setting" href="#/devices">
           <div class="row">${ICON.watch}<div><b>Devices & import</b><div class="muted small">Garmin and other watches, heart-rate sensors</div></div></div>
+          ${ICON.chev}
+        </a>
+        <a class="setting" href="/whitepaper" target="_blank" rel="noopener">
+          <div class="row">${ICON.doc}<div><b>Whitepaper</b><div class="muted small">How RUNNER, the sneakers and the token work</div></div></div>
           ${ICON.chev}
         </a>
         <a class="setting" href="${FEEDBACK_URL}" target="_blank" rel="noopener">

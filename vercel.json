@@ -1,7 +1,20 @@
 {
   "rewrites": [
-    { "source": "/redirect", "destination": "/redirect.html" },
-    { "source": "/nft/image/:id", "destination": "/api/nft-image?id=:id" },
-    { "source": "/nft/:id((?!collection\\.json$)[^/]+)", "destination": "/api/nft?id=:id" }
+    {
+      "source": "/redirect",
+      "destination": "/redirect.html"
+    },
+    {
+      "source": "/whitepaper",
+      "destination": "/whitepaper.html"
+    },
+    {
+      "source": "/nft/image/:id",
+      "destination": "/api/nft-image?id=:id"
+    },
+    {
+      "source": "/nft/:id((?!collection\\.json$)[^/]+)",
+      "destination": "/api/nft?id=:id"
+    }
   ]
 }

@@ -1,5 +1,7 @@
 # RUNNER — run to earn (beta)
 
+**[Whitepaper](https://www.runearn.fun/whitepaper)** (draft for public review).
+
 A simple, Strava-style running app with a run-to-earn layer: own a **RUNNER Genesis** sneaker NFT, run inside its pace zone, and earn the **RUNNER** token.
 
 **Try it:** https://runearn.fun

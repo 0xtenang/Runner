@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>RUNNER Whitepaper</title>
+  <meta name="description" content="How RUNNER works: run tracking, sneaker NFTs, the RUNNER token, emission, fair play, controls and risks. Draft for public review.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { padding: 0; background: var(--bg); }
+    .wp { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 28px; grid-template-columns: minmax(0, 1fr); }
+    @media (min-width: 960px) { .wp { grid-template-columns: 240px minmax(0, 1fr); padding-top: 40px; } }
+    .wp-head { grid-column: 1 / -1; display: grid; gap: 10px; }
+    .wp-brand { display: flex; align-items: center; gap: 10px; font-weight: 900; font-size: 20px; color: var(--text); text-decoration: none; }
+    .wp-brand img { width: 34px; height: 34px; }
+    .wp-brand em { color: var(--accent-strong); font-style: normal; margin: 0; padding: 0; letter-spacing: inherit; }
+    .wp-head h1 { font-size: clamp(30px, 6vw, 46px); font-weight: 900; line-height: 1.05; margin: 6px 0 0; letter-spacing: -0.02em; }
+    .wp-head .lead { font-size: 18px; color: var(--muted); max-width: 720px; margin: 0; line-height: 1.5; }
+    .wp-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: 13px; font-weight: 700; color: var(--muted); }
+    .tag.draft { background: var(--coin-soft); color: var(--coin); border-color: transparent; }
+    .toc { position: sticky; top: 16px; align-self: start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 14px 10px; font-size: 14px; }
+    .toc b { display: block; margin-bottom: 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .toc ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+    .toc a { color: var(--text); text-decoration: none; }
+    .toc a:hover { color: var(--accent-strong); }
+    @media (max-width: 959px) { .toc { position: static; } }
+    article { min-width: 0; display: grid; gap: 18px; }
+    section.wp-sec { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px 20px; scroll-margin-top: 16px; }
+    section.wp-sec h2 { font-size: 24px; font-weight: 900; margin: 0 0 12px; letter-spacing: -0.01em; }
+    section.wp-sec h2 span { color: var(--accent-strong); margin-right: 8px; }
+    section.wp-sec h3 { font-size: 17px; font-weight: 800; margin: 18px 0 8px; }
+    section.wp-sec p, section.wp-sec li { line-height: 1.6; font-size: 15.5px; }
+    section.wp-sec p { margin: 0 0 10px; }
+    section.wp-sec ul, section.wp-sec ol { margin: 0 0 10px; padding-left: 22px; }
+    .tbl { overflow-x: auto; margin: 8px 0 12px; border: 1px solid var(--line); border-radius: 12px; }
+    table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+    th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { background: var(--surface-2); font-weight: 800; white-space: nowrap; }
+    tr:last-child td { border-bottom: 0; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .formula { font: 600 14.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-2); border-radius: 12px; padding: 12px 14px; overflow-x: auto; margin: 6px 0 12px; }
+    .note { background: var(--accent-soft); border-radius: 12px; padding: 12px 14px; margin: 8px 0 12px; font-size: 15px; line-height: 1.55; }
+    .warn { background: var(--coin-soft); border-radius: 12px; padding: 12px 14px; margin: 8px 0 12px; font-size: 15px; line-height: 1.55; }
+    .mono { font: 600 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+    .bars { display: grid; gap: 6px; margin: 8px 0 14px; }
+    .bar { display: grid; grid-template-columns: 110px 1fr 70px; gap: 10px; align-items: center; font-size: 14px; }
+    .bar i { display: block; height: 12px; border-radius: 6px; background: var(--accent); }
+    .bar span:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+    @media (max-width: 520px) { .bar { grid-template-columns: 84px 1fr 54px; } section.wp-sec { padding: 18px 14px; } }
+    .foot { font-size: 14px; color: var(--muted); text-align: center; }
+    a.inline { color: var(--accent-strong); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="wp">
+    <header class="wp-head">
+      <a class="wp-brand" href="/"><img src="icon.svg" alt=""><span>RUNN<em>ER</em></span></a>
+      <h1>RUNNER Whitepaper</h1>
+      <p class="lead">A Strava-style running app with a run-to-earn layer on Robinhood Chain: own a sneaker NFT, run in its pace zone, earn the RUNNER token.</p>
+      <div class="wp-meta">
+        <span class="tag draft">Draft v0.1 · for public review</span>
+        <span class="tag">23 October 2026</span>
+        <span class="tag">Contracts not deployed yet</span>
+        <span class="tag">Independent audit (IMD) pending</span>
+      </div>
+    </header>
+
+    <nav class="toc" aria-label="Contents">
+      <b>Contents</b>
+      <ol>
+        <li><a href="#summary">Summary</a></li>
+        <li><a href="#app">The app</a></li>
+        <li><a href="#earning">How earning works</a></li>
+        <li><a href="#nft">Sneaker NFTs</a></li>
+        <li><a href="#token">The RUNNER token</a></li>
+        <li><a href="#emission">Emission &amp; claims</a></li>
+        <li><a href="#holders">Tax &amp; holder rewards</a></li>
+        <li><a href="#fair">Fair play</a></li>
+        <li><a href="#controls">Controls &amp; limits</a></li>
+        <li><a href="#security">Security &amp; audits</a></li>
+        <li><a href="#roadmap">Roadmap</a></li>
+        <li><a href="#risks">Risks</a></li>
+        <li><a href="#review">Review this paper</a></li>
+      </ol>
+    </nav>
+
+    <article>
+      <section class="wp-sec" id="summary">
+        <h2><span>1</span>Summary</h2>
+        <p>RUNNER is a running app first: live GPS tracking, pace, splits, heart rate and imports from Garmin, COROS, Polar, Suunto and Apple Watch, free for everyone. On top of it sits an optional run-to-earn layer:</p>
+        <ul>
+          <li><b>RUNNER Genesis</b> — 9,999 sneaker NFTs. Owning one lets you earn.</li>
+          <li><b>RUNNER token</b> — a fixed supply of 1,000,000,000. 80% is reserved for runners and released on a halving schedule.</li>
+          <li><b>Verified runs</b> — every run is re-checked by a server with the same rules as the app, plus fair-play checks, before it earns anything.</li>
+        </ul>
+        <div class="warn"><b>Status:</b> this is a draft. The smart contracts are written, tested and reviewed internally, but not deployed and not yet audited by an independent firm. Numbers below are the current design and may change before launch. Nothing here is investment advice or a promise of value.</div>
+      </section>
+
+      <section class="wp-sec" id="app">
+        <h2><span>2</span>The app</h2>
+        <p>Available at <a class="inline" href="/">runearn.fun</a> and as Android and iPhone apps. Sign in with Google, Apple or email and a Robinhood Chain wallet is created for you (via Privy) — no seed phrase to manage. Guests can track runs without signing in.</p>
+        <ul>
+          <li>Record runs with a live map, distance, pace, splits, elevation and heart rate (Bluetooth sensors supported).</li>
+          <li>Import runs from watches (FIT, GPX, TCX files). Imported runs are for your history only — <b>only live GPS runs earn</b>.</li>
+          <li>The Earn tab shows your sneakers, energy, balance, claims, holder rewards and the current emission.</li>
+        </ul>
+      </section>
+
+      <section class="wp-sec" id="earning">
+        <h2><span>3</span>How earning works</h2>
+        <h3>Pace zones</h3>
+        <p>Each sneaker has a class. You earn only while your GPS pace is inside its zone; above 25 km/h counts as a vehicle and earns nothing.</p>
+        <div class="tbl"><table>
+          <tr><th>Class</th><th>Speed</th><th>Pace</th><th class="num">Earn rate</th><th class="num">Share of collection</th></tr>
+          <tr><td>Recovery Runner</td><td>1–6 km/h</td><td>10:00 /km or slower</td><td class="num">100%</td><td class="num">1,902</td></tr>
+          <tr><td>Daily Runner</td><td>4–10 km/h</td><td>6:00–15:00 /km</td><td class="num">100%</td><td class="num">4,113</td></tr>
+          <tr><td>Tempo Runner</td><td>8–20 km/h</td><td>3:00–7:30 /km</td><td class="num">100%</td><td class="num">2,447</td></tr>
+          <tr><td>Hybrid Runner</td><td>1–20 km/h</td><td>any running pace</td><td class="num">85%</td><td class="num">1,537</td></tr>
+        </table></div>
+        <h3>Energy</h3>
+        <p>1 energy = 30 minutes of earning. Energy refills fully over 24 hours. You can keep running after it's used up — the app keeps tracking, you just stop earning.</p>
+        <div class="tbl"><table>
+          <tr><th>Sneakers owned</th><th class="num">Energy</th><th class="num">Earning time per day</th></tr>
+          <tr><td>1–2</td><td class="num">1</td><td class="num">30 min</td></tr>
+          <tr><td>3–8</td><td class="num">2</td><td class="num">1 h</td></tr>
+          <tr><td>9–14</td><td class="num">4</td><td class="num">2 h</td></tr>
+          <tr><td>15–29</td><td class="num">6</td><td class="num">3 h</td></tr>
+          <tr><td>30+</td><td class="num">10</td><td class="num">5 h</td></tr>
+        </table></div>
+        <h3>Earn rate</h3>
+        <div class="formula">RUNNER per minute = 112.5 × Efficiency × class rate × emission factor × NFT boost<br>(+10% with a live heart-rate sensor)</div>
+        <p>The <b>emission factor</b> is today's emission ÷ 10,000,000 — 100% at launch, then it halves with the emission schedule (section 6). <b>NFT boosts</b> come from future collections (up to +100% in total). Example for one sneaker, month 1, 30 minutes: a typical Common earns about 20,000 RUNNER, an Epic about 118,000.</p>
+        <h3>Levels, attributes and durability</h3>
+        <ul>
+          <li><b>Levels 0–30.</b> A level-up costs <span class="mono">1,100 × (next level)^1.5 × emission factor</span> RUNNER — about 1,100 for level 1, 35,000 for level 10, 181,000 for level 30 at launch prices. Each level gives attribute points (Common 1, Uncommon 1, Rare 2, Epic 2) for <b>Efficiency</b> (more RUNNER) or <b>Resilience</b> (less wear). A Common that reinvests its earnings reaches level 30 in about a month.</li>
+          <li><b>Durability</b> drops about 5.4 per energy for a typical Common (≈9 days of daily runs to 50%). Below 50, Efficiency is reduced (down to 20%). Repairs cost 75 RUNNER per point × (1 + 10% per level) × emission factor — about 2% of what the sneaker earns between repairs. Sneakers never break or disappear.</li>
+          <li>RUNNER spent on level-ups and repairs is never paid out — it stays in the run-reward pool.</li>
+        </ul>
+      </section>
+
+      <section class="wp-sec" id="nft">
+        <h2><span>4</span>Sneaker NFTs — RUNNER Genesis</h2>
+        <p>9,999 ERC-721 sneakers on Robinhood Chain. An open sale with no reveal: buyers pick the exact sneaker they want. A token's number fixes its rarity, class, starting stats and look, using the same formula in the app and in the contract.</p>
+        <div class="tbl"><table>
+          <tr><th>Rarity</th><th class="num">Supply</th><th class="num">Price</th><th>Starting Efficiency / Resilience</th></tr>
+          <tr><td>Common</td><td class="num">7,097</td><td class="num">0.005 ETH</td><td>4–8</td></tr>
+          <tr><td>Uncommon</td><td class="num">1,904</td><td class="num">0.015 ETH</td><td>8–14</td></tr>
+          <tr><td>Rare</td><td class="num">795</td><td class="num">0.04 ETH</td><td>15–25</td></tr>
+          <tr><td>Epic</td><td class="num">203</td><td class="num">0.1 ETH</td><td>28–42</td></tr>
+        </table></div>
+        <ul>
+          <li>Four original lines (Stride, Pod, Knit, Court) and rare Neon (150), Ghost (88) and Gold (56) editions.</li>
+          <li>Sale payments go to the project's dev wallet. A <b>5% royalty</b> on resales (ERC-2981, with ERC-721C support so marketplaces such as OpenSea can enforce it).</li>
+          <li>Metadata and artwork are served from runearn.fun/nft/; the collection page on OpenSea is managed by the dev wallet.</li>
+        </ul>
+      </section>
+
+      <section class="wp-sec" id="token">
+        <h2><span>5</span>The RUNNER token</h2>
+        <p>An ERC-20 token on Robinhood Chain with a fixed supply of <b>1,000,000,000 RUNNER</b>, all created when the contract is deployed. There is no mint function; burns can only reduce supply.</p>
+        <div class="bars" aria-label="Allocation">
+          <div class="bar"><span>Run rewards</span><i style="width:80%"></i><span>80%</span></div>
+          <div class="bar"><span>Liquidity</span><i style="width:10%"></i><span>10%</span></div>
+          <div class="bar"><span>Team</span><i style="width:10%"></i><span>10%</span></div>
+        </div>
+        <div class="tbl"><table>
+          <tr><th>Share</th><th class="num">Amount</th><th>Where it goes</th></tr>
+          <tr><td>Run rewards</td><td class="num">800,000,000</td><td>Locked in the token contract. Paid out only to runners through verified claims, following the emission schedule. Nobody, including the owner, can withdraw it otherwise.</td></tr>
+          <tr><td>Liquidity</td><td class="num">100,000,000</td><td>Dev wallet <span class="mono">0x0f397E46e4e810313dBC782CDb0236347157f1B4</span>, to seed an exchange pool.</td></tr>
+          <tr><td>Team</td><td class="num">100,000,000</td><td>Team wallet <span class="mono">0x0f4FE718eb8492533E600b30F3287E2f04087332</span>.</td></tr>
+        </table></div>
+        <p><b>Where RUNNER is used:</b> level-ups and repairs in the app, trading on exchanges, and holding for holder rewards (section 7). <b>Where it's removed:</b> instant claims and early releases burn 20% (section 6).</p>
+      </section>
+
+      <section class="wp-sec" id="emission">
+        <h2><span>6</span>Emission &amp; claims</h2>
+        <h3>Halving emission</h3>
+        <p>The run-reward pool releases at most a set amount per UTC day. The launch schedule: <b>10,000,000 RUNNER per day, halving every 30 days, never below 100,000 per day</b>. It starts on launch day, when the dev wallet starts it on-chain.</p>
+        <div class="tbl"><table>
+          <tr><th>Days from launch</th><th class="num">Daily maximum</th><th class="num">Earn rate</th></tr>
+          <tr><td>1–30</td><td class="num">10,000,000</td><td class="num">100%</td></tr>
+          <tr><td>31–60</td><td class="num">5,000,000</td><td class="num">50%</td></tr>
+          <tr><td>61–90</td><td class="num">2,500,000</td><td class="num">25%</td></tr>
+          <tr><td>91–120</td><td class="num">1,250,000</td><td class="num">12.5%</td></tr>
+          <tr><td>…</td><td class="num">halves every 30 days</td><td class="num">…</td></tr>
+          <tr><td>From about month 8</td><td class="num">100,000 (floor)</td><td class="num">1%</td></tr>
+        </table></div>
+        <p>If every day's maximum were used, about 38% of the pool would be released in month 1, 66% by month 3 and 75% by month 7, after which 100,000 per day continues for about 5.5 years. In practice runners only earn what energy, pace zones and fair-play checks allow; with 100 active runners, about 2.9M RUNNER per day would be emitted in month 1.</p>
+        <p>The dev wallet can set a new schedule (daily amount, halving period, floor). A change never affects the current day — it starts the next UTC day — and can <b>never exceed 20,000,000 per day</b>. Runners' earn rates follow the schedule automatically.</p>
+        <h3>From earnings to tokens</h3>
+        <ol>
+          <li>Finish a run. The server checks it and credits your in-app balance. New earnings become usable <b>24 hours</b> after the run.</li>
+          <li>Spend in the app, or claim to your wallet. The server signs your claim; your wallet submits it to the token contract.</li>
+          <li>Choose: <b>Lock 7 days → 100%</b>, or <b>Now → 80% to you, 20% burned</b>. Locked rewards can be released after 7 days (one transaction a week is enough), or taken early at 80%. Only you can choose "now" for your own rewards.</li>
+        </ol>
+        <p>Claims across all runners can never exceed the day's emission; if it's nearly used up, you get a partial claim and the rest the next day — nothing is lost.</p>
+      </section>
+
+      <section class="wp-sec" id="holders">
+        <h2><span>7</span>Trading tax &amp; holder rewards</h2>
+        <ul>
+          <li><b>4% tax on buys and sells</b> through registered exchange pools, fixed forever in the contract: <b>2% to the protocol</b> wallet and <b>2% to holders</b>. Wallet-to-wallet transfers and run-reward claims are not taxed.</li>
+          <li><b>Holder rewards:</b> each UTC day's 2% is shared by every wallet that held at least <b>300,000 RUNNER for the whole day</b>, in proportion to the lowest balance it held that day. Buying just before the day ends doesn't count — you need to hold through a full day.</li>
+          <li>Each day's share can be claimed for <b>7 days</b>; after that, anything unclaimed goes to the protocol wallet.</li>
+          <li>Exchange pools and the token contract itself get no holder rewards; dev and team wallets are eligible like any holder.</li>
+        </ul>
+        <div class="note">Because of the tax, use exchanges that support fee-on-transfer tokens (Uniswap-V2-style pools) and expect to set about 5% slippage.</div>
+      </section>
+
+      <section class="wp-sec" id="fair">
+        <h2><span>8</span>Fair play</h2>
+        <p>No run-to-earn app is completely cheat-proof. RUNNER aims to make cheating cost more than it pays, decided by rules rather than people:</p>
+        <ul>
+          <li><b>The server decides, not the phone.</b> Every uploaded GPS track is re-scored with the same rules as the app. Sneaker ownership is read from the chain; replayed or overlapping runs, and one sneaker used by two wallets at once, are rejected.</li>
+          <li><b>Trust score (0–100).</b> Real GPS is messy; scripts and spoofers tend to be too clean. Points are lost for perfectly regular fix timing, constant speed, identical segments, perfectly straight routes, unchanging GPS accuracy, a fake-GPS app, steps that don't match the pace, or a route copied from another upload.</li>
+          <li><b>Phone app checks.</b> The phone apps send the step counter (bikes, scooters and cars give almost no steps) and a device proof (Google Play Integrity / Apple App Attest) showing the run came from the genuine app on an unmodified phone. Real-token earning can be limited to the phone apps.</li>
+        </ul>
+        <div class="tbl"><table>
+          <tr><th>Trust score</th><th>Outcome</th></tr>
+          <tr><td>70–100</td><td>Paid in full</td></tr>
+          <tr><td>40–69</td><td>50% paid, no penalty</td></tr>
+          <tr><td>Under 40, fake-GPS app, or copied route</td><td>Not paid + 1 strike</td></tr>
+        </table></div>
+        <p>Three strikes within 30 days suspend the wallet automatically — 7 days, then 30 days, then permanently — and cancel its earnings still in the 24-hour hold. Strikes expire after 30 days. Requests are also rate-limited, and per-wallet energy plus the daily emission cap how much any single wallet can earn.</p>
+      </section>
+
+      <section class="wp-sec" id="controls">
+        <h2><span>9</span>Controls &amp; limits</h2>
+        <p>The project keeps a few controls so the economy can be corrected after launch. Each has a hard limit set in code. The owner of both contracts is the dev wallet.</p>
+        <div class="tbl"><table>
+          <tr><th>Control</th><th>What it does</th><th>Limit</th></tr>
+          <tr><td>Emission schedule</td><td>New daily amount, halving period and floor</td><td>From the next UTC day; ≤ 20M/day</td></tr>
+          <tr><td>Pause claims · server key</td><td>Stop run-reward claims; rotate the server's signing key</td><td>Can't move tokens</td></tr>
+          <tr><td>Register exchange pools</td><td>Turns on the 4% tax for a pool</td><td>Only real RUNNER pools; can't be removed</td></tr>
+          <tr><td>Protocol wallet</td><td>Where the 2% protocol tax and expired holder rewards go</td><td>—</td></tr>
+          <tr><td>Game settings (server)</td><td>Level prices, per-runner daily max, NFT boosts, fair-play thresholds, phone-app-only earning</td><td>Boosts ≤ +100%; always within the day's emission</td></tr>
+          <tr><td>NFT admin</td><td>Pause minting, metadata links, royalty receiver, OpenSea royalty enforcement</td><td>Can't take anyone's NFTs</td></tr>
+        </table></div>
+        <p><b>Nobody — including the owner — can:</b> change the 4% tax, mint new tokens, exceed 20M RUNNER of emission per day, change today's emission, or take tokens out of the run-reward pool, locked claims or the holder-reward bucket.</p>
+        <div class="note">Before launch, ownership is planned to move to a multisig wallet so no single key controls these settings.</div>
+      </section>
+
+      <section class="wp-sec" id="security">
+        <h2><span>10</span>Security &amp; audits</h2>
+        <ul>
+          <li><b>Internal review</b> of both contracts and the rewards server, with findings, fixes and a full list of owner powers in <a class="inline" href="https://github.com/0xtenang/Runner/blob/main/AUDIT.md" target="_blank" rel="noopener">AUDIT.md</a>. It was done by the same AI-assisted process that wrote the code, so it is <b>not</b> a substitute for an independent audit.</li>
+          <li><b>Automated tests:</b> 278 checks across the token, the NFT and the rewards server, including a randomized 45-day check of the holder-reward bookkeeping and deliberately planted bugs to prove the tests catch them. Static analysis with Slither found no outstanding issues.</li>
+          <li><b>Independent audit:</b> planned with IMD before any mainnet deployment.</li>
+          <li><b>Verifiable builds:</b> the deploy page refuses to deploy any contract whose bytecode differs from the reviewed build. Source code is public at <a class="inline" href="https://github.com/0xtenang/Runner" target="_blank" rel="noopener">github.com/0xtenang/Runner</a>.</li>
+        </ul>
+      </section>
+
+      <section class="wp-sec" id="roadmap">
+        <h2><span>11</span>Roadmap</h2>
+        <p>Order, not dates — each step starts when the previous one is ready.</p>
+        <ol>
+          <li><b>Now — open beta.</b> Run tracking live at runearn.fun; earning in local test mode; contracts written and internally reviewed.</li>
+          <li><b>Audit &amp; hardening.</b> Independent audit (IMD), multisig ownership, phone apps in the stores with device checks.</li>
+          <li><b>Launch.</b> Deploy the NFT and token, open the sneaker sale, add liquidity, register the pool, start emission.</li>
+          <li><b>After launch.</b> Watch auto-sync (Garmin and others), future sneaker collections with earning boosts, more ways to use RUNNER in the app.</li>
+        </ol>
+      </section>
+
+      <section class="wp-sec" id="risks">
+        <h2><span>12</span>Risks</h2>
+        <ul>
+          <li><b>No guaranteed value.</b> RUNNER and the sneakers may lose value or become illiquid. Earnings in dollars depend on the market price, which nobody controls. At a low market cap, daily earnings are worth only cents.</li>
+          <li><b>Front-loaded emission.</b> Most rewards can be released in the first months, which can create heavy selling pressure.</li>
+          <li><b>Smart-contract risk.</b> Bugs are possible despite reviews and tests. Contracts are not upgradeable.</li>
+          <li><b>Centralization.</b> The dev wallet holds the controls in section 9 until ownership moves to a multisig; the rewards server decides which runs earn.</li>
+          <li><b>Cheating.</b> Fair-play checks reduce but cannot eliminate cheating.</li>
+          <li><b>Thin early liquidity</b> means large price swings, made larger by the 4% tax.</li>
+          <li><b>Regulation.</b> Rules for tokens differ by country (in Indonesia, for example, OJK oversight applies). Check what applies to you.</li>
+        </ul>
+        <div class="warn">This document describes software and a game economy. It is not an offer to sell securities, not financial advice and not a promise of returns.</div>
+      </section>
+
+      <section class="wp-sec" id="review">
+        <h2><span>13</span>Review this paper</h2>
+        <p>This is a draft published so people can check it before launch. If something is unclear, wrong or looks unfair, please say so:</p>
+        <ul>
+          <li>Open an issue: <a class="inline" href="https://github.com/0xtenang/Runner/issues/new" target="_blank" rel="noopener">github.com/0xtenang/Runner/issues</a></li>
+          <li>Read the code and the internal review: <a class="inline" href="https://github.com/0xtenang/Runner" target="_blank" rel="noopener">source</a> · <a class="inline" href="https://github.com/0xtenang/Runner/blob/main/AUDIT.md" target="_blank" rel="noopener">AUDIT.md</a></li>
+          <li>Try the app: <a class="inline" href="/">runearn.fun</a></li>
+        </ul>
+      </section>
+
+      <p class="foot">RUNNER Whitepaper · Draft v0.1 · Contract addresses will be published here at launch.</p>
+    </article>
+  </div>
+</body>
+</html>
