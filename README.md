@@ -114,6 +114,32 @@ Until all three are done, the app keeps working in local mode.
 - **Review:** runs scoring under 70 wait for the dev wallet to approve or void them on the admin page (*Fair play: review & bans*). Nothing is voided automatically.
 - **Bans:** banned wallets can't earn, spend or claim.
 - **Rate limits:** requests are capped per IP and per wallet.
-- **Limits:** a careful forger can still imitate GPS noise. Phone-app-only earning with device attestation and step checks is the planned next layer. Per-wallet energy and the daily emission bound the damage meanwhile.
+- **Step cadence (phone app):** the app records the phone's step counter during a run. Running is about 140–190 steps a minute; on a bike, scooter or in a car the counter barely moves. Steps that don't match the GPS pace lower the trust score, so the run goes to review.
+- **Fake GPS:** the app ignores mock-location positions and the server lowers the score of runs where it saw any.
+- **Phone app only (device attestation):** every upload from the app carries a Google Play Integrity token (Android) or an Apple App Attest proof (iPhone), tied to that exact run. With **Phone app only** switched on in the admin page (setting `requireAttestation`), only runs from the genuine app on an unmodified phone earn real RUNNER. Website runs still track and count for stats, but earn nothing. Switch it on at launch, after the setup below.
+- **Limits:** attestation proves the app and phone are real, not who carries the phone. Per-wallet energy, the daily emission and the review queue bound the damage.
 
-Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, level costs, game settings, NFT boosts, the per-runner cap, schedule changes, the daily budget, partial claims, the trust score, the 24-hour hold, the review queue, bans and rate limits (73 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.
+Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, level costs, game settings, NFT boosts, the per-runner cap, schedule changes, the daily budget, partial claims, the trust score, the 24-hour hold, the review queue, bans, rate limits, step cadence, mock locations and device attestation (105 checks). Google's verdicts are faked in the tests; App Attest runs with real signatures and a test certificate chain. A server-signed claim was also verified against `RunnerToken` in a local EVM.
+
+### Device attestation setup (Google + Apple)
+
+You do these steps yourself: they need your Google and Apple accounts, and the keys must never be pasted into a chat. The step counter needs no setup.
+
+**Android: Google Play Integrity**
+1. Create a Google Play developer account (play.google.com/console, $25 once) and an app named RUNNER with package name `fun.runearn.app`.
+2. Play Console → your app → **Test and release → App integrity → Play Integrity API → Link a Cloud project**. Choose **Create a new project**. Write down the **project number** (digits).
+3. console.cloud.google.com → that project → **APIs & Services → Library** → check **Google Play Integrity API** is enabled.
+4. **IAM & Admin → Service accounts → Create service account** (name: `runner-integrity`). No role is needed. Open it → **Keys → Add key → Create new key → JSON**. A file downloads.
+5. Vercel → RUNNER project → Settings → Environment Variables: add `PLAY_INTEGRITY_SA` (Production) and paste the **whole contents** of that JSON file. Redeploy. Then delete the file from your Downloads.
+6. Put the project number from step 2 in `js/config.js` → `PLAY_CLOUD_PROJECT_NUMBER` (it isn't secret, so Claude can do this for you), then rebuild the app.
+7. Upload a release build to Play (**Internal testing** is enough) and install RUNNER from the Play Store. Sideloaded APKs and emulators fail the check on purpose.
+
+**iPhone: Apple App Attest**
+1. Use the Apple Developer account from NATIVE.md (needed for TestFlight anyway).
+2. developer.apple.com → **Account → Membership details** → copy the **Team ID** (10 characters).
+3. Xcode → **App** target → **Signing & Capabilities → + Capability → App Attest**. In the new `App.entitlements`, set **App Attest Environment** to `production`.
+4. Vercel → Environment Variables: add `APPLE_TEAM_ID` = your Team ID. Redeploy.
+5. Ship through TestFlight. App Attest doesn't work in the iOS Simulator.
+
+**Switch it on (launch day):** open `/admin.html?c=token` → *Controls after launch*. The line under **Phone app only** should show ✓ for Android and iPhone. Tick **Phone app only** and press **Save game settings**.
+

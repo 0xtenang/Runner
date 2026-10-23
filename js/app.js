@@ -707,7 +707,8 @@ async function finishRecording() {
   const { act, points } = buildActivity({ startTime: out.startedAt, points: out.points }, 'gps');
   act.movingTime = Math.min(act.movingTime || out.activeSeconds, out.activeSeconds) || out.activeSeconds;
   if (gapSec > 0) act.gapSec = gapSec;
-  if (session) act.earn = await settleRun(session, act.id, out.points);
+  if (session) act.earn = await settleRun(session, act.id, out.points, { steps: await out.steps, mockFixes: out.mockFixes });
+  else out.steps.catch(() => {});
   await db.saveActivity(act, points);
   await db.kvDel('inprogress').catch(() => {});
   rec.stopGps();
@@ -1203,7 +1204,8 @@ async function recoverUnfinished() {
     if (snap.points.length < 2) return;
     if (!confirm(`Found an unfinished run from ${fmtDate(snap.startedAt)}. Save it?`)) return;
     const { act, points } = buildActivity({ startTime: snap.startedAt, points: snap.points }, 'gps');
-    if (snap.earn) act.earn = await settleRun(snap.earn, act.id, snap.points);
+    // The step counter doesn't survive the app closing: the server sees the steps as lost.
+    if (snap.earn) act.earn = await settleRun(snap.earn, act.id, snap.points, { steps: isNative ? { lost: true } : null, mockFixes: snap.mockFixes || 0 });
     await db.saveActivity(act, points);
     toast(earnToast(act.earn, 'Recovered run'));
   } catch (e) { console.warn(e); }

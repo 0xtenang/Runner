@@ -7,6 +7,9 @@
 import { auth } from './auth.js';
 import { game } from './game.js';
 import { TOKEN_CHAIN, TOKEN_CONTRACT, NFT_CONTRACT } from './config.js';
+import { runPayload } from './rules.js';
+import { isNative } from './geo.js';
+import { deviceProof, resetDeviceProof, runDigest } from './device.js';
 
 // The website calls its own API; the phone app (served from the device) calls runearn.fun.
 const API = /(^|\.)runearn\.fun$/.test(location.hostname) || location.hostname === 'localhost' || location.hostname === '127.0.0.1'
@@ -17,6 +20,7 @@ const sessionMessage = (address, issued) =>
 const isAddr = (a) => /^0x[0-9a-fA-F]{40}$/.test(a || '');
 
 let serverLive = null; // null = not checked yet
+let serverSettings = null;
 let statusAt = 0;
 
 async function checkStatus() {
@@ -25,6 +29,7 @@ async function checkStatus() {
   try {
     const s = await (await fetch(`${API}?action=status`, { cache: 'no-store' })).json();
     serverLive = Boolean(s.live);
+    serverSettings = s.settings || null;
   } catch { serverLive = serverLive ?? false; }
   statusAt = Date.now();
   return serverLive;
@@ -80,13 +85,27 @@ async function post(body, withSession = true, retried = false) {
   return j;
 }
 
+/**
+ * Uploads a run with a fresh device proof (phone app). If the iPhone's App Attest key
+ * isn't known to the server (412), a new key is made and the upload retried once.
+ */
+async function uploadRun(run, retried = false) {
+  const attestation = await deviceProof(await runDigest(runPayload(run)));
+  try {
+    return await post({ action: 'run', run: attestation ? { ...run, attestation } : run });
+  } catch (e) {
+    if (e.status === 412 && !retried) { await resetDeviceProof(); return uploadRun(run, true); }
+    throw e;
+  }
+}
+
 /** Refreshes balance/energy/progress from the server and retries queued runs. */
 export async function syncRewards({ prompt = false } = {}) {
   if (!(await checkStatus()) || !auth.signedIn) return null;
   if (!prompt && !storedSession(auth.state.address)) return null; // don't pop a signature request unasked
   for (const run of [...(game.state.pendingRuns || [])]) {
     try {
-      const r = await post({ action: 'run', run });
+      const r = await uploadRun(run);
       await game.applyServer(r.state);
       await game.dropPending(run);
       game.logServerRun(r.run);
@@ -106,17 +125,19 @@ export const connectRewards = () => syncRewards({ prompt: true });
 /**
  * Settles a finished recording. With the server live the GPS track is uploaded
  * and the server decides the reward; otherwise the local engine does.
+ * extra: { steps, mockFixes } from the phone app's recorder (fair-play checks).
  */
-export async function settleRun(earnSession, activityId, points) {
+export async function settleRun(earnSession, activityId, points, { steps = null, mockFixes = 0 } = {}) {
   await checkStatus();
   if (!rewardsActive() || !earnSession?.sneakerId) return game.settle(earnSession, activityId);
   const sneaker = game.sneaker(earnSession.sneakerId);
   const base = { coins: 0, energy: 0, voided: false, sneakerId: earnSession.sneakerId, zoneSec: Math.round(earnSession.zoneSec), server: true,
     sneakerLabel: sneaker ? `#${sneaker.serial}` : null, hrVerified: earnSession.hrSec > earnSession.zoneSec * 0.8 && earnSession.zoneSec > 0 };
   if (!sneaker || earnSession.used <= 0) return base;
-  const run = { tokenId: sneaker.tokenId, points: points.map(({ t, lat, lon, hr, b, acc }) => ({ t, lat, lon, ...(hr ? { hr } : {}), ...(b ? { b } : {}), ...(acc != null ? { acc } : {}) })) };
+  if (serverSettings?.requireAttestation && !isNative) return { ...base, rejected: 'real RUNNER is earned with the RUNNER phone app (iPhone or Android)' };
+  const run = { tokenId: sneaker.tokenId, points: points.map(({ t, lat, lon, hr, b, acc }) => ({ t, lat, lon, ...(hr ? { hr } : {}), ...(b ? { b } : {}), ...(acc != null ? { acc } : {}) })), steps, mockFixes };
   try {
-    const r = await post({ action: 'run', run });
+    const r = await uploadRun(run);
     await game.applyServer(r.state);
     game.logServerRun(r.run, activityId);
     return { ...base, coins: r.run.coins, energy: r.run.energy, voided: r.run.voided, capped: r.run.capped, zoneSec: r.run.zoneSec, review: r.run.review, held: r.run.status === 'held', releaseAt: r.run.releaseAt };

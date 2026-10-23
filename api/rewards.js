@@ -14,7 +14,10 @@
 // Fair play: every run gets a trust score (api/_lib/trust.js). Earnings become usable
 // 24 hours after the run; runs scoring under 70 (or copied tracks) are held until an
 // admin approves or voids them. Banned wallets can't earn, spend or claim. Requests
-// are rate-limited per IP and per wallet.
+// are rate-limited per IP and per wallet. Runs from the phone app carry the step
+// counter (cadence must match the pace) and a device proof (api/_lib/attest.js:
+// Play Integrity / App Attest). With the requireAttestation setting on, only runs
+// proven to come from the genuine app on an unmodified phone earn RUNNER.
 //
 // Emission follows the token's halving schedule (js/rules.js mirrors it): every
 // run's earn rate is multiplied by that day's emission factor, the server never
@@ -30,12 +33,13 @@ import { TOKEN_CHAIN, TOKEN_CONTRACT as CONFIG_TOKEN, NFT_CONTRACT as CONFIG_NFT
 import {
   scoreTrack, isVoided, maxEnergy, regenEnergy, sneakerFromToken, levelUpCost, repairCost,
   durabilityLossPerEnergy, ATTRS, POINTS_PER_LEVEL, MAX_LEVEL, round2,
-  emissionOn, emissionFactor, nextHalving, utcDay, DEFAULT_SETTINGS, boostMultiplier,
+  emissionOn, emissionFactor, nextHalving, utcDay, DEFAULT_SETTINGS, boostMultiplier, runPayload,
 } from '../js/rules.js';
 import { addressOfKey, claimDigest, signDigest, personalDigest, recoverAddress, keccak, toHex, isAddress } from './_lib/eth.js';
 import * as store from './_lib/store.js';
 import { ownedTokenIds, emissionSchedule, claimState, heldContracts } from './_lib/chain.js';
-import { trustScore, trackFingerprint, TRUST_REVIEW_BELOW } from './_lib/trust.js';
+import { trustScore, trackFingerprint, cleanSteps, TRUST_REVIEW_BELOW } from './_lib/trust.js';
+import { checkDevice, androidConfigured, iosConfigured } from './_lib/attest.js';
 
 const env = globalThis.process?.env || {};
 const KEY = (env.SIGNER_PRIVATE_KEY || '').trim();
@@ -80,6 +84,8 @@ function validateSettings(x) {
   const num = (v, lo, hi, name) => { const n = Number(v); if (!Number.isFinite(n) || n < lo || n > hi) fail(400, `${name} must be between ${lo} and ${hi}`); return n; };
   const boosts = Array.isArray(x?.boosts) ? x.boosts : [];
   if (boosts.length > 20) fail(400, 'At most 20 boost collections');
+  const requireAttestation = x?.requireAttestation === true;
+  if (requireAttestation && !androidConfigured() && !iosConfigured()) fail(400, 'Set up Play Integrity (PLAY_INTEGRITY_SA) or App Attest (APPLE_TEAM_ID) on the server before requiring the phone app.');
   return {
     levelCostBase: num(x?.levelCostBase, 1, 1e9, 'Level cost base'),
     levelCostExp: num(x?.levelCostExp, 0.5, 3, 'Level cost exponent'),
@@ -88,6 +94,7 @@ function validateSettings(x) {
       if (!isAddress(b?.contract)) fail(400, `Bad boost contract ${b?.contract}`);
       return { contract: b.contract.toLowerCase(), label: String(b.label || 'NFT boost').trim().slice(0, 40), boostBps: Math.round(num(b.boostBps, 0, 10_000, 'Boost')) };
     }),
+    requireAttestation,
   };
 }
 
@@ -254,7 +261,23 @@ async function submitRun(address, { run }) {
   const start = pts[0].t, end = pts[pts.length - 1].t;
   await assertNotBanned(address);
   await rateLimit(`run:${address}`, 30, 3600e3);
-  const trust = trustScore(pts);
+  // Device proof: required when the setting is on; otherwise checked (if the server
+  // is set up for that phone) and only recorded.
+  const att = run?.attestation;
+  const platform = att?.platform === 'android' || att?.platform === 'ios' ? att.platform : null;
+  let device = { verified: null, platform };
+  const canCheck = platform === 'android' ? androidConfigured() : platform === 'ios' ? iosConfigured() : false;
+  if (settings.requireAttestation || canCheck) {
+    device = await checkDevice(att, runPayload(run), store);
+    if (settings.requireAttestation) {
+      if (device.retry) fail(503, device.reason);
+      if (device.unknownKey) fail(412, device.reason);
+      if (!device.verified) fail(403, `No RUNNER for this run: ${device.reason}`);
+    }
+  }
+  const steps = cleanSteps(run?.steps, start, end);
+  const mockFixes = Math.max(0, Math.min(1e6, Math.floor(Number(run?.mockFixes) || 0)));
+  const trust = trustScore(pts, { steps, mockFixes, fromApp: Boolean(platform) });
   const fp = trackFingerprint(pts);
   if (fp && !(await store.setNX(`rw:fp:${fp}`, address, 30 * 864e5))) {
     trust.score = Math.max(0, trust.score - 60);
@@ -304,6 +327,7 @@ async function submitRun(address, { run }) {
     const record = {
       id, start, end, tokenId, coins: micro / MICRO, energy: round2(used), zoneSec: Math.round(session.zoneSec),
       vehicleSec: Math.round(session.vehicleSec), voided, capped, factor, boost,
+      device: platform, attested: device.verified ?? null, cadence: trust.cadence,
       trust: trust.score, reasons: trust.reasons, review, releaseAt: micro > 0 ? releaseAt : null, status: micro > 0 ? (review ? 'review' : 'held') : 'none',
     };
     u.runs = [record, ...u.runs].slice(0, 30);
@@ -389,7 +413,7 @@ async function adminOp(admin, body) {
       const run = (u.runs || []).find((r) => r.id === id);
       const p = (u.pending || []).find((x) => x.id === id);
       if (!p) { await store.listRemove(REVIEW_KEY, key); continue; }
-      items.push({ address, id, coins: p.micro / MICRO, trust: run?.trust, reasons: run?.reasons || [], tokenId: run?.tokenId, start: run?.start, end: run?.end, banned: await isBanned(address) });
+      items.push({ address, id, coins: p.micro / MICRO, trust: run?.trust, reasons: run?.reasons || [], tokenId: run?.tokenId, start: run?.start, end: run?.end, device: run?.device ?? null, attested: run?.attested ?? null, cadence: run?.cadence ?? null, banned: await isBanned(address) });
     }
     return { queue: items, bans: await store.listRange(BANS_KEY, 500) };
   }
@@ -437,7 +461,7 @@ export default async function handler(req, res) {
     if (contractsSet()) sch = await emissionSchedule(TOKEN_CONTRACT).catch(() => sch);
     if (store.storeConfigured()) settings = { ...DEFAULT_SETTINGS, ...((await store.get(SETTINGS_KEY).catch(() => null)) || {}) };
     if (action === 'status') {
-      res.status(200).json({ live: isLive(), signer: signerAddress(), store: store.storeConfigured(), token: TOKEN_CONTRACT || null, nft: NFT_CONTRACT || null, chainId: TOKEN_CHAIN.id, emission: sch?.startDay ? emissionView() : null, settings });
+      res.status(200).json({ live: isLive(), signer: signerAddress(), store: store.storeConfigured(), token: TOKEN_CONTRACT || null, nft: NFT_CONTRACT || null, chainId: TOKEN_CHAIN.id, emission: sch?.startDay ? emissionView() : null, settings, attestation: { android: androidConfigured(), ios: iosConfigured() } });
       return;
     }
     if (req.method !== 'POST') fail(405, 'POST only');

@@ -38,7 +38,9 @@ function watchWeb(onFix, onError) {
 // plugin doesn't retry. So the first watcher of each app session is replaced
 // once its first fix arrives, by which point permission is granted.
 let verified = false;
-const Native = isNative && Cap.getPlatform() === 'android' ? registerPlugin('RunnerNative') : null;
+// App-only helpers (android/…/RunnerNativePlugin.java, ios/App/App/RunnerNativePlugin.swift).
+export const Native = isNative ? registerPlugin('RunnerNative') : null;
+export const platform = isNative ? Cap.getPlatform() : 'web';
 let askedNotifications = null;
 
 function watchNative(onFix, onError) {
@@ -73,11 +75,12 @@ function watchNative(onFix, onError) {
       onFix({
         lat: loc.latitude, lon: loc.longitude,
         ele: loc.altitude, acc: loc.accuracy, t: loc.time || Date.now(),
+        mock: Boolean(loc.simulated), // Android mock-location app / iOS 15+ simulated location
       });
     });
   };
   // Ask for notifications first (Android 13+), so the "recording" notice shows.
-  askedNotifications ??= Native ? Native.requestNotifications().catch(() => {}) : Promise.resolve();
+  askedNotifications ??= platform === 'android' ? Native.requestNotifications().catch(() => {}) : Promise.resolve();
   askedNotifications.then(() => { if (!stopped) start(); });
   return () => {
     stopped = true;

@@ -13,6 +13,8 @@ keeps recording with the screen locked, like Strava.
 
 The switch happens in `js/geo.js` (`isNative`). Everything else is shared.
 
+**Fair-play plugin (`RunnerNative`):** `android/app/src/main/java/fun/runearn/app/RunnerNativePlugin.java` and `ios/App/App/RunnerNativePlugin.swift` (registered in `MainViewController.swift`). They count steps during a run (Android asks for *Physical activity*, iPhone for *Motion & Fitness*) and create Play Integrity / App Attest proofs for each upload (`js/device.js`). Mock-location positions are dropped by the recorder. Google/Apple setup: README → *Device attestation setup*.
+
 ## Project layout
 
 - `capacitor.config.json`: app ID `fun.runearn.app`, name RUNNER, web files from `www/`.

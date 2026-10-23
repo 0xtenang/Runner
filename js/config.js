@@ -12,6 +12,9 @@ export const PRIVY_CLIENT_ID = '';
 export const NATIVE_OAUTH_REDIRECT = 'https://www.runearn.fun/redirect';
 // Phone app's ID and link scheme (also in capacitor.config.json).
 export const NATIVE_APP_ID = 'fun.runearn.app';
+// Google Cloud project number (digits, not secret) linked to Play Integrity in the
+// Play Console. The Android app needs it to ask Google for device proofs. See README.
+export const PLAY_CLOUD_PROJECT_NUMBER = '';
 
 // Robinhood Chain (Arbitrum L2, ETH for gas). Values from docs.robinhood.com/chain.
 export const ROBINHOOD_CHAIN = {

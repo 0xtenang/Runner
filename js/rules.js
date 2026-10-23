@@ -107,7 +107,14 @@ export const DEFAULT_SETTINGS = {
   levelCostExp: 1.5,        // ≈ a month for a Common to reach level 30
   perRunnerDailyMax: 0,     // most RUNNER one runner can earn per day at a 10M day (0 = no limit)
   boosts: [],               // [{ contract, label, boostBps }] — holding any NFT from `contract` adds boostBps to earnings
+  requireAttestation: false, // only runs from the genuine phone app on an unmodified phone earn (Play Integrity / App Attest)
 };
+
+/**
+ * The part of an uploaded run that the phone app's device proof signs (Play Integrity
+ * nonce / App Attest client data). The app and the server must build it the same way.
+ */
+export const runPayload = (run) => JSON.stringify({ tokenId: run.tokenId, points: run.points, steps: run.steps ?? null, mockFixes: run.mockFixes ?? 0 });
 export const MAX_TOTAL_BOOST_BPS = 10_000; // boosts add up to +100% at most
 
 /** Earnings multiplier from NFT boosts the wallet holds (contracts it holds ⊆ settings.boosts). */

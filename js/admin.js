@@ -290,8 +290,11 @@ function fillControls(s) {
     $('#st-base').value = st.levelCostBase;
     $('#st-exp').value = st.levelCostExp;
     $('#st-max').value = st.perRunnerDailyMax;
+    $('#st-attest').checked = Boolean(st.requireAttestation);
     $('#st-boosts').value = (st.boosts || []).map((b) => `${b.contract}, ${b.label}, ${b.boostBps / 100}`).join('\n');
     $('#st-base').dataset.filled = '1';
+    const at = s?.attestation;
+    if (at) $('#st-attest-status').textContent = `Server set up for: Android ${at.android ? '✓' : '✗ (PLAY_INTEGRITY_SA missing)'} · iPhone ${at.ios ? '✓' : '✗ (APPLE_TEAM_ID missing)'}`;
     previewLevels();
   }
 }
@@ -333,7 +336,7 @@ $('#b-settings').onclick = async () => {
       if (!/^0x[0-9a-fA-F]{40}$/.test(contract || '') || !(Number(pct) >= 0 && Number(pct) <= 100)) throw new Error(`Bad boost line: ${l}`);
       return { contract: contract.toLowerCase(), label: label || 'NFT boost', boostBps: Math.round(Number(pct) * 100) };
     });
-    const settings = { levelCostBase: Number($('#st-base').value), levelCostExp: Number($('#st-exp').value), perRunnerDailyMax: Number($('#st-max').value) || 0, boosts };
+    const settings = { levelCostBase: Number($('#st-base').value), levelCostExp: Number($('#st-exp').value), perRunnerDailyMax: Number($('#st-max').value) || 0, boosts, requireAttestation: $('#st-attest').checked };
     const message = `RUNNER settings\n${JSON.stringify(settings)}\nIssued: ${new Date().toISOString()}`;
     $('#b-settings').disabled = true;
     $('#settings').textContent = 'Sign the settings message in your wallet…';
@@ -376,7 +379,7 @@ async function loadQueue() {
   $('#review-list').innerHTML = `
     ${queue.length ? queue.map((q) => `
       <div class="result" style="margin-top:8px">
-        <span><b>${fmtN(q.coins)} RUNNER</b> · trust <b class="${q.trust < 40 ? 'bad' : ''}">${q.trust ?? '?'}</b>/100 · Genesis #${q.tokenId ?? '?'} · ${when(q.start)}${q.banned ? ' · <span class="bad">banned</span>' : ''}</span>
+        <span><b>${fmtN(q.coins)} RUNNER</b> · trust <b class="${q.trust < 40 ? 'bad' : ''}">${q.trust ?? '?'}</b>/100 · Genesis #${q.tokenId ?? '?'} · ${when(q.start)} · ${q.device ? `${q.device === 'ios' ? 'iPhone' : 'Android'} app${q.attested ? ' ✓ verified' : ''}` : 'website'}${q.cadence != null ? ` · ${q.cadence} steps/min` : ''}${q.banned ? ' · <span class="bad">banned</span>' : ''}</span>
         <span class="mono">${esc(q.address)}</span>
         <span class="muted">${q.reasons.map(esc).join(' · ') || 'No details'}</span>
         <div class="row" style="gap:8px">

@@ -1,5 +1,6 @@
 import { haversine } from './stats.js';
 import { watchLocation } from './geo.js';
+import { startSteps, stopSteps } from './device.js';
 
 const MAX_ACCURACY_M = 35;   // ignore fixes worse than this
 const MIN_STEP_M = 2;        // ignore jitter while standing still
@@ -29,6 +30,7 @@ export class Recorder extends EventTarget {
     this.resumeAt = 0;
     this.startedAt = 0;
     this.needBreak = false;
+    this.mockFixes = 0;
   }
 
   get activeSeconds() {
@@ -51,6 +53,12 @@ export class Recorder extends EventTarget {
   }
 
   _onFix(f) {
+    if (f.mock) {
+      // A fake-GPS (mock location) app is feeding positions: never record them.
+      if (this.state === 'recording') this.mockFixes++;
+      this._emit('gpserror', { message: 'Fake GPS detected — turn off mock-location apps. These positions are not recorded.' });
+      return;
+    }
     this.lastFix = f;
     this._emit('position', f);
     if (this.state !== 'recording') return;
@@ -96,6 +104,7 @@ export class Recorder extends EventTarget {
     this.type = type || this.type;
     this.state = 'recording';
     this.startedAt = this.resumeAt = Date.now();
+    startSteps(); // phone app: step counter for the server's cadence check
     this.ensureGps();
     this.timer = setInterval(() => this._emit('tick'), 1000);
     if (this.lastFix && Date.now() - this.lastFix.t < 5000) this._onFix(this.lastFix);
@@ -120,19 +129,21 @@ export class Recorder extends EventTarget {
 
   finish() {
     if (this.state === 'recording') this.activeMs += Date.now() - this.resumeAt;
-    const out = { type: this.type, startedAt: this.startedAt, points: this.points, activeSeconds: this.activeMs / 1000 };
+    // steps: a promise of the step-counter samples (null on the website).
+    const out = { type: this.type, startedAt: this.startedAt, points: this.points, activeSeconds: this.activeMs / 1000, mockFixes: this.mockFixes, steps: stopSteps() };
     this.reset();
     this._emit('state');
     return out;
   }
 
   discard() {
+    stopSteps();
     this.reset();
     this._emit('state');
   }
 
   snapshot() {
-    return { type: this.type, startedAt: this.startedAt, points: this.points };
+    return { type: this.type, startedAt: this.startedAt, points: this.points, mockFixes: this.mockFixes };
   }
 
   _emit(name, detail) {

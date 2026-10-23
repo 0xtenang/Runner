@@ -307,6 +307,162 @@ for (let i = 0; i < 35 && !runLimited; i++) {
   if (rr.code === 429) runLimited = i >= 29;
 }
 ok('rate limit: more than 30 run uploads an hour per wallet → 429', runLimited);
+// ---- step cadence + device attestation (Play Integrity / App Attest)
+const { runDigest } = await imp('api/_lib/attest.js');
+// steps: cumulative samples every ~5 s at `spm` steps/min over a track's time span
+const stepsFor = (pts, spm) => {
+  const out = [];
+  for (let t = pts[0].t, n = 0; t <= pts[pts.length - 1].t; t += 5000, n += spm / 12) out.push([t, Math.round(n)]);
+  out.push([pts[pts.length - 1].t, Math.round(((pts[pts.length - 1].t - pts[0].t) / 60e3) * spm)]);
+  return { samples: out };
+};
+const runTrack = track(now - 4000e3, 30, 8);
+const tRun = trust.trustScore(runTrack, { steps: stepsFor(runTrack, 165), fromApp: true });
+ok('cadence: 165 steps/min at 8 km/h → no penalty', tRun.score >= 90 && Math.abs(tRun.cadence - 165) <= 3, JSON.stringify(tRun));
+const tBike = trust.trustScore(runTrack, { steps: stepsFor(runTrack, 4), fromApp: true });
+ok('cadence: moving with ~0 steps (bike/scooter/car) → under review threshold', tBike.score < 70 && tBike.reasons.some((x) => /Steps don't match/.test(x)), JSON.stringify(tBike));
+const fastTrack = track(now - 4000e3, 30, 11);
+const tShuffle = trust.trustScore(fastTrack, { steps: stepsFor(fastTrack, 100), fromApp: true });
+ok('cadence: walking cadence (100/min) at 11 km/h running pace → flagged', tShuffle.score < 70, JSON.stringify(tShuffle));
+const tHalf = (() => { const s = stepsFor(runTrack, 165).samples; const mid = s[Math.floor(s.length * 0.6)][1]; return trust.trustScore(runTrack, { steps: { samples: s.map(([t, n], i) => [t, Math.min(n, mid)]) }, fromApp: true }); })();
+ok('cadence: steps stop for the last 40% → partial penalty', tHalf.score >= 70 && tHalf.score < 90 && tHalf.reasons.some((x) => /part of the run/.test(x)), JSON.stringify(tHalf));
+ok('cadence: app run without step data → small penalty, not reviewed', trust.trustScore(runTrack, { fromApp: true }).score === 85 && trust.trustScore(runTrack, { steps: { denied: true }, fromApp: true }).score === 85);
+ok('cadence: website run without step data → no penalty', trust.trustScore(runTrack).score === tReal.score || trust.trustScore(runTrack).score >= 90);
+ok('mock-location fixes → under review threshold', trust.trustScore(runTrack, { steps: stepsFor(runTrack, 165), mockFixes: 3, fromApp: true }).score < 70);
+ok('step data: decreasing counts rejected as lost', trust.cleanSteps({ samples: [[1, 5], [2, 3]] }, 0, 10).lost === true);
+
+const K = []; // fresh Daily Runner sneakers for these tests
+for (let i = 3000; i < 6000 && K.length < 6; i++) if (traitsFor(i).type === 'jogger') K.push(i);
+const D_KEY = rnd(), DW = eth.addressOfKey(D_KEY), A_KEY = rnd(), AW = eth.addressOfKey(A_KEY), I_KEY = rnd(), IW = eth.addressOfKey(I_KEY);
+process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [DW]: [K[0]], [AW]: [K[1], K[2]], [IW]: [K[3], K[4]] });
+const SD = await sess(D_KEY, DW), SA = await sess(A_KEY, AW), SI = await sess(I_KEY, IW);
+// a bike ride from the app (steps ≈ 0) goes to review, not voided
+const bikePts = track(now - 9000e3, 35, 8);
+r = await call({ action: 'run', session: SD, run: { tokenId: K[0], points: bikePts, steps: stepsFor(bikePts, 2), attestation: { platform: 'android', error: 'not set up' } } });
+ok('server: app run with ~0 steps → held for review with a cadence reason', r.code === 200 && r.run.review && r.run.coins > 0 && r.run.reasons.some((x) => /Steps don't match/.test(x)) && r.run.device === 'android', JSON.stringify(r.run || r));
+
+// requireAttestation
+ok('requireAttestation can\'t be switched on before Google/Apple are set up', (await settingsCall(ADMIN_KEY, { ...rules.DEFAULT_SETTINGS, requireAttestation: true })).code === 400);
+const TEAM = 'ABCDE12345';
+process.env.APPLE_TEAM_ID = TEAM;
+process.env.REWARDS_FAKE_INTEGRITY = JSON.stringify({});
+r = await settingsCall(ADMIN_KEY, { ...rules.DEFAULT_SETTINGS, requireAttestation: true });
+ok('settings: requireAttestation switched on', r.code === 200 && r.settings.requireAttestation === true, JSON.stringify(r));
+const st8 = await call({ action: 'status' }, 'GET');
+ok('status reports the setting and which phones can be verified', st8.settings.requireAttestation && st8.attestation.android && st8.attestation.ios);
+const energyBefore = (await call({ action: 'state', session: SA })).energy;
+const webRun = { tokenId: K[1], points: track(now - 8000e3, 20, 8) };
+r = await call({ action: 'run', session: SA, run: webRun });
+ok('website run (no device proof) → no RUNNER, clear message', r.code === 403 && /phone app/.test(r.error), r.error);
+ok('rejected run uses no energy', (await call({ action: 'state', session: SA })).energy === energyBefore);
+
+// Android: Play Integrity (Google's decoded verdict is faked via REWARDS_FAKE_INTEGRITY)
+const verdict = (run, { app = 'PLAY_RECOGNIZED', device = ['MEETS_DEVICE_INTEGRITY'], pkg = 'fun.runearn.app', age = 0, nonce } = {}) => ({
+  requestDetails: { requestPackageName: pkg, nonce: nonce ?? runDigest(rules.runPayload(run)), timestampMillis: String(Date.now() - age) },
+  appIntegrity: { appRecognitionVerdict: app, packageName: pkg }, deviceIntegrity: { deviceRecognitionVerdict: device },
+});
+const fakes = {};
+const androidRun = (pts, opts, token = `tok${Object.keys(fakes).length}`) => {
+  const run = { tokenId: K[1], points: pts, steps: stepsFor(pts, 165), mockFixes: 0 };
+  fakes[token] = verdict(run, opts);
+  process.env.REWARDS_FAKE_INTEGRITY = JSON.stringify(fakes);
+  return { ...run, attestation: { platform: 'android', token } };
+};
+const aPts = track(now - 7000e3, 35, 8);
+r = await call({ action: 'run', session: SA, run: androidRun(aPts, { app: 'UNRECOGNIZED_VERSION' }) });
+ok('Android: sideloaded / modified app → rejected', r.code === 403 && /Google Play/.test(r.error), r.error);
+r = await call({ action: 'run', session: SA, run: androidRun(aPts, { device: [] }) });
+ok('Android: rooted phone or emulator (no MEETS_DEVICE_INTEGRITY) → rejected', r.code === 403 && /integrity/.test(r.error), r.error);
+r = await call({ action: 'run', session: SA, run: androidRun(aPts, { age: 3600e3 }) });
+ok('Android: old token → rejected', r.code === 403 && /too old/.test(r.error), r.error);
+r = await call({ action: 'run', session: SA, run: androidRun(aPts, { nonce: runDigest('another run') }) });
+ok('Android: token made for a different run → rejected', r.code === 403 && /belong/.test(r.error), r.error);
+const tampered = androidRun(aPts);
+r = await call({ action: 'run', session: SA, run: { ...tampered, points: tampered.points.map((p) => ({ ...p, lat: p.lat + 0.0001 })) } });
+ok('Android: run edited after the token was made → rejected', r.code === 403 && /belong/.test(r.error), r.error);
+r = await call({ action: 'run', session: SA, run: { ...webRun, attestation: { platform: 'android', token: 'not-a-real-token' } } });
+ok('Android: invalid token → rejected', r.code === 403 && /Invalid/.test(r.error), r.error);
+r = await call({ action: 'run', session: SA, run: androidRun(aPts) });
+ok('Android: genuine app on a genuine phone → credited, marked attested', r.code === 200 && r.run.coins > 0 && r.run.attested === true && r.run.device === 'android' && r.run.cadence > 150 && r.run.status === 'held', JSON.stringify(r.run || r));
+
+// iPhone: App Attest, with a test certificate chain standing in for Apple's
+const { execFileSync } = await import('node:child_process');
+const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
+const { tmpdir } = await import('node:os');
+const nodeCrypto = await import('node:crypto');
+const dir = mkdtempSync(`${tmpdir()}/runner-aa-`);
+const ossl = (...a) => execFileSync('openssl', a, { cwd: dir, stdio: 'pipe' });
+ossl('ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', 'root.key');
+ossl('req', '-x509', '-new', '-key', 'root.key', '-subj', '/CN=Test App Attestation Root', '-days', '30', '-out', 'root.pem');
+ossl('ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', 'ca.key');
+ossl('req', '-new', '-key', 'ca.key', '-subj', '/CN=Test App Attestation CA', '-out', 'ca.csr');
+ossl('x509', '-req', '-in', 'ca.csr', '-CA', 'root.pem', '-CAkey', 'root.key', '-set_serial', '2', '-days', '30', '-out', 'ca.pem');
+process.env.REWARDS_TEST_APPLE_ROOT = readFileSync(`${dir}/root.pem`, 'utf8');
+const sha = (...p) => { const h = nodeCrypto.createHash('sha256'); p.forEach((x) => h.update(x)); return h.digest(); };
+const cb = (v) => { // tiny CBOR encoder
+  const head = (mj, n) => (n < 24 ? Buffer.from([mj << 5 | n]) : n < 256 ? Buffer.from([mj << 5 | 24, n]) : Buffer.from([mj << 5 | 25, n >> 8, n & 255]));
+  if (Buffer.isBuffer(v)) return Buffer.concat([head(2, v.length), v]);
+  if (typeof v === 'string') return Buffer.concat([head(3, Buffer.byteLength(v)), Buffer.from(v)]);
+  if (Array.isArray(v)) return Buffer.concat([head(4, v.length), ...v.map(cb)]);
+  if (typeof v === 'number') return head(0, v);
+  const ks = Object.keys(v); return Buffer.concat([head(5, ks.length), ...ks.flatMap((k) => [cb(k), cb(v[k])])]);
+};
+const rpId = (team = TEAM) => sha(`${team}.fun.runearn.app`);
+// A new iPhone key + its attestation over `clientDataHash` (what DCAppAttestService.attestKey returns).
+const newIosKey = (clientDataHash, { team = TEAM, aaguid = Buffer.concat([Buffer.from('appattest'), Buffer.alloc(7)]) } = {}) => {
+  const { privateKey, publicKey } = nodeCrypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const point = publicKey.export({ type: 'spki', format: 'der' }).subarray(-65);
+  const id = sha(point);
+  const authData = Buffer.concat([rpId(team), Buffer.from([0x40]), Buffer.alloc(4), aaguid, Buffer.from([0, 32]), id, Buffer.from('a50102032620012158', 'hex')]);
+  const nonce = sha(authData, clientDataHash);
+  writeFileSync(`${dir}/leaf.key`, privateKey.export({ type: 'sec1', format: 'pem' }));
+  writeFileSync(`${dir}/ext.cnf`, `[v]\n1.2.840.113635.100.8.2 = DER:${['30', '24', 'a1', '22', '04', '20', ...nonce.toString('hex').match(/../g)].join(':')}\n`);
+  ossl('req', '-new', '-key', 'leaf.key', '-subj', '/CN=leaf', '-out', 'leaf.csr');
+  ossl('x509', '-req', '-in', 'leaf.csr', '-CA', 'ca.pem', '-CAkey', 'ca.key', '-set_serial', '3', '-days', '30', '-extfile', 'ext.cnf', '-extensions', 'v', '-out', 'leaf.pem');
+  const der = (f) => new nodeCrypto.X509Certificate(readFileSync(`${dir}/${f}`)).raw;
+  const attestation = cb({ fmt: 'apple-appattest', attStmt: { x5c: [der('leaf.pem'), der('ca.pem')], receipt: Buffer.alloc(0) }, authData }).toString('base64');
+  return { keyId: id.toString('base64'), privateKey, attestation, counter: 0 };
+};
+const assertion = (key, clientDataHash, counter = ++key.counter, team = TEAM) => {
+  const authData = Buffer.concat([rpId(team), Buffer.from([0x40]), Buffer.from([counter >>> 24, (counter >> 16) & 255, (counter >> 8) & 255, counter & 255])]);
+  return cb({ signature: nodeCrypto.sign('sha256', Buffer.concat([authData, clientDataHash]), key.privateKey), authenticatorData: authData }).toString('base64');
+};
+const iosRun = (tokenId, pts) => { const run = { tokenId, points: pts, steps: stepsFor(pts, 165), mockFixes: 0 }; return { run, cdh: sha(runDigest(rules.runPayload(run))) }; };
+let x = iosRun(K[3], track(now - 7000e3, 30, 8));
+const devKey = newIosKey(x.cdh, { aaguid: Buffer.from('appattestdevelop') });
+r = await call({ action: 'run', session: SI, run: { ...x.run, attestation: { platform: 'ios', keyId: devKey.keyId, attestation: devKey.attestation } } });
+ok('iPhone: development (Xcode) build key → rejected', r.code === 403 && /development build/.test(r.error), r.error);
+const wrongTeam = newIosKey(x.cdh, { team: 'ZZZZZ99999' });
+r = await call({ action: 'run', session: SI, run: { ...x.run, attestation: { platform: 'ios', keyId: wrongTeam.keyId, attestation: wrongTeam.attestation } } });
+ok('iPhone: key made for another developer\'s app → rejected', r.code === 403 && /different app/.test(r.error), r.error);
+const otherRun = iosRun(K[3], track(now - 7000e3, 30, 8));
+const misbound = newIosKey(otherRun.cdh);
+r = await call({ action: 'run', session: SI, run: { ...x.run, attestation: { platform: 'ios', keyId: misbound.keyId, attestation: misbound.attestation } } });
+ok('iPhone: attestation for a different run → rejected', r.code === 403 && /belong/.test(r.error), r.error);
+const savedRoot = process.env.REWARDS_TEST_APPLE_ROOT;
+process.env.REWARDS_TEST_APPLE_ROOT = readFileSync(`${dir}/ca.pem`, 'utf8'); // chain no longer ends at the trusted root
+const ik = newIosKey(x.cdh);
+r = await call({ action: 'run', session: SI, run: { ...x.run, attestation: { platform: 'ios', keyId: ik.keyId, attestation: ik.attestation } } });
+ok('iPhone: certificate chain not from Apple → rejected', r.code === 403 && /not from Apple/.test(r.error), r.error);
+process.env.REWARDS_TEST_APPLE_ROOT = savedRoot;
+r = await call({ action: 'run', session: SI, run: { ...x.run, attestation: { platform: 'ios', keyId: ik.keyId, attestation: ik.attestation } } });
+ok('iPhone: first run from a genuine install (attestation) → credited, key registered', r.code === 200 && r.run.attested === true && r.run.device === 'ios' && r.run.coins > 0, JSON.stringify(r.run || r));
+x = iosRun(K[4], track(now - 3000e3, 20, 8));
+r = await call({ action: 'run', session: SI, run: { ...x.run, attestation: { platform: 'ios', keyId: ik.keyId, attestation: ik.attestation } } });
+ok('iPhone: attestation can\'t be reused', r.code === 403, r.error);
+r = await call({ action: 'run', session: SI, run: { ...x.run, attestation: { platform: 'ios', keyId: ik.keyId, assertion: assertion(ik, sha('something else')) } } });
+ok('iPhone: assertion signed over a different run → rejected', r.code === 403 && /belong/.test(r.error), r.error);
+const unknown = nodeCrypto.randomBytes(32).toString('base64');
+r = await call({ action: 'run', session: SI, run: { ...x.run, attestation: { platform: 'ios', keyId: unknown, assertion: assertion(ik, x.cdh) } } });
+ok('iPhone: unknown key → 412 so the app makes a new key', r.code === 412, r.error);
+r = await call({ action: 'run', session: SI, run: { ...x.run, attestation: { platform: 'ios', keyId: ik.keyId, assertion: assertion(ik, x.cdh) } } });
+ok('iPhone: later run signed with the registered key (assertion) → credited', r.code === 200 && r.run.attested === true, JSON.stringify(r.run || r));
+r = await call({ action: 'run', session: SI, run: { ...x.run, attestation: { platform: 'ios', keyId: ik.keyId, assertion: assertion(ik, x.cdh, ik.counter) } } });
+ok('iPhone: replayed assertion counter → rejected', r.code === 403 && /already used/.test(r.error), r.error);
+r = await settingsCall(ADMIN_KEY, rules.DEFAULT_SETTINGS);
+r = await call({ action: 'run', session: SA, run: { tokenId: K[2], points: track(now - 1500e3, 15, 8) } });
+ok('requireAttestation off → website runs earn again (unverified)', r.code === 200 && r.run.attested === null && r.run.device === null, JSON.stringify(r.run || r));
+delete process.env.APPLE_TEAM_ID; delete process.env.REWARDS_FAKE_INTEGRITY; delete process.env.REWARDS_TEST_APPLE_ROOT;
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO] });
 // concurrency lock
 const [a, b] = await Promise.all([call({ action: 'state', session: S }), call({ action: 'state', session: S })]);
