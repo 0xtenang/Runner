@@ -460,7 +460,7 @@ function openSneakerDetail(id, toast, onBought) {
     ${traitRow(t)}
     <div class="sneaker-facts">
       <div><span class="lbl">Pace zone</span><b>${paceRange(zone)}</b></div>
-      <div><span class="lbl">Earns / energy</span><b>${coinTag(earnPerEnergy(preview))}</b></div>
+      <div><span class="lbl">Earns / energy</span><b>${coinTag(earnPerEnergy(preview, game.emissionFactor))}</b></div>
       <div><span class="lbl">Level-up points</span><b>${POINTS_PER_LEVEL[t.rarity]} / level</b></div>
     </div>
     <div class="sneaker-facts">
@@ -535,10 +535,19 @@ function rewardsCard(st) {
   const srv = st.server || { earned: 0, spent: 0 };
   const claimable = claimInfo?.address === auth.state.address ? Math.max(0, srv.earned - srv.spent - claimInfo.claimed) : null;
   return `<span class="muted small">Verified by the RUNNER server. Spend it on level-ups and repairs, or claim it to your wallet as real ${COIN} tokens.</span>
+    ${emissionLine(st.server?.emission)}
     <span class="small">In your wallet: <b>${claimInfo ? `${fmtCoins(claimInfo.wallet)} ${COIN}` : '…'}</b></span>
     <button class="btn primary pill sm" data-act="rw-claim" ${claimable ? '' : 'disabled'}>${claimable ? `Claim ${fmtCoins(claimable)} ${COIN} to wallet` : 'Nothing to claim yet'}</button>
     <span class="muted small" id="rw-status" role="status"></span>
     ${holderRewardsBlock()}`;
+}
+
+/** "Emission today 10M · rate 100% · halves 22 Nov" */
+function emissionLine(em) {
+  if (!em?.startDay) return '';
+  const fmtM = (n) => (n >= 1e6 ? `${(n / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 })}M` : `${Math.round(n / 1e3)}k`);
+  const next = em.nextHalving ? ` · halves ${new Date(em.nextHalving).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ' · final rate';
+  return `<span class="small">Emission today <b>${fmtM(em.limit)} ${COIN}</b> · earn rate <b>${Math.round(em.factor * 100)}%</b>${next}</span>`;
 }
 
 function holderRewardsBlock() {
@@ -597,7 +606,7 @@ export function renderEarn(view, { toast, onCleanup }) {
         ${traitRow(s)}
         <div class="sneaker-facts">
           <div><span class="lbl">Pace zone</span><b>${paceRange(SNEAKER_TYPES[s.type])}</b></div>
-          <div><span class="lbl">Per energy</span><b>${coinTag(earnPerEnergy(preview))}</b></div>
+          <div><span class="lbl">Per energy</span><b>${coinTag(earnPerEnergy(preview, game.emissionFactor))}</b></div>
           <div><span class="lbl">Wear / energy</span><b>${durabilityLossPerEnergy(preview).toFixed(1)}</b></div>
         </div>
         ${s.unspent > 0 ? `
@@ -720,11 +729,11 @@ export function renderEarn(view, { toast, onCleanup }) {
           const status = view.querySelector('#rw-status');
           const say = (t) => { if (status) status.textContent = t; };
           try {
-            const { hash, amount } = await claimRewards(say);
+            const { hash, amount, partial } = await claimRewards(say);
             say('Sent — waiting for the network…');
             await waitForReceipt(hash);
             say('');
-            showReveal({ kicker: 'Claimed', title: `${fmtCoins(amount)} ${COIN} is in your wallet`, coins: amount, note: `<a href="${tokenExplorerTx(hash)}" target="_blank" rel="noopener">View transaction</a>` });
+            showReveal({ kicker: 'Claimed', title: `${fmtCoins(amount)} ${COIN} is in your wallet`, coins: amount, note: `${partial ? "Today's claim limit is nearly used up, so this was a partial claim — the rest stays in your balance for tomorrow. " : ''}<a href="${tokenExplorerTx(hash)}" target="_blank" rel="noopener">View transaction</a>` });
             claimInfo = null;
             draw();
           } catch (err) {

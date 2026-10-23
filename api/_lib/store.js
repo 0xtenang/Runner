@@ -42,3 +42,9 @@ export async function del(key) {
   if (memory) { memory.delete(key); return; }
   await redis('DEL', key);
 }
+
+/** Atomically adds `n` (integer) to a counter and returns the new value. */
+export async function incrBy(key, n) {
+  if (memory) { const v = (memory.get(key) ? JSON.parse(memory.get(key).v) : 0) + n; memory.set(key, { v: JSON.stringify(v) }); return v; }
+  return Number(await redis('INCRBY', key, String(n)));
+}

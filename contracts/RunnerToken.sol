@@ -20,7 +20,8 @@ pragma solidity 0.8.24;
 ///         balance at the end of the day} and a running total of eligible balances, so
 ///         nothing ever loops over holders. Run rewards: the RUNNER server signs an EIP-712
 ///         message "account has earned `totalEarned` in total"; claim() pays the difference
-///         to what was already claimed, limited by a daily cap. The owner can never take
+///         to what was already claimed, limited by the fixed emission schedule (10M/day,
+///         halving every 30 days, floor 100k/day) counted from startEmission(). The owner can never take
 ///         tokens out of the run-reward pool or the holder-reward bucket, and cannot change
 ///         the tax.
 contract RunnerToken {
@@ -37,9 +38,11 @@ contract RunnerToken {
     uint256 public constant HOLDER_TAX_BPS = 200;     // 2%
     uint256 public constant MIN_HOLDING = 300_000 ether;
     uint256 public constant CLAIM_WINDOW_DAYS = 7;
-    /// Hard ceiling for dailyClaimCap: even a stolen owner key can move at most this much
-    /// out of the run-reward pool per day.
-    uint256 public constant MAX_DAILY_CLAIM_CAP = 2_000_000 ether;
+    /// Run-reward emission schedule, fixed forever: 10,000,000 RUNNER/day when emission
+    /// starts, halving every 30 days, never below 100,000/day (until the pool is empty).
+    uint256 public constant EMISSION_START = 10_000_000 ether;
+    uint256 public constant HALVING_DAYS = 30;
+    uint256 public constant EMISSION_FLOOR = 100_000 ether;
     uint256 private constant BPS = 10_000;
 
     bytes32 private constant DOMAIN_TYPEHASH =
@@ -66,7 +69,7 @@ contract RunnerToken {
     address public protocolWallet;
     address public signer;
     bool public claimsPaused;
-    uint256 public dailyClaimCap = 1_000_000 ether;
+    uint256 public emissionStartDay;     // 0 = emission not started yet
     uint256 public totalClaimed;
 
     uint256 public eligibleSupply;       // sum of balances >= MIN_HOLDING of non-excluded wallets
@@ -97,7 +100,7 @@ contract RunnerToken {
     event ProtocolWalletChanged(address indexed wallet);
     event SignerChanged(address indexed signer);
     event ClaimsPausedChanged(bool paused);
-    event DailyClaimCapChanged(uint256 cap);
+    event EmissionStarted(uint256 day);
 
     error NotOwner();
     error ZeroAddress();
@@ -112,7 +115,8 @@ contract RunnerToken {
     error NotAContract();
     error AlreadyPair();
     error NotAPool();
-    error CapTooHigh();
+    error EmissionNotStarted();
+    error AlreadyStarted();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -260,6 +264,7 @@ contract RunnerToken {
     ///         tokens always go to `account`.
     function claim(address account, uint256 totalEarned, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         if (claimsPaused) revert ClaimsPaused();
+        if (emissionStartDay == 0) revert EmissionNotStarted();
         if (block.timestamp > deadline) revert Expired();
         if (account == address(0)) revert ZeroAddress();
         bytes32 digest = keccak256(abi.encodePacked(
@@ -273,7 +278,7 @@ contract RunnerToken {
         if (totalEarned <= done) revert NothingToClaim();
         uint256 amount = totalEarned - done;
         uint256 day = _today();
-        if (claimedOnDay[day] + amount > dailyClaimCap) revert DailyCapReached();
+        if (claimedOnDay[day] + amount > emissionOn(day)) revert DailyCapReached();
         if (rewardsRemaining() < amount) revert PoolEmpty();
 
         claimed[account] = totalEarned;
@@ -281,6 +286,23 @@ contract RunnerToken {
         totalClaimed += amount;
         _move(address(this), account, amount, day);
         emit Claimed(account, amount, totalEarned);
+    }
+
+    /// @notice Most RUNNER the run-reward pool can pay out on `day` (0 before emission starts).
+    function emissionOn(uint256 day) public view returns (uint256) {
+        uint256 start = emissionStartDay;
+        if (start == 0 || day < start) return 0;
+        uint256 halvings = (day - start) / HALVING_DAYS;
+        uint256 amount = halvings >= 64 ? 0 : EMISSION_START >> halvings;
+        return amount > EMISSION_FLOOR ? amount : EMISSION_FLOOR;
+    }
+
+    /// @notice Today's run-reward emission and how much of it is still unclaimed.
+    function emissionToday() external view returns (uint256 limit, uint256 remaining) {
+        uint256 day = _today();
+        limit = emissionOn(day);
+        uint256 used = claimedOnDay[day];
+        remaining = limit > used ? limit - used : 0;
     }
 
     function domainSeparator() public view returns (bytes32) {
@@ -321,10 +343,12 @@ contract RunnerToken {
         emit ClaimsPausedChanged(paused_);
     }
 
-    function setDailyClaimCap(uint256 cap) external onlyOwner {
-        if (cap > MAX_DAILY_CLAIM_CAP) revert CapTooHigh();
-        dailyClaimCap = cap;
-        emit DailyClaimCapChanged(cap);
+    /// @notice Start the run-reward emission schedule today. Can only happen once.
+    function startEmission() external onlyOwner {
+        if (emissionStartDay != 0) revert AlreadyStarted();
+        uint256 today = _today();
+        emissionStartDay = today;
+        emit EmissionStarted(today);
     }
 
     function transferOwnership(address newOwner) external onlyOwner {

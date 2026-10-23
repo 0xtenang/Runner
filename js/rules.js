@@ -5,8 +5,12 @@
 //   Class    — sets the pace zone you earn in.
 //   Energy   — every 5 minutes of earning costs 1 energy. Max energy grows with
 //              the number of sneakers you own and refills fully every 24 h.
-//   Earning  — RUNNER/minute = 0.15 × Efficiency, only while your GPS pace is
-//              inside the sneaker's zone. +10% with a live Bluetooth HR sensor.
+//   Earning  — RUNNER/minute = 112.5 × Efficiency × emission factor, only while
+//              your GPS pace is inside the sneaker's zone. +10% with a live
+//              Bluetooth HR sensor.
+//   Emission — mirrors RunnerToken: 10M RUNNER/day from the start day, halving every
+//              30 days, never below 100k/day. The emission factor (1, ½, ¼ … down to
+//              1%) scales every runner's earn rate on the same dates.
 //   Durability drops per energy spent (less with high Resilience); below 50 it
 //              cuts Efficiency. Repair it with RUNNER.
 //   Levels   — level-ups cost RUNNER and grant attribute points (4/6/8/10 by
@@ -57,10 +61,34 @@ export function attrs(s, staged = null) {
   return { efficiency: v('efficiency') * wear, resilience: v('resilience') };
 }
 
-export const earnPerMinute = (s) => 0.15 * attrs(s).efficiency * SNEAKER_TYPES[s.type].mult;
-export const earnPerEnergy = (s) => earnPerMinute(s) * MINUTES_PER_ENERGY;
-export const levelUpCost = (s) => 10 * (s.level + 1);
-export const repairCost = (s) => Math.ceil((100 - s.durability) * 0.1 * (1 + s.level * 0.1));
+// ---------------------------------------------------------------- emission (halving)
+// Same numbers as RunnerToken.sol (EMISSION_START, HALVING_DAYS, EMISSION_FLOOR).
+export const EMISSION_START = 10_000_000;
+export const HALVING_DAYS = 30;
+export const EMISSION_FLOOR = 100_000;
+/** Earn-rate scale: sized so ~1,000 daily runners use the launch-day emission. */
+export const EARN_SCALE = 750;
+
+/** RUNNER the pool may pay out on UTC day `day` (0 before the start day). */
+export function emissionOn(day, startDay) {
+  if (!startDay || day < startDay) return 0;
+  const halvings = Math.floor((day - startDay) / HALVING_DAYS);
+  return Math.max(EMISSION_START / 2 ** halvings, EMISSION_FLOOR);
+}
+/** 1 at launch, ½ after 30 days, ¼ after 60 … never below 1%. */
+export const emissionFactor = (day, startDay) => (startDay ? emissionOn(Math.max(day, startDay), startDay) / EMISSION_START : 1);
+export const utcDay = (t = Date.now()) => Math.floor(t / 864e5);
+/** Next halving date (ms) or null once the floor is reached. */
+export function nextHalving(day, startDay) {
+  if (!startDay || emissionOn(day, startDay) <= EMISSION_FLOOR) return null;
+  const n = Math.floor((day - startDay) / HALVING_DAYS) + 1;
+  return (startDay + n * HALVING_DAYS) * 864e5;
+}
+
+export const earnPerMinute = (s, factor = 1) => 0.15 * EARN_SCALE * factor * attrs(s).efficiency * SNEAKER_TYPES[s.type].mult;
+export const earnPerEnergy = (s, factor = 1) => earnPerMinute(s, factor) * MINUTES_PER_ENERGY;
+export const levelUpCost = (s) => 10 * EARN_SCALE * (s.level + 1);
+export const repairCost = (s) => Math.ceil((100 - s.durability) * 0.1 * EARN_SCALE * (1 + s.level * 0.1));
 export const durabilityLossPerEnergy = (s) => Math.max(0.5, 3 - attrs(s).resilience * 0.05);
 
 /** A playable sneaker for Genesis token `tokenId` (fresh progress). */
@@ -78,8 +106,9 @@ export function sneakerFromToken(tokenId) {
 // ---------------------------------------------------------------- live session
 /** Tracks earning during one recording, second by second. */
 export class EarnSession {
-  constructor(sneaker, energyAvailable) {
+  constructor(sneaker, energyAvailable, factor = 1) {
     this.sneaker = sneaker ? structuredClone(sneaker) : null;
+    this.factor = factor;
     this.energyStart = energyAvailable;
     this.used = 0;
     this.coins = 0;
@@ -106,15 +135,15 @@ export class EarnSession {
     const e = Math.min(this.energyLeft, dt / (MINUTES_PER_ENERGY * 60));
     const frac = e / (dt / (MINUTES_PER_ENERGY * 60));
     this.used += e;
-    this.coins += (earnPerMinute(s) * dt * frac / 60) * (hasHr ? HR_BONUS : 1);
+    this.coins += (earnPerMinute(s, this.factor) * dt * frac / 60) * (hasHr ? HR_BONUS : 1);
     this.zoneSec += dt * frac;
     if (hasHr) this.hrSec += dt * frac;
     return (this.status = 'earning');
   }
 
   toJSON() {
-    const { sneaker, energyStart, used, coins, zoneSec, offSec, vehicleSec, hrSec } = this;
-    return { sneakerId: sneaker?.id, energyStart, used, coins, zoneSec, offSec, vehicleSec, hrSec };
+    const { sneaker, energyStart, used, coins, zoneSec, offSec, vehicleSec, hrSec, factor } = this;
+    return { sneakerId: sneaker?.id, energyStart, used, coins, zoneSec, offSec, vehicleSec, hrSec, factor };
   }
 }
 
@@ -134,8 +163,8 @@ const TELEPORT_MS = 15;      // a single jump faster than this (54 km/h) is a ve
  * pause) through EarnSession, the same way the app does live. The server uses
  * this to decide what a run really earned.
  */
-export function scoreTrack(points, sneaker, energyAvailable) {
-  const session = new EarnSession(sneaker, energyAvailable);
+export function scoreTrack(points, sneaker, energyAvailable, factor = 1) {
+  const session = new EarnSession(sneaker, energyAvailable, factor);
   for (let i = 1; i < points.length; i++) {
     const p = points[i], prev = points[i - 1];
     if (p.b) continue;                                   // pause: no time counted

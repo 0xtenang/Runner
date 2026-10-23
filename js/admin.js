@@ -39,7 +39,7 @@ const CONTRACTS = {
     file: 'RunnerToken.sol', contract: 'RunnerToken',
     chain: TOKEN_CHAIN, configured: TOKEN_CONTRACT, fingerprint: TOKEN_CREATION_CODE_KECCAK,
     minBalance: 5n * 10n ** 14n, goodBalance: 10n ** 15n,
-    about: `The ERC-20 token, fixed supply of 1,000,000,000 RUNNER: 800M run-reward pool (locked in the contract, paid only through verified claims), 100M liquidity to the dev wallet <span class="mono">${shortAddress(DEV_WALLET)}</span>, 100M team to <span class="mono">${shortAddress(TEAM_WALLET)}</span>. 4% tax on buys/sells (2% protocol, 2% to holders of 300k+), fixed forever. The dev wallet becomes owner. No more tokens can ever be created. <a href="https://github.com/0xtenang/Runner/blob/main/AUDIT.md" target="_blank" rel="noopener">Read the audit report first.</a>`,
+    about: `The ERC-20 token, fixed supply of 1,000,000,000 RUNNER: 800M run-reward pool (locked in the contract, paid only through verified claims), 100M liquidity to the dev wallet <span class="mono">${shortAddress(DEV_WALLET)}</span>, 100M team to <span class="mono">${shortAddress(TEAM_WALLET)}</span>. 4% tax on buys/sells (2% protocol, 2% to holders of 300k+), fixed forever. Run rewards: 10M/day from launch, halving every 30 days, floor 100k/day. The dev wallet becomes owner. No more tokens can ever be created. <a href="https://github.com/0xtenang/Runner/blob/main/AUDIT.md" target="_blank" rel="noopener">Read the audit report first.</a>`,
     roles: `Owner + 100M liquidity: dev wallet ${DEV_WALLET}\n100M team: ${TEAM_WALLET}\n800M run rewards: locked in the contract`,
     next: 'send this to Claude to connect the app and the claim server',
     /** constructor(owner, liquidityWallet, teamWallet) */
@@ -213,9 +213,11 @@ async function refreshServer() {
     row(Boolean(s.signer), s.signer ? `Server key set — address <span class="mono">${esc(s.signer)}</span>` : 'Server key missing (step a)'),
     row(s.store, s.store ? 'Database connected' : 'Database missing (step b)'),
     row(Boolean(s.signer && onChainSigner && onChainSigner.toLowerCase() === s.signer.toLowerCase()), onChainSigner && BigInt(onChainSigner) ? `Token's server address: <span class="mono">${esc(onChainSigner)}</span>` : 'Server address not authorized on the token yet (step c)'),
+    row(Boolean(s.emission), s.emission ? `Emission started (UTC day ${s.emission.startDay}) — today ${Math.round(s.emission.limit).toLocaleString()} RUNNER, rate ${Math.round(s.emission.factor * 100)}%` : 'Emission not started yet (step d)'),
     s.live ? '<div class="ok">Rewards server is live.</div>' : '',
   ].join('');
   $('#b-setsigner').disabled = !(TOKEN_CONTRACT && s?.signer && (!onChainSigner || onChainSigner.toLowerCase() !== s.signer.toLowerCase()));
+  $('#b-emission').disabled = !(TOKEN_CONTRACT && s && !s.emission);
 }
 
 $('#b-genkey').onclick = async () => {
@@ -269,6 +271,12 @@ $('#b-setsigner').onclick = async () => {
   const signer = serverStatus?.signer;
   if (!signer) return;
   await runTx($('#b-setsigner'), $('#setsigner'), () => sendAsDev(TOKEN_CONTRACT, `0x6c19e783${encAddress(signer)}`), '✓ Server address set — claims are on.'); // setSigner(address)
+  refreshServer();
+};
+
+$('#b-emission').onclick = async () => {
+  if (!confirm('Start the RUNNER run-reward emission today?\n\n10,000,000 RUNNER/day, halving every 30 days, never below 100,000/day. This can only be done once and can\'t be undone.')) return;
+  await runTx($('#b-emission'), $('#emission'), () => sendAsDev(TOKEN_CONTRACT, '0xbcccf888'), '✓ Emission started.'); // startEmission()
   refreshServer();
 };
 

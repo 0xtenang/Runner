@@ -119,7 +119,7 @@ export async function settleRun(earnSession, activityId, points) {
     const r = await post({ action: 'run', run });
     await game.applyServer(r.state);
     game.logServerRun(r.run, activityId);
-    return { ...base, coins: r.run.coins, energy: r.run.energy, voided: r.run.voided, zoneSec: r.run.zoneSec };
+    return { ...base, coins: r.run.coins, energy: r.run.energy, voided: r.run.voided, capped: r.run.capped, zoneSec: r.run.zoneSec };
   } catch (e) {
     if (e.offline || e.status >= 500 || e.status === 409 && /Busy/.test(e.message)) {
       await game.queuePending(run);
@@ -178,7 +178,7 @@ export async function claimRewards(onStatus = () => {}) {
   const data = `0x0d48a771${addrWord(c.account)}${word(c.totalEarned)}${word(c.deadline)}${word(c.v)}${c.r.slice(2)}${c.s.slice(2)}`;
   onStatus('Confirm the claim in your wallet…');
   const hash = await auth.sendTx({ to: TOKEN_CONTRACT, data, chainId: TOKEN_CHAIN.id });
-  return { hash, amount: Number(BigInt(c.totalEarned) - already) / 1e18 };
+  return { hash, amount: Number(BigInt(c.totalEarned) - already) / 1e18, partial: Boolean(c.partial) };
 }
 
 // ------------------------------------------------------------------ holder rewards (2% of trades)

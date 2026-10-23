@@ -8,6 +8,11 @@
 //     levelup / allocate / repair  → in-app spending from the server balance
 //     claim    {session}           → EIP-712 signature for RunnerToken.claim()
 //
+// Emission follows the token's halving schedule (js/rules.js mirrors it): every
+// run's earn rate is multiplied by that day's emission factor, the server never
+// credits more than the day's emission in total, and claims are limited to what
+// the contract can still pay out today (partial claims when it's nearly used up).
+//
 // Amounts are kept as integer micro-RUNNER (1e-6). Spending can only use what
 // hasn't been signed for claiming, so a signature can never be "spent twice".
 //
@@ -17,10 +22,11 @@ import { TOKEN_CHAIN, TOKEN_CONTRACT as CONFIG_TOKEN, NFT_CONTRACT as CONFIG_NFT
 import {
   scoreTrack, isVoided, maxEnergy, regenEnergy, sneakerFromToken, levelUpCost, repairCost,
   durabilityLossPerEnergy, ATTRS, POINTS_PER_LEVEL, MAX_LEVEL, round2,
+  emissionOn, emissionFactor, nextHalving, utcDay,
 } from '../js/rules.js';
 import { addressOfKey, claimDigest, signDigest, personalDigest, recoverAddress, keccak, toHex, isAddress } from './_lib/eth.js';
 import * as store from './_lib/store.js';
-import { ownedTokenIds } from './_lib/chain.js';
+import { ownedTokenIds, emissionStartDay, claimState } from './_lib/chain.js';
 
 const env = globalThis.process?.env || {};
 const KEY = (env.SIGNER_PRIVATE_KEY || '').trim();
@@ -40,7 +46,14 @@ const fail = (status, message) => { throw new HttpError(status, message); };
 const signerAddress = () => {
   try { return /^(0x)?[0-9a-fA-F]{64}$/.test(KEY) ? addressOfKey(KEY) : null; } catch { return null; }
 };
-const isLive = () => Boolean(signerAddress() && store.storeConfigured() && isAddress(TOKEN_CONTRACT) && isAddress(NFT_CONTRACT));
+const contractsSet = () => isAddress(TOKEN_CONTRACT) && isAddress(NFT_CONTRACT);
+let startDay = 0; // emission start day, read from the token on each request (cached once set)
+const isLive = () => Boolean(signerAddress() && store.storeConfigured() && contractsSet() && startDay);
+
+function emissionView() {
+  const today = utcDay();
+  return { startDay, today, limit: emissionOn(today, startDay), factor: emissionFactor(today, startDay), nextHalving: nextHalving(today, startDay) };
+}
 
 // ------------------------------------------------------------------ sessions
 // Token = base64url(json) + "." + keccak(secret ‖ json). keccak has no length
@@ -113,6 +126,7 @@ async function view(address, u, owned) {
     owned,
     sneakers,
     runs: u.runs,
+    emission: emissionView(),
   };
 }
 
@@ -164,10 +178,20 @@ async function submitRun(address, { run }) {
     const s = await loadSneaker(tokenId);
     if (start < s.lastEnd) fail(409, `Genesis #${tokenId} was already used during this time.`);
 
-    const session = scoreTrack(pts, s, u.energy);
+    const day = utcDay(end);
+    const factor = emissionFactor(day, startDay);
+    const session = scoreTrack(pts, s, u.energy, factor);
     const voided = isVoided(session);
     const used = voided ? 0 : Math.min(session.used, u.energy);
-    const micro = voided || session.used <= 0 ? 0 : Math.floor(session.coins * (used / session.used) * MICRO);
+    let micro = voided || session.used <= 0 ? 0 : Math.floor(session.coins * (used / session.used) * MICRO);
+    // Never credit more than the day's emission across all runners.
+    let capped = false;
+    if (micro > 0) {
+      const budget = Math.round(emissionOn(day, startDay) * MICRO);
+      const total = await store.incrBy(`rw:budget:${day}`, micro);
+      const over = Math.min(micro, Math.max(0, total - budget));
+      if (over > 0) { await store.incrBy(`rw:budget:${day}`, -over); micro -= over; capped = true; }
+    }
 
     u.energy = Math.max(0, u.energy - used);
     u.earned += micro;
@@ -178,7 +202,7 @@ async function submitRun(address, { run }) {
     const record = {
       id: toHex(keccak(`${address}:${tokenId}:${start}:${end}`)).slice(0, 16),
       start, end, tokenId, coins: micro / MICRO, energy: round2(used), zoneSec: Math.round(session.zoneSec),
-      vehicleSec: Math.round(session.vehicleSec), voided,
+      vehicleSec: Math.round(session.vehicleSec), voided, capped, factor,
     };
     u.runs = [record, ...u.runs].slice(0, 30);
     return { run: record, state: await view(address, u, owned) };
@@ -223,11 +247,22 @@ async function claim(address) {
   return withUser(address, async (u, owned) => {
     const total = u.earned - u.spent;              // everything ever earned and not spent in-app
     if (total <= 0) fail(400, 'Nothing to claim yet — go for a run!');
-    const totalWei = BigInt(total) * 10n ** 12n;
+    // The contract pays at most today's emission across everyone: sign only what still fits.
+    const today = utcDay();
+    const chain = await claimState(address, today, TOKEN_CONTRACT);
+    const doneMicro = Number(chain.claimed / 10n ** 12n);
+    const leftToday = Math.max(0, Math.floor(emissionOn(today, startDay) * MICRO) - Number(chain.claimedToday / 10n ** 12n));
+    const allowed = Math.min(total, doneMicro + leftToday);
+    if (allowed <= doneMicro) {
+      fail(total > doneMicro ? 429 : 400, total > doneMicro
+        ? "Today's RUNNER claim limit is used up. Your balance is safe — claim again after 07:00 WIB (00:00 UTC)."
+        : 'Everything you earned is already in your wallet.');
+    }
+    const totalWei = BigInt(allowed) * 10n ** 12n;
     const deadline = Math.floor(Date.now() / 1000) + CLAIM_TTL_S;
     const sig = await signDigest(claimDigest({ token: TOKEN_CONTRACT, chainId: TOKEN_CHAIN.id, account: address, totalWei, deadline }), KEY);
-    u.signed = total;                              // from now on this amount can't be spent in-app
-    return { claim: { contract: TOKEN_CONTRACT, chainId: TOKEN_CHAIN.id, account: address, totalEarned: totalWei.toString(), deadline, ...sig }, state: await view(address, u, owned) };
+    u.signed = Math.max(u.signed, allowed);        // from now on this amount can't be spent in-app
+    return { claim: { contract: TOKEN_CONTRACT, chainId: TOKEN_CHAIN.id, account: address, totalEarned: totalWei.toString(), deadline, partial: allowed < total, ...sig }, state: await view(address, u, owned) };
   });
 }
 
@@ -242,8 +277,9 @@ export default async function handler(req, res) {
   try {
     const body = req.method === 'POST' ? (typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {}) : { action: req.query?.action || 'status' };
     const action = body.action;
+    if (contractsSet() && (!startDay || TESTING)) startDay = await emissionStartDay(TOKEN_CONTRACT).catch(() => 0);
     if (action === 'status') {
-      res.status(200).json({ live: isLive(), signer: signerAddress(), store: store.storeConfigured(), token: TOKEN_CONTRACT || null, nft: NFT_CONTRACT || null, chainId: TOKEN_CHAIN.id });
+      res.status(200).json({ live: isLive(), signer: signerAddress(), store: store.storeConfigured(), token: TOKEN_CONTRACT || null, nft: NFT_CONTRACT || null, chainId: TOKEN_CHAIN.id, emission: startDay ? emissionView() : null });
       return;
     }
     if (req.method !== 'POST') fail(405, 'POST only');

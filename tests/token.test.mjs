@@ -4,6 +4,7 @@
 // Run: cd tests && npm install && node token.test.mjs
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { compile, readContract, iface, chain, u, errSel, word, addrWord, keccakHex, toHex } from './evm.mjs';
+import { emissionOn as jsEmissionOn } from '../js/rules.js';
 
 const E18 = 10n ** 18n;
 const DAY = 86400;
@@ -62,7 +63,7 @@ async function setup() {
   ok('owner + protocol wallet = dev', u(await view('owner')) === BigInt(DEV) && u(await view('protocolWallet')) === BigInt(DEV));
   ok('tax constants 2% + 2%', u(await view('PROTOCOL_TAX_BPS')) === 200n && u(await view('HOLDER_TAX_BPS')) === 200n);
   ok('min holding 300,000', u(await view('MIN_HOLDING')) === 300_000n * E18);
-  ok('every state-changing function is accounted for (none change tax, mint, or take pooled funds)', JSON.stringify(T.writes) === JSON.stringify(['addPair', 'approve', 'burn', 'burnFrom', 'claim', 'claimHolderRewards', 'setClaimsPaused', 'setDailyClaimCap', 'setProtocolWallet', 'setSigner', 'sweepExpired', 'transfer', 'transferFrom', 'transferOwnership']), T.writes.join(' '));
+  ok('every state-changing function is accounted for (none change tax, mint, or take pooled funds)', JSON.stringify(T.writes) === JSON.stringify(['addPair', 'approve', 'burn', 'burnFrom', 'claim', 'claimHolderRewards', 'setClaimsPaused', 'setProtocolWallet', 'setSigner', 'startEmission', 'sweepExpired', 'transfer', 'transferFrom', 'transferOwnership']), T.writes.join(' '));
   ok('contract excluded from holder rewards', u(await view('excludedFromHolderRewards', tok)) === 1n);
   ok('eligible supply = dev + team (200M)', u(await view('eligibleSupply')) === 200_000_000n * E18);
   ok('zero team rejected', reverts(await c.send(DEPLOYER, null, T.ctor(DEV, DEV, ZERO)), 'ZeroAddress'));
@@ -89,12 +90,12 @@ async function setup() {
   ok('addPair rejects smart-contract wallets (not a RUNNER pool)', reverts(await call(DEV, 'addPair', smart), 'NotAPool'));
   const other = (await c.send(DEPLOYER, null, OP.ctor())).created;
   ok('addPair rejects pools of other tokens', reverts(await call(DEV, 'addPair', other), 'NotAPool'));
-  ok('daily cap has a hard ceiling (2M)', reverts(await call(DEV, 'setDailyClaimCap', 2_000_001n * E18), 'CapTooHigh') && (await call(DEV, 'setDailyClaimCap', 2_000_000n * E18)).ok);
+  ok('no adjustable daily cap exists (schedule is fixed)', !T.selectors.some((x) => /DailyClaimCap/.test(x)));
   ok('non-owner protocol wallet', reverts(await call(W(1), 'setProtocolWallet', W(1)), 'NotOwner'));
   ok('owner sets protocol wallet', (await call(DEV, 'setProtocolWallet', W(9))).ok && u(await view('protocolWallet')) === BigInt(W(9)));
   await call(DEV, 'transferOwnership', W(8));
   ok('old owner locked out', reverts(await call(DEV, 'setSigner', DEV), 'NotOwner'));
-  ok('new owner works', (await call(W(8), 'setDailyClaimCap', 5n)).ok);
+  ok('new owner works', (await call(W(8), 'setClaimsPaused', false)).ok);
 }
 
 // =================================================================== run-reward claims
@@ -112,9 +113,27 @@ async function setup() {
   const dl = () => c.now + 3600n;
   ok('domain separator matches', (await view('domainSeparator')).slice(2) === domain);
   let sg = sign(SKEY, W(1), 100n * E18, dl());
-  ok('no signer → rejected', reverts(await claim(W(1), W(1), 100n * E18, dl(), sg), 'BadSignature'));
   ok('only owner sets signer', reverts(await call(W(1), 'setSigner', W(1)), 'NotOwner'));
   await call(DEV, 'setSigner', SIGNER);
+  ok('claims blocked before emission starts', reverts(await claim(W(1), W(1), 100n * E18, dl(), sg), 'EmissionNotStarted'));
+  ok('emission 0 before start', u(await view('emissionOn', 20_500)) === 0n);
+  ok('only owner starts emission', reverts(await call(W(1), 'startEmission'), 'NotOwner'));
+  ok('owner starts emission', (await call(DEV, 'startEmission')).ok);
+  ok('emission starts only once', reverts(await call(DEV, 'startEmission'), 'AlreadyStarted'));
+  const start = Number(u(await view('emissionStartDay')));
+  ok('start day = today', start === 20_500);
+  const em = async (d) => u(await view('emissionOn', d)) / E18;
+  ok('10M/day for the first 30 days', await em(start) === 10_000_000n && await em(start + 29) === 10_000_000n);
+  ok('halves on day 30 and 60', await em(start + 30) === 5_000_000n && await em(start + 60) === 2_500_000n);
+  ok('floor 100k after the 7th halving', await em(start + 180) === 156_250n && await em(start + 210) === 100_000n && await em(start + 100_000) === 100_000n);
+  let mirror = true;
+  for (let d = start - 3; d < start + 400; d++) if (Number(await em(d)) !== Math.floor(jsEmissionOn(d, start))) mirror = false;
+  ok('app/server schedule (js/rules.js) matches the contract for 400 days', mirror);
+  const today0 = await view('emissionToday');
+  await call(DEV, 'setSigner', ZERO);
+  ok('no signer → rejected', reverts(await claim(W(1), W(1), 100n * E18, dl(), sg), 'BadSignature'));
+  await call(DEV, 'setSigner', SIGNER);
+  ok('emissionToday: full limit unused', u(today0, 0) === 10_000_000n * E18 && u(today0, 1) === 10_000_000n * E18);
   const r = await claim(W(7), W(1), 100n * E18, dl(), sg);
   ok('claim pays runner (submitted by anyone), untaxed', r.ok && await bal(W(1)) === 100n * E18 && await bal(W(7)) === 0n, `gas ${r.gas}`);
   ok('replay', reverts(await claim(W(1), W(1), 100n * E18, dl(), sg), 'NothingToClaim'));
@@ -131,8 +150,13 @@ async function setup() {
   await call(DEV, 'setClaimsPaused', true);
   ok('paused', reverts(await claim(W(1), W(1), 300n * E18, dl(), sg), 'ClaimsPaused'));
   await call(DEV, 'setClaimsPaused', false);
-  await call(DEV, 'setDailyClaimCap', 400n * E18);
-  ok('daily cap', reverts(await claim(W(1), W(1), 300n * E18 + 400n * E18, dl(), sign(SKEY, W(1), 700n * E18, dl())), 'DailyCapReached'));
+  const bigTotal = 250n * E18 + 10_000_000n * E18; // more than today's 10M emission
+  ok('claim over today\'s emission rejected', reverts(await claim(W(1), W(1), bigTotal, dl(), sign(SKEY, W(1), bigTotal, dl())), 'DailyCapReached'));
+  const t1 = await view('emissionToday');
+  ok('emissionToday counts claims', u(t1, 1) === 10_000_000n * E18 - 250n * E18);
+  c.addTime(31 * DAY);
+  ok('after the halving, 5M/day: 5M+1 rejected, 5M ok', reverts(await claim(W(1), W(1), 250n * E18 + 5_000_001n * E18, c.now + 3600n, sign(SKEY, W(1), 250n * E18 + 5_000_001n * E18, c.now + 3600n)), 'DailyCapReached')
+    && (await claim(W(1), W(1), 250n * E18 + 5_000_000n * E18, c.now + 3600n, sign(SKEY, W(1), 250n * E18 + 5_000_000n * E18, c.now + 3600n))).ok);
   // pool never counts holder tax: create holder tax, then try to claim more than the pool
   const pair = await newPair();
   await call(DEV, 'transfer', pair, 10_000_000n * E18);

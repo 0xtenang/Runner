@@ -72,8 +72,17 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 
 - **4% trading tax, fixed forever.** It applies to buys and sells through registered exchange pools: 2% goes to the protocol wallet and 2% to holders. Wallet-to-wallet transfers and run-reward claims are untaxed. Pools are registered with `addPair` after liquidity is added; only real RUNNER pools are accepted, and they can't be removed.
 - **Holder rewards.** Each UTC day's 2% is shared by every wallet that held at least **300,000 RUNNER for that whole day**, in proportion to its lowest balance that day. It can be claimed (`claimHolderRewards`, also on the Earn tab) for **7 days**. After that, `sweepExpired` sends what's left to the protocol wallet; anyone can call it. Exchange pools and the contract get no share; dev and team wallets do.
-- **Run-reward claims.** The RUNNER server signs "this account has earned X in total", and `claim()` pays X minus what was already claimed. A daily cap applies: 1,000,000 by default, and it can never go above 2,000,000. The owner can rotate the server key or pause claims, but can **never** take tokens from the reward pool or the holder rewards.
-- Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0x56b86374daef492b5034060bd22303acd9474669b2686c54cf5166a38f3c973a`.
+- **Run-reward emission (halving), fixed in the contract.** It's 10,000,000 RUNNER a day from launch day (`startEmission`, once), halving every 30 days (10M → 5M → 2.5M …) and never dropping below 100,000 a day:
+
+  | Period | Emission |
+  |---|---|
+  | Month 1 | ≈38% of the pool |
+  | First 3 months | ≈66% |
+  | Month 8 onward | 100k/day for about 5.5 more years |
+
+  Runners' earn rates halve on the same dates, the server never credits more than the day's emission, and claims beyond today's emission become partial claims finished the next day.
+- **Run-reward claims.** The RUNNER server signs "this account has earned X in total", and `claim()` pays X minus what was already claimed. The owner can rotate the server key or pause claims, but can **never** change the schedule or take tokens from the reward pool or the holder rewards.
+- Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0x09f7e89bbe8e2289284c358a718bb4fa7c1608c5b087f4425a2eea6de9497e5b`.
 - Deploy: `/admin.html?c=token` → compile → deploy. Then set `TOKEN_CONTRACT` in `js/config.js`, add liquidity, and register the pool immediately (admin page, step 5).
 
 ## Rewards server (claims)
@@ -93,7 +102,8 @@ Setup, once both contracts are deployed:
 1. `/admin.html?c=token` → *Claim server* → **Generate key** (in your browser). Add it in Vercel → Settings → Environment Variables as `SIGNER_PRIVATE_KEY`.
 2. Vercel → Storage → connect **Upstash for Redis** to the project, which adds the `KV_REST_API_URL` and `KV_REST_API_TOKEN` variables. Redeploy.
 3. Back on the admin page, the dev wallet presses **Set server address on the token** (or calls `setSigner` on Blockscout).
+4. On launch day, the dev wallet presses **Start emission**. The halving clock starts then.
 
 Until all three are done, the app keeps working in local mode. What the server can't fully stop is GPS-spoofing apps on a phone. Per-wallet energy limits each sneaker to a few minutes of earning a day, and the token's daily claim cap bounds the total.
 
-Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending and claims (27 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.
+Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, the daily budget and partial claims (36 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.

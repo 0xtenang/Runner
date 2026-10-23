@@ -79,6 +79,8 @@ class Game extends EventTarget {
   }
 
   get maxEnergy() { return maxEnergy(this.state.sneakers.length); }
+  /** Current halving factor from the rewards server (1 in local mode). */
+  get emissionFactor() { return this.state.server?.factor ?? 1; }
   get energy() { this._regen(); return this.state.energy; }
   get coins() { return this.state.coins; }
   get active() { return this.state.sneakers.find((s) => s.id === this.state.activeId) || this.state.sneakers[0] || null; }
@@ -211,7 +213,7 @@ class Game extends EventTarget {
     st.coins = view.balance;
     st.energy = view.energy;
     st.energyAt = Date.now();
-    st.server = { earned: view.earned, spent: view.spent, withdrawn: view.withdrawn, at: Date.now() };
+    st.server = { earned: view.earned, spent: view.spent, withdrawn: view.withdrawn, factor: view.emission?.factor ?? 1, emission: view.emission || null, at: Date.now() };
     for (const s of st.sneakers) {
       const p = view.sneakers?.[s.tokenId];
       if (p) Object.assign(s, { level: p.level, durability: p.durability, points: { ...p.points }, unspent: p.unspent });

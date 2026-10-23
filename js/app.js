@@ -59,7 +59,7 @@ rec.type = 'run';
 
 // Earning runs alongside the recorder, one tick per second while moving.
 rec.addEventListener('state', () => {
-  if (rec.state === 'recording' && !earn) earn = new EarnSession(game.active, game.energy);
+  if (rec.state === 'recording' && !earn) earn = new EarnSession(game.active, game.energy, game.emissionFactor);
   if (rec.state === 'idle') earn = null;
 });
 // In the phone app, timers can slow down while the screen is locked even though
@@ -511,7 +511,7 @@ function renderRecord() {
         ${s ? `
         <a class="sheet-row" href="#/earn">
           ${ICON.coin}
-          <div><b>${energy >= 0.05 ? `≈ ${fmtCoins(earnPerEnergy(s))} ${COIN} per energy` : 'Out of energy — tracking only'}</b>
+          <div><b>${energy >= 0.05 ? `≈ ${fmtCoins(earnPerEnergy(s, game.emissionFactor))} ${COIN} per energy` : 'Out of energy — tracking only'}</b>
           <span>⚡ ${energy.toFixed(1)}/${game.maxEnergy} · earn at ${paceRange(z)}</span></div>
           ${ICON.chev}
         </a>` : `
@@ -685,6 +685,7 @@ function earnToast(e, saved) {
   if (e?.pending) return `${saved} · reward will be checked when you're back online`;
   if (e?.rejected) return `${saved} · no reward: ${e.rejected}`;
   if (e?.voided) return `${saved} · not counted (vehicle speeds)`;
+  if (e?.capped) return `${saved} · +${fmtCoins(e.coins)} ${COIN} — today's RUNNER emission is used up`;
   return e?.coins > 0 ? `${saved} · +${fmtCoins(e.coins)} ${COIN}${e.server ? ' (verified)' : ''}` : saved;
 }
 
