@@ -111,15 +111,23 @@ Until all three are done, the app keeps working in local mode.
 **Fair play.**
 - **Trust score:** every run gets a 0–100 score (`api/_lib/trust.js`). Scripted or spoofed tracks tend to be too clean: perfectly regular timing, constant speed, straight lines, unchanging GPS accuracy, or a copy of someone else's route.
 - **24-hour hold:** earnings become usable 24 hours after a run.
-- **Review:** runs scoring under 70 wait for the dev wallet to approve or void them on the admin page (*Fair play: review & bans*). Nothing is voided automatically.
+- **Automatic rules (no human review):**
+
+  | Trust score | Outcome |
+  |---|---|
+  | 70+ | Paid in full |
+  | 40–69 | Paid 50% (no penalty) |
+  | Under 40, a fake-GPS app, or a copied route | Not paid + 1 strike |
+
+  3 strikes in 30 days suspend the wallet automatically: 7 days, then 30 days, then permanently. A suspension also forfeits earnings still on hold. Strikes expire after 30 days. All thresholds are game settings on the admin page, which also shows a log of every automatic decision and keeps an optional manual ban.
 - **Bans:** banned wallets can't earn, spend or claim.
 - **Rate limits:** requests are capped per IP and per wallet.
 - **Step cadence (phone app):** the app records the phone's step counter during a run. Running is about 140–190 steps a minute; on a bike, scooter or in a car the counter barely moves. Steps that don't match the GPS pace lower the trust score, so the run goes to review.
 - **Fake GPS:** the app ignores mock-location positions and the server lowers the score of runs where it saw any.
 - **Phone app only (device attestation):** every upload from the app carries a Google Play Integrity token (Android) or an Apple App Attest proof (iPhone), tied to that exact run. With **Phone app only** switched on in the admin page (setting `requireAttestation`), only runs from the genuine app on an unmodified phone earn real RUNNER. Website runs still track and count for stats, but earn nothing. Switch it on at launch, after the setup below.
-- **Limits:** attestation proves the app and phone are real, not who carries the phone. Per-wallet energy, the daily emission and the review queue bound the damage.
+- **Limits:** attestation proves the app and phone are real, not who carries the phone. Per-wallet energy, the daily emission and the strike rules bound the damage.
 
-Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, level costs, game settings, NFT boosts, the per-runner cap, schedule changes, the daily budget, partial claims, the trust score, the 24-hour hold, the review queue, bans, rate limits, step cadence, mock locations and device attestation (105 checks). Google's verdicts are faked in the tests; App Attest runs with real signatures and a test certificate chain. A server-signed claim was also verified against `RunnerToken` in a local EVM.
+Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, level costs, game settings, NFT boosts, the per-runner cap, schedule changes, the daily budget, partial claims, the trust score, the 24-hour hold, the automatic fair-play rules (strikes and suspensions), manual bans, rate limits, step cadence, mock locations and device attestation (108 checks). Google's verdicts are faked in the tests; App Attest runs with real signatures and a test certificate chain. A server-signed claim was also verified against `RunnerToken` in a local EVM.
 
 ### Device attestation setup (Google + Apple)
 

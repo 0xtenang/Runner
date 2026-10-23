@@ -563,12 +563,13 @@ function locksBlock() {
     </div>`;
 }
 
-/** Earnings still in their 24-hour hold or under review. */
+/** Earnings still in their 24-hour hold, and any fair-play strikes. */
 function heldLine(srv) {
-  if (!srv || (!srv.pending && !srv.underReview)) return '';
+  const strikes = srv?.strikes ? `<span class="small bad">Fair-play strikes: ${srv.strikes} / ${srv.strikeLimit} — runs that look fake earn nothing and add a strike; ${srv.strikeLimit} strikes in 30 days suspend the wallet. Strikes expire after 30 days.</span>` : '';
+  if (!srv || (!srv.pending && !srv.underReview)) return strikes;
   const when = srv.nextRelease ? new Date(srv.nextRelease).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
   return `<span class="small">${srv.pending ? `On hold: <b>${fmtCoins(srv.pending)} ${COIN}</b>${when ? ` · usable from ${when}` : ''}` : ''}${srv.pending && srv.underReview ? ' · ' : ''}${srv.underReview ? `Under review: <b>${fmtCoins(srv.underReview)} ${COIN}</b>` : ''}</span>
-    <span class="muted small">New earnings are usable 24 hours after a run, so unusual runs can be checked first.</span>`;
+    <span class="muted small">New earnings are usable 24 hours after a run.</span>${strikes}`;
 }
 
 /** "Emission today 10M · rate 100% · halves 22 Nov" */

@@ -9,7 +9,7 @@
 //     claim    {session}           → EIP-712 signature for RunnerToken.claim()
 //     settings-set {settings, message, signature} → dev wallet updates game settings
 //                  (level prices, per-runner daily max, NFT boosts)
-//     admin-session / admin {op}    → review queue (approve / void held runs), bans
+//     admin-session / admin {op}    → fair-play log, manual ban / unban
 //
 // Fair play: every run gets a trust score (api/_lib/trust.js). Earnings become usable
 // 24 hours after the run; runs scoring under 70 (or copied tracks) are held until an
@@ -33,12 +33,12 @@ import { TOKEN_CHAIN, TOKEN_CONTRACT as CONFIG_TOKEN, NFT_CONTRACT as CONFIG_NFT
 import {
   scoreTrack, isVoided, maxEnergy, regenEnergy, sneakerFromToken, levelUpCost, repairCost,
   durabilityLossPerEnergy, ATTRS, POINTS_PER_LEVEL, MAX_LEVEL, round2,
-  emissionOn, emissionFactor, nextHalving, utcDay, DEFAULT_SETTINGS, boostMultiplier, runPayload,
+  emissionOn, emissionFactor, nextHalving, utcDay, DEFAULT_SETTINGS, boostMultiplier, fairPlayDecision, runPayload,
 } from '../js/rules.js';
 import { addressOfKey, claimDigest, signDigest, personalDigest, recoverAddress, keccak, toHex, isAddress } from './_lib/eth.js';
 import * as store from './_lib/store.js';
 import { ownedTokenIds, emissionSchedule, claimState, heldContracts } from './_lib/chain.js';
-import { trustScore, trackFingerprint, cleanSteps, TRUST_REVIEW_BELOW } from './_lib/trust.js';
+import { trustScore, trackFingerprint, cleanSteps } from './_lib/trust.js';
 import { checkDevice, androidConfigured, iosConfigured } from './_lib/attest.js';
 
 const env = globalThis.process?.env || {};
@@ -53,7 +53,7 @@ const MAX_RUN_MS = 6 * 3600e3;
 const MAX_AGE_MS = 72 * 3600e3;
 const CLAIM_TTL_S = 3600;
 const HOLD_MS = 24 * 3600e3;           // earnings usable 24 h after the run
-const REVIEW_KEY = 'rw:review';         // held runs: "address:runId"
+const FAIRLOG_KEY = 'rw:fairlog';       // recent automatic fair-play decisions (JSON)
 const BANS_KEY = 'rw:bans';             // banned addresses
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
@@ -95,6 +95,19 @@ function validateSettings(x) {
       return { contract: b.contract.toLowerCase(), label: String(b.label || 'NFT boost').trim().slice(0, 40), boostBps: Math.round(num(b.boostBps, 0, 10_000, 'Boost')) };
     }),
     requireAttestation,
+    fairPlay: (() => {
+      const f = { ...DEFAULT_SETTINGS.fairPlay, ...(x?.fairPlay || {}) };
+      const out = {
+        fullPayTrust: Math.round(num(f.fullPayTrust, 1, 100, 'Full-pay trust')),
+        voidBelowTrust: Math.round(num(f.voidBelowTrust, 0, 100, 'Void-below trust')),
+        partialPayPct: Math.round(num(f.partialPayPct, 0, 100, 'Partial pay %')),
+        strikeLimit: Math.round(num(f.strikeLimit, 1, 20, 'Strike limit')),
+        strikeWindowDays: Math.round(num(f.strikeWindowDays, 1, 365, 'Strike window')),
+        suspensionDays: (Array.isArray(f.suspensionDays) ? f.suspensionDays : []).slice(0, 5).map((d) => Math.round(num(d, 1, 3650, 'Suspension days'))),
+      };
+      if (out.voidBelowTrust > out.fullPayTrust) fail(400, 'Void-below trust must not be above full-pay trust');
+      return out;
+    })(),
   };
 }
 
@@ -133,7 +146,7 @@ function createAdminSession({ address, message, signature }) {
   const issued = String(message || '').split('\nIssued: ')[1] || '';
   if (!isAddress(address) || message !== adminMessage(address, issued) || !(Math.abs(Date.now() - Date.parse(issued)) < 10 * 60e3)) fail(400, 'Unexpected or old admin message');
   const who = recoverAddress(personalDigest(message), signature);
-  if (!who || who !== address.toLowerCase() || !admins().includes(who)) fail(403, 'Only the dev wallet can open the review queue.');
+  if (!who || who !== address.toLowerCase() || !admins().includes(who)) fail(403, 'Only the dev wallet can open the fair-play admin.');
   const payload = b64(JSON.stringify({ a: who, adm: 1, exp: Date.now() + 12 * 3600e3 }));
   return { session: `${payload}.${mac(payload)}` };
 }
@@ -184,9 +197,41 @@ function releaseDue(u) {
   }
   u.pending = keep;
 }
-const isBanned = async (address) => Boolean(await store.get(`rw:ban:${address}`));
+/** The wallet's active ban/suspension ({ until (ms) | null = permanent, reason, auto }) or null. */
+async function banOf(address) {
+  const b = await store.get(`rw:ban:${address}`);
+  if (b?.until && b.until <= Date.now()) { await store.del(`rw:ban:${address}`); await store.listRemove(BANS_KEY, address); return null; }
+  return b || null;
+}
+const isBanned = async (address) => Boolean(await banOf(address));
 async function assertNotBanned(address) {
-  if (await isBanned(address)) fail(403, 'This wallet is suspended from RUNNER rewards. Contact support if you think this is a mistake.');
+  const b = await banOf(address);
+  if (!b) return;
+  fail(403, b.until
+    ? `This wallet is suspended from RUNNER rewards until ${new Date(b.until).toUTCString()} (${b.reason || 'fair-play rules'}).`
+    : `This wallet is permanently suspended from RUNNER rewards (${b.reason || 'fair-play rules'}).`);
+}
+
+/** Records an automatic fair-play decision for the admin log. */
+const logFair = (entry) => store.listPush(FAIRLOG_KEY, JSON.stringify({ at: Date.now(), ...entry }), 500);
+
+/** Adds a strike; enough strikes inside the window suspend the wallet and forfeit held earnings. */
+async function addStrike(address, u, reason) {
+  const fp = settings.fairPlay || DEFAULT_SETTINGS.fairPlay;
+  const now = Date.now();
+  u.strikes = [...(u.strikes || []).filter((x) => now - x.at < fp.strikeWindowDays * 864e5), { at: now, reason }];
+  if (u.strikes.length < fp.strikeLimit) return null;
+  u.suspensions = (u.suspensions || 0) + 1;
+  const days = fp.suspensionDays[u.suspensions - 1];
+  const until = days ? now + days * 864e5 : null;
+  const forfeited = u.pending.reduce((t, p) => t + p.micro, 0);
+  u.pending = [];
+  u.strikes = [];
+  const why = `${fp.strikeLimit} fair-play strikes in ${fp.strikeWindowDays} days`;
+  await store.set(`rw:ban:${address}`, { at: now, until, auto: true, reason: why });
+  await store.listPush(BANS_KEY, address, 5000);
+  await logFair({ address, outcome: 'suspended', until, forfeited: forfeited / MICRO, reason: why });
+  return { until, forfeited: forfeited / MICRO };
 }
 const available = (u) => u.earned - u.spent - u.signed;
 
@@ -204,6 +249,8 @@ async function view(address, u, owned) {
     withdrawn: u.signed / MICRO,
     pending: u.pending.filter((p) => !p.review).reduce((t, p) => t + p.micro, 0) / MICRO,
     underReview: u.pending.filter((p) => p.review).reduce((t, p) => t + p.micro, 0) / MICRO,
+    strikes: (u.strikes || []).filter((x) => Date.now() - x.at < (settings.fairPlay || DEFAULT_SETTINGS.fairPlay).strikeWindowDays * 864e5).length,
+    strikeLimit: (settings.fairPlay || DEFAULT_SETTINGS.fairPlay).strikeLimit,
     nextRelease: u.pending.filter((p) => !p.review).reduce((t, p) => Math.min(t, p.releaseAt), Infinity) === Infinity ? null : u.pending.filter((p) => !p.review).reduce((t, p) => Math.min(t, p.releaseAt), Infinity),
     energy: round2(u.energy),
     maxEnergy: maxEnergy(owned.length),
@@ -279,10 +326,14 @@ async function submitRun(address, { run }) {
   const mockFixes = Math.max(0, Math.min(1e6, Math.floor(Number(run?.mockFixes) || 0)));
   const trust = trustScore(pts, { steps, mockFixes, fromApp: Boolean(platform) });
   const fp = trackFingerprint(pts);
+  let copied = false;
   if (fp && !(await store.setNX(`rw:fp:${fp}`, address, 30 * 864e5))) {
+    copied = true;
     trust.score = Math.max(0, trust.score - 60);
     trust.reasons.push('Same route as a run that was already uploaded');
   }
+  // Automatic decision (no human review): paid / partly paid / not paid + strike.
+  const decision = fairPlayDecision(trust.score, copied || mockFixes > 0, settings.fairPlay || DEFAULT_SETTINGS.fairPlay);
   return withUser(address, async (u, owned) => {
     if (!owned.includes(tokenId)) fail(403, `This wallet doesn't own Genesis #${tokenId}.`);
     if (start < u.lastEnd) fail(409, 'This run overlaps one that was already counted.');
@@ -296,6 +347,7 @@ async function submitRun(address, { run }) {
     const voided = isVoided(session);
     const used = voided ? 0 : Math.min(session.used, u.energy);
     let micro = voided || session.used <= 0 ? 0 : Math.floor(session.coins * (used / session.used) * MICRO);
+    micro = Math.floor((micro * decision.payPct) / 100);
     // Optional per-runner daily max (admin setting), then never more than the day's
     // emission across all runners.
     let capped = false;
@@ -318,17 +370,21 @@ async function submitRun(address, { run }) {
     s.durability = Math.max(0, round2(s.durability - used * durabilityLossPerEnergy(s)));
     await saveSneaker(s);
     const id = toHex(keccak(`${address}:${tokenId}:${start}:${end}`)).slice(0, 16);
-    const review = micro > 0 && trust.score < TRUST_REVIEW_BELOW;
     const releaseAt = Date.now() + HOLD_MS;
-    if (micro > 0) {
-      u.pending.push({ id, micro, releaseAt, review });
-      if (review) await store.listPush(REVIEW_KEY, `${address}:${id}`);
+    if (micro > 0) u.pending.push({ id, micro, releaseAt, review: false });
+    let suspended = null;
+    const counts = used > 0 && !voided; // a run that would have earned
+    if (counts && decision.outcome !== 'paid') {
+      await logFair({ address, runId: id, outcome: decision.outcome, trust: trust.score, reasons: trust.reasons, coins: micro / MICRO });
+      if (decision.outcome === 'voided') suspended = await addStrike(address, u, trust.reasons[0] || 'Low trust score');
     }
     const record = {
       id, start, end, tokenId, coins: micro / MICRO, energy: round2(used), zoneSec: Math.round(session.zoneSec),
       vehicleSec: Math.round(session.vehicleSec), voided, capped, factor, boost,
       device: platform, attested: device.verified ?? null, cadence: trust.cadence,
-      trust: trust.score, reasons: trust.reasons, review, releaseAt: micro > 0 ? releaseAt : null, status: micro > 0 ? (review ? 'review' : 'held') : 'none',
+      trust: trust.score, reasons: trust.reasons, decision: counts ? decision.outcome : 'none', payPct: decision.payPct,
+      releaseAt: micro > 0 && !suspended ? releaseAt : null, status: suspended ? 'suspended' : micro > 0 ? 'held' : counts && decision.outcome === 'voided' ? 'voided' : 'none',
+      strike: counts && decision.outcome === 'voided', suspendedUntil: suspended ? suspended.until : undefined,
     };
     u.runs = [record, ...u.runs].slice(0, 30);
     return { run: record, state: await view(address, u, owned) };
@@ -402,41 +458,24 @@ async function rateLimit(key, limit, windowMs) {
   if (n > limit) fail(429, 'Too many requests — please slow down and try again in a few minutes.');
 }
 
-// ------------------------------------------------------------------ admin: review queue, bans
+// ------------------------------------------------------------------ admin: fair-play log, manual bans
 async function adminOp(admin, body) {
   const op = body.op;
-  if (op === 'queue') {
-    const items = [];
-    for (const key of await store.listRange(REVIEW_KEY, 200)) {
-      const [address, id] = key.split(':');
-      const u = (await store.get(userKey(address))) || {};
-      const run = (u.runs || []).find((r) => r.id === id);
-      const p = (u.pending || []).find((x) => x.id === id);
-      if (!p) { await store.listRemove(REVIEW_KEY, key); continue; }
-      items.push({ address, id, coins: p.micro / MICRO, trust: run?.trust, reasons: run?.reasons || [], tokenId: run?.tokenId, start: run?.start, end: run?.end, device: run?.device ?? null, attested: run?.attested ?? null, cadence: run?.cadence ?? null, banned: await isBanned(address) });
+  if (op === 'log') {
+    const log = (await store.listRange(FAIRLOG_KEY, 200)).map((x) => { try { return JSON.parse(x); } catch { return null; } }).filter(Boolean);
+    const bans = [];
+    for (const address of await store.listRange(BANS_KEY, 500)) {
+      const b = await banOf(address);
+      if (b) bans.push({ address, until: b.until ?? null, reason: b.reason || '', auto: Boolean(b.auto) });
     }
-    return { queue: items, bans: await store.listRange(BANS_KEY, 500) };
-  }
-  if (op === 'approve' || op === 'void') {
-    const address = String(body.address || '').toLowerCase(), id = String(body.id || '');
-    if (!isAddress(address)) fail(400, 'Bad address');
-    await withUser(address, async (u) => {
-      const p = u.pending.find((x) => x.id === id);
-      if (!p) fail(404, 'That run is no longer waiting for review.');
-      u.pending = u.pending.filter((x) => x.id !== id);
-      if (op === 'approve') u.earned += p.micro;
-      const run = u.runs.find((r) => r.id === id);
-      if (run) run.status = op === 'approve' ? 'approved' : 'voided';
-      return { ok: true };
-    });
-    await store.listRemove(REVIEW_KEY, `${address}:${id}`);
-    return { ok: true, op, address, id, by: admin };
+    return { log, bans };
   }
   if (op === 'ban' || op === 'unban') {
     const address = String(body.address || '').toLowerCase();
     if (!isAddress(address)) fail(400, 'Bad address');
     if (op === 'ban') {
-      await store.set(`rw:ban:${address}`, { at: Date.now(), by: admin, reason: String(body.reason || '').slice(0, 200) });
+      const days = Number(body.days) > 0 ? Math.min(3650, Number(body.days)) : 0; // 0 = permanent
+      await store.set(`rw:ban:${address}`, { at: Date.now(), by: admin, until: days ? Date.now() + days * 864e5 : null, reason: String(body.reason || 'Suspended by admin').slice(0, 200) });
       await store.listPush(BANS_KEY, address, 5000);
     } else {
       await store.del(`rw:ban:${address}`);

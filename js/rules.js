@@ -108,7 +108,25 @@ export const DEFAULT_SETTINGS = {
   perRunnerDailyMax: 0,     // most RUNNER one runner can earn per day at a 10M day (0 = no limit)
   boosts: [],               // [{ contract, label, boostBps }] — holding any NFT from `contract` adds boostBps to earnings
   requireAttestation: false, // only runs from the genuine phone app on an unmodified phone earn (Play Integrity / App Attest)
+  fairPlay: {               // automatic decisions — no human review
+    fullPayTrust: 70,       // trust ≥ this: paid in full
+    voidBelowTrust: 40,     // trust < this (or a hard signal): not paid + 1 strike
+    partialPayPct: 50,      // in between: this % is paid, no strike
+    strikeLimit: 3,         // strikes within strikeWindowDays → automatic suspension
+    strikeWindowDays: 30,
+    suspensionDays: [7, 30], // 1st, 2nd suspension; the next one is permanent
+  },
 };
+
+/**
+ * Automatic fair-play decision for a run: { outcome: 'paid' | 'partial' | 'voided', payPct }.
+ * `hard` = a signal that is cheating on its own (fake-GPS app, copied route).
+ */
+export function fairPlayDecision(trust, hard, fp = DEFAULT_SETTINGS.fairPlay) {
+  if (hard || trust < fp.voidBelowTrust) return { outcome: 'voided', payPct: 0 };
+  if (trust < fp.fullPayTrust) return { outcome: 'partial', payPct: fp.partialPayPct };
+  return { outcome: 'paid', payPct: 100 };
+}
 
 /**
  * The part of an uploaded run that the phone app's device proof signs (Play Integrity

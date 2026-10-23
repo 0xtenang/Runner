@@ -247,7 +247,7 @@ ok('a pending schedule is reported for the app', st7.emission.change?.dailyStart
 await settingsCall(ADMIN_KEY, rules.DEFAULT_SETTINGS);
 process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: rules.utcDay() - 1, claimedToday: '0', claimed: {} });
 
-// ---- fair play: trust score, review queue, bans, rate limits
+// ---- fair play: trust score, automatic rules, strikes, suspensions, rate limits
 const trust = await imp('api/_lib/trust.js');
 const tReal = trust.trustScore(track(now - 4000e3, 30, 8));
 const tFake = trust.trustScore(track(now - 4000e3, 30, 8, { perfect: true }));
@@ -260,39 +260,50 @@ const C_KEY = rnd(), CH = eth.addressOfKey(C_KEY), H_KEY = rnd(), HO = eth.addre
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [CH]: [J[0], J[1], J[2]], [HO]: [J[3], J[4]], [USER]: [JOG, TEMPO] });
 const sess = async (key, addr) => { const m = sessionMessage(addr, iso()); return (await call({ action: 'session', address: addr, message: m, signature: await signPersonal(key, m) })).session; };
 const SC = await sess(C_KEY, CH), SH = await sess(H_KEY, HO);
-r = await call({ action: 'run', session: SC, run: { tokenId: FT, points: track(now - 7000e3, 35, 8, { perfect: true }) } });
-const heldId = r.run?.id, heldCoins = r.run?.coins;
-ok('scripted run is held for review (not paid)', r.code === 200 && r.run.review && r.run.status === 'review' && r.state.underReview > 0 && r.state.pending === 0, JSON.stringify({ trust: r.run?.trust, status: r.run?.status }));
-const honest = track(now - 7000e3, 35, 8);
+// Automatic rules: trust ≥ 70 paid · 40–69 half paid · < 40 / fake GPS / copied route → not paid + strike;
+// 3 strikes in 30 days → suspended 7 days (then 30, then permanent), earnings on hold forfeited.
+const base = now - 20 * 3600e3;
+r = await call({ action: 'run', session: SC, run: { tokenId: J[2], points: track(base, 35, 8) } });
+const cheaterHeld = r.run?.coins;
+ok('rules: honest run → paid in full, held 24 h', r.code === 200 && r.run.decision === 'paid' && r.run.status === 'held' && cheaterHeld > 0, JSON.stringify({ d: r.run?.decision, t: r.run?.trust }));
+r = await call({ action: 'run', session: SC, run: { tokenId: J[0], points: track(base + 3600e3, 35, 8, { perfect: true }) } });
+ok('rules: scripted run (trust < 40) → not paid + strike 1/3', r.code === 200 && r.run.decision === 'voided' && r.run.coins === 0 && r.run.strike && r.state.strikes === 1 && r.run.status === 'voided', JSON.stringify({ d: r.run?.decision, t: r.run?.trust, s: r.state?.strikes }));
+const honest = track(base + 2 * 3600e3, 35, 8);
 r = await call({ action: 'run', session: SH, run: { tokenId: J[3], points: honest } });
-ok('honest run → held 24 h, not reviewed', r.code === 200 && r.run.status === 'held');
-advance(2 * 3600e3);
-r = await call({ action: 'run', session: SC, run: { tokenId: J[1], points: honest.map((p) => ({ ...p, t: p.t + 2 * 3600e3 })) } });
-ok('copied route (someone else\'s track) → flagged and held', r.code === 200 && r.run.review && r.run.reasons.some((x) => /Same route/.test(x)), JSON.stringify(r.run?.reasons));
-const copiedId = r.run.id;
-advance(24 * 3600e3 + 60e3);
-r = await call({ action: 'state', session: SC });
-ok('runs under review stay held after 24 h', r.balance === 0 && r.underReview > 0);
-// admin
+ok('rules: someone else\'s honest run is paid', r.code === 200 && r.run.decision === 'paid');
+r = await call({ action: 'run', session: SC, run: { tokenId: J[1], points: honest.map((p) => ({ ...p, t: p.t + 3600e3 })) } });
+ok('rules: copied route → not paid + strike 2/3 (whatever the score)', r.code === 200 && r.run.decision === 'voided' && r.run.reasons.some((x) => /Same route/.test(x)) && r.state.strikes === 2, JSON.stringify(r.run?.reasons));
+// a run whose GPS timing is too regular but otherwise real → trust ~65 → half paid, no strike
+const odd = track(base + 4 * 3600e3, 35, 8).map((p, i, arr) => ({ ...p, t: arr[0].t + i * 2000 }));
+const B_KEY = rnd(), BW = eth.addressOfKey(B_KEY);
+process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [CH]: [J[0], J[1], J[2]], [HO]: [J[3]], [BW]: [J[4]], [USER]: [JOG, TEMPO] });
+const SB = await sess(B_KEY, BW);
+r = await call({ action: 'run', session: SB, run: { tokenId: J[4], points: odd } });
+const fullOdd = rules.earnPerMinute({ ...traitsFor(J[4]), durability: 100, points: { efficiency: 0, resilience: 0 } }) * 30;
+ok('rules: borderline run (trust 40–69) → 50% paid, no strike', r.code === 200 && r.run.decision === 'partial' && r.run.payPct === 50 && Math.abs(r.run.coins - fullOdd / 2) < fullOdd * 0.03 && !r.run.strike && r.state.strikes === 0, JSON.stringify({ d: r.run?.decision, t: r.run?.trust, c: r.run?.coins, full: fullOdd }));
+r = await call({ action: 'run', session: SC, run: { tokenId: J[2], points: track(base + 5 * 3600e3, 35, 8, { perfect: true }) } });
+ok('rules: 3rd strike → suspended 7 days automatically, held earnings forfeited', r.code === 200 && r.run.status === 'suspended' && r.run.suspendedUntil > Date.now() + 6.9 * 864e5 && r.run.suspendedUntil < Date.now() + 7.1 * 864e5 && r.state.pending === 0, JSON.stringify({ st: r.run?.status, u: r.run?.suspendedUntil, p: r.state?.pending }));
+ok('suspended wallet can\'t upload runs (message says until when)', await (async () => { const x = await call({ action: 'run', session: SC, run: { tokenId: J[1], points: track(base + 6 * 3600e3, 20, 8) } }); return x.code === 403 && /until/.test(x.error); })());
+ok('suspended wallet can\'t claim', (await call({ action: 'claim', session: SC })).code === 403);
+ok('suspended wallet can\'t spend', (await call({ action: 'levelup', session: SC, tokenId: FT })).code === 403);
+// admin: read-only log + manual bans
 const adminSess = async (key) => { const a = eth.addressOfKey(key); const m = adminMessage(a, iso()); return call({ action: 'admin-session', address: a, message: m, signature: await signPersonal(key, m) }); };
-ok('only the dev wallet can open the review queue', (await adminSess(USER_KEY)).code === 403);
+ok('only the dev wallet can open the fair-play admin', (await adminSess(USER_KEY)).code === 403);
 const AS = (await adminSess(ADMIN_KEY)).session;
-ok('a normal session can\'t use admin actions', (await call({ action: 'admin', session: SC, op: 'queue' })).code === 403);
-r = await call({ action: 'admin', session: AS, op: 'queue' });
-ok('review queue lists the held runs with reasons', r.code === 200 && r.queue.some((q) => q.id === heldId && q.trust < 70 && q.reasons.length) && r.queue.some((q) => q.id === copiedId), JSON.stringify(r).slice(0, 200));
-r = await call({ action: 'admin', session: AS, op: 'approve', address: CH, id: heldId });
-ok('approve pays the run immediately', r.code === 200 && Math.abs((await call({ action: 'state', session: SC })).balance - heldCoins) < 0.01);
-r = await call({ action: 'admin', session: AS, op: 'void', address: CH, id: copiedId });
-const stc = await call({ action: 'state', session: SC });
-ok('void cancels the run (nothing paid, out of review)', r.code === 200 && stc.underReview === 0 && Math.abs(stc.balance - heldCoins) < 0.01 && stc.runs.find((x) => x.id === copiedId)?.status === 'voided');
-ok('queue is empty after decisions', !(await call({ action: 'admin', session: AS, op: 'queue' })).queue.some((q) => q.address === CH));
-r = await call({ action: 'admin', session: AS, op: 'ban', address: CH, reason: 'GPS spoofing' });
-ok('ban: listed', r.code === 200 && (await call({ action: 'admin', session: AS, op: 'queue' })).bans.includes(CH));
-ok('banned wallet can\'t upload runs', (await call({ action: 'run', session: SC, run: { tokenId: J[2], points: track(now - 3000e3, 20, 8) } })).code === 403);
-ok('banned wallet can\'t claim', (await call({ action: 'claim', session: SC })).code === 403);
-ok('banned wallet can\'t spend', (await call({ action: 'levelup', session: SC, tokenId: FT })).code === 403);
-await call({ action: 'admin', session: AS, op: 'unban', address: CH });
-ok('unban restores access', (await call({ action: 'levelup', session: SC, tokenId: FT })).code === 200);
+ok('a normal session can\'t use admin actions', (await call({ action: 'admin', session: SC, op: 'log' })).code === 403);
+r = await call({ action: 'admin', session: AS, op: 'log' });
+ok('fair-play log shows partial, voided and suspended decisions', r.code === 200 && ['partial', 'voided', 'suspended'].every((o) => r.log.some((x) => x.outcome === o)) && r.bans.some((b) => b.address === CH && b.auto && b.until), JSON.stringify(r).slice(0, 240));
+ok('no approve/void work for admins any more', (await call({ action: 'admin', session: AS, op: 'approve', address: CH, id: 'x' })).code === 400);
+advance(7 * 864e5 + 60e3);
+ok('suspension ends by itself after 7 days', (await call({ action: 'levelup', session: SC, tokenId: FT })).code !== 403);
+ok('admin sessions expire after 12 h', (await call({ action: 'admin', session: AS, op: 'log' })).code === 401);
+const AS2 = (await adminSess(ADMIN_KEY)).session;
+r = await call({ action: 'admin', session: AS2, op: 'ban', address: CH, reason: 'Manual', days: 1 });
+const afterBan = await call({ action: 'claim', session: SC });
+ok('manual ban (1 day) blocks the wallet', r.code === 200 && afterBan.code === 403, JSON.stringify({ ban: r, claim: afterBan }));
+await call({ action: 'admin', session: AS2, op: 'unban', address: CH });
+ok('unban restores access', (await call({ action: 'claim', session: SC })).code !== 403);
+ok('fair-play rules are settings with validation', (await settingsCall(ADMIN_KEY, { ...rules.DEFAULT_SETTINGS, fairPlay: { ...rules.DEFAULT_SETTINGS.fairPlay, voidBelowTrust: 90 } })).code === 400);
 // rate limits
 let limited = false;
 for (let i = 0; i < 25 && !limited; i++) {
@@ -328,7 +339,7 @@ const tHalf = (() => { const s = stepsFor(runTrack, 165).samples; const mid = s[
 ok('cadence: steps stop for the last 40% → partial penalty', tHalf.score >= 70 && tHalf.score < 90 && tHalf.reasons.some((x) => /part of the run/.test(x)), JSON.stringify(tHalf));
 ok('cadence: app run without step data → small penalty, not reviewed', trust.trustScore(runTrack, { fromApp: true }).score === 85 && trust.trustScore(runTrack, { steps: { denied: true }, fromApp: true }).score === 85);
 ok('cadence: website run without step data → no penalty', trust.trustScore(runTrack).score === tReal.score || trust.trustScore(runTrack).score >= 90);
-ok('mock-location fixes → under review threshold', trust.trustScore(runTrack, { steps: stepsFor(runTrack, 165), mockFixes: 3, fromApp: true }).score < 70);
+ok('mock-location fixes → low trust', trust.trustScore(runTrack, { steps: stepsFor(runTrack, 165), mockFixes: 3, fromApp: true }).score < 70);
 ok('step data: decreasing counts rejected as lost', trust.cleanSteps({ samples: [[1, 5], [2, 3]] }, 0, 10).lost === true);
 
 const K = []; // fresh Daily Runner sneakers for these tests
@@ -336,10 +347,10 @@ for (let i = 3000; i < 6000 && K.length < 6; i++) if (traitsFor(i).type === 'jog
 const D_KEY = rnd(), DW = eth.addressOfKey(D_KEY), A_KEY = rnd(), AW = eth.addressOfKey(A_KEY), I_KEY = rnd(), IW = eth.addressOfKey(I_KEY);
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [DW]: [K[0]], [AW]: [K[1], K[2]], [IW]: [K[3], K[4]] });
 const SD = await sess(D_KEY, DW), SA = await sess(A_KEY, AW), SI = await sess(I_KEY, IW);
-// a bike ride from the app (steps ≈ 0) goes to review, not voided
+// a bike ride from the app (steps ≈ 0) is half paid, not voided
 const bikePts = track(now - 9000e3, 35, 8);
 r = await call({ action: 'run', session: SD, run: { tokenId: K[0], points: bikePts, steps: stepsFor(bikePts, 2), attestation: { platform: 'android', error: 'not set up' } } });
-ok('server: app run with ~0 steps → held for review with a cadence reason', r.code === 200 && r.run.review && r.run.coins > 0 && r.run.reasons.some((x) => /Steps don't match/.test(x)) && r.run.device === 'android', JSON.stringify(r.run || r));
+ok('server: app run with ~0 steps → half paid with a cadence reason (no strike)', r.code === 200 && r.run.decision === 'partial' && !r.run.strike && r.run.coins > 0 && r.run.reasons.some((x) => /Steps don't match/.test(x)) && r.run.device === 'android', JSON.stringify(r.run || r));
 
 // requireAttestation
 ok('requireAttestation can\'t be switched on before Google/Apple are set up', (await settingsCall(ADMIN_KEY, { ...rules.DEFAULT_SETTINGS, requireAttestation: true })).code === 400);

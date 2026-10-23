@@ -290,6 +290,13 @@ function fillControls(s) {
     $('#st-base').value = st.levelCostBase;
     $('#st-exp').value = st.levelCostExp;
     $('#st-max').value = st.perRunnerDailyMax;
+    const fp = { ...DEFAULT_SETTINGS.fairPlay, ...(st.fairPlay || {}) };
+    $('#fp-full').value = fp.fullPayTrust;
+    $('#fp-void').value = fp.voidBelowTrust;
+    $('#fp-pct').value = fp.partialPayPct;
+    $('#fp-limit').value = fp.strikeLimit;
+    $('#fp-window').value = fp.strikeWindowDays;
+    $('#fp-susp').value = fp.suspensionDays.join(', ');
     $('#st-attest').checked = Boolean(st.requireAttestation);
     $('#st-boosts').value = (st.boosts || []).map((b) => `${b.contract}, ${b.label}, ${b.boostBps / 100}`).join('\n');
     $('#st-base').dataset.filled = '1';
@@ -336,7 +343,12 @@ $('#b-settings').onclick = async () => {
       if (!/^0x[0-9a-fA-F]{40}$/.test(contract || '') || !(Number(pct) >= 0 && Number(pct) <= 100)) throw new Error(`Bad boost line: ${l}`);
       return { contract: contract.toLowerCase(), label: label || 'NFT boost', boostBps: Math.round(Number(pct) * 100) };
     });
-    const settings = { levelCostBase: Number($('#st-base').value), levelCostExp: Number($('#st-exp').value), perRunnerDailyMax: Number($('#st-max').value) || 0, boosts, requireAttestation: $('#st-attest').checked };
+    const settings = { levelCostBase: Number($('#st-base').value), levelCostExp: Number($('#st-exp').value), perRunnerDailyMax: Number($('#st-max').value) || 0, boosts, requireAttestation: $('#st-attest').checked,
+      fairPlay: {
+        fullPayTrust: Number($('#fp-full').value), voidBelowTrust: Number($('#fp-void').value), partialPayPct: Number($('#fp-pct').value),
+        strikeLimit: Number($('#fp-limit').value), strikeWindowDays: Number($('#fp-window').value),
+        suspensionDays: $('#fp-susp').value.split(',').map((x) => Number(x.trim())).filter((x) => x > 0),
+      } };
     const message = `RUNNER settings\n${JSON.stringify(settings)}\nIssued: ${new Date().toISOString()}`;
     $('#b-settings').disabled = true;
     $('#settings').textContent = 'Sign the settings message in your wallet…';
@@ -351,7 +363,7 @@ $('#b-settings').onclick = async () => {
   } finally { $('#b-settings').disabled = false; }
 };
 
-// ----- 7. fair play: review queue and bans
+// ----- 7. fair play: automatic decisions log, manual bans
 let adminSession = null;
 try { adminSession = sessionStorage.getItem('runner.admin.session'); } catch { /* storage blocked */ }
 async function adminCall(body, retried = false) {
@@ -373,43 +385,29 @@ async function adminCall(body, retried = false) {
   return j;
 }
 
-async function loadQueue() {
-  const { queue, bans } = await adminCall({ op: 'queue' });
+async function loadLog() {
+  const { log, bans } = await adminCall({ op: 'log' });
   const when = (t) => (t ? new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '');
+  const label = { partial: 'Partly paid', voided: 'Not paid + strike', suspended: 'Suspended' };
   $('#review-list').innerHTML = `
-    ${queue.length ? queue.map((q) => `
-      <div class="result" style="margin-top:8px">
-        <span><b>${fmtN(q.coins)} RUNNER</b> · trust <b class="${q.trust < 40 ? 'bad' : ''}">${q.trust ?? '?'}</b>/100 · Genesis #${q.tokenId ?? '?'} · ${when(q.start)} · ${q.device ? `${q.device === 'ios' ? 'iPhone' : 'Android'} app${q.attested ? ' ✓ verified' : ''}` : 'website'}${q.cadence != null ? ` · ${q.cadence} steps/min` : ''}${q.banned ? ' · <span class="bad">banned</span>' : ''}</span>
-        <span class="mono">${esc(q.address)}</span>
-        <span class="muted">${q.reasons.map(esc).join(' · ') || 'No details'}</span>
-        <div class="row" style="gap:8px">
-          <button class="btn primary pill sm" data-rv="approve" data-a="${esc(q.address)}" data-id="${esc(q.id)}">Approve</button>
-          <button class="btn pill sm" data-rv="void" data-a="${esc(q.address)}" data-id="${esc(q.id)}">Void</button>
-          <button class="btn pill sm" data-rv="ban" data-a="${esc(q.address)}">Ban wallet</button>
-        </div>
-      </div>`).join('') : '<p class="ok" style="margin:8px 0 0">Nothing waiting for review.</p>'}
-    ${bans.length ? `<p class="muted" style="margin:10px 0 0">Banned (${bans.length}): <span class="mono">${bans.slice(0, 20).map(esc).join(', ')}${bans.length > 20 ? '…' : ''}</span></p>` : ''}`;
+    ${bans.length ? `<p style="margin:8px 0 4px"><b>Suspended now (${bans.length})</b></p>${bans.slice(0, 50).map((b) => `<div class="mono">${esc(b.address)} <span class="muted">— ${b.until ? `until ${when(b.until)}` : 'permanent'} · ${esc(b.reason)}${b.auto ? ' (automatic)' : ''}</span></div>`).join('')}` : '<p class="ok" style="margin:8px 0 0">No wallets suspended.</p>'}
+    <p style="margin:10px 0 4px"><b>Recent automatic decisions</b></p>
+    ${log.length ? log.slice(0, 100).map((x) => `
+      <div style="margin-bottom:6px"><b class="${x.outcome === 'partial' ? '' : 'bad'}">${label[x.outcome] || esc(x.outcome)}</b> · ${when(x.at)} · <span class="mono">${esc(x.address)}</span>
+        ${x.trust != null ? ` · trust ${x.trust}` : ''}${x.coins ? ` · paid ${fmtN(x.coins)}` : ''}${x.forfeited ? ` · forfeited ${fmtN(x.forfeited)} on hold` : ''}${x.until !== undefined ? ` · ${x.until ? `until ${when(x.until)}` : 'permanent'}` : ''}
+        <div class="muted">${esc((x.reasons || [x.reason]).filter(Boolean).join(' · '))}</div></div>`).join('') : '<p class="muted" style="margin:0">Nothing yet — every run so far was paid in full.</p>'}`;
 }
 
 $('#b-review').onclick = async () => {
   $('#b-review').disabled = true;
-  try { $('#review-list').textContent = 'Loading…'; await loadQueue(); } catch (e) { $('#review-list').innerHTML = `<span class="bad">${esc(String(e.message).slice(0, 300))}</span>`; } finally { $('#b-review').disabled = false; }
+  try { $('#review-list').textContent = 'Loading…'; await loadLog(); } catch (e) { $('#review-list').innerHTML = `<span class="bad">${esc(String(e.message).slice(0, 300))}</span>`; } finally { $('#b-review').disabled = false; }
 };
-$('#review-list').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-rv]');
-  if (!b) return;
-  const op = b.dataset.rv;
-  if (op === 'void' && !confirm('Void this run? The runner gets nothing for it.')) return;
-  if (op === 'ban' && !confirm(`Ban ${b.dataset.a}? They won't be able to earn, spend or claim.`)) return;
-  b.disabled = true;
-  try { await adminCall({ op, address: b.dataset.a, id: b.dataset.id }); await loadQueue(); } catch (err) { alert(err.message); b.disabled = false; }
-});
 for (const op of ['ban', 'unban']) {
   $(`#b-${op}`).onclick = async () => {
     const address = $('#ban-addr').value.trim();
     if (!/^0x[0-9a-fA-F]{40}$/.test(address)) { $('#ban-out').innerHTML = '<span class="bad">Paste a wallet address.</span>'; return; }
     try {
-      await adminCall({ op, address, reason: $('#ban-reason').value });
+      await adminCall({ op, address, reason: $('#ban-reason').value, days: Number($('#ban-days').value) || 0 });
       $('#ban-out').innerHTML = `<span class="ok">✓ ${op === 'ban' ? 'Banned' : 'Unbanned'} ${esc(address)}</span>`;
     } catch (err) { $('#ban-out').innerHTML = `<span class="bad">${esc(String(err.message).slice(0, 300))}</span>`; }
   };

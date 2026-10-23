@@ -140,7 +140,7 @@ export async function settleRun(earnSession, activityId, points, { steps = null,
     const r = await uploadRun(run);
     await game.applyServer(r.state);
     game.logServerRun(r.run, activityId);
-    return { ...base, coins: r.run.coins, energy: r.run.energy, voided: r.run.voided, capped: r.run.capped, zoneSec: r.run.zoneSec, review: r.run.review, held: r.run.status === 'held', releaseAt: r.run.releaseAt };
+    return { ...base, coins: r.run.coins, energy: r.run.energy, voided: r.run.voided, capped: r.run.capped, zoneSec: r.run.zoneSec, held: r.run.status === 'held', releaseAt: r.run.releaseAt, decision: r.run.decision, payPct: r.run.payPct, strike: r.run.strike, reasons: r.run.reasons || [], suspendedUntil: r.run.suspendedUntil, strikes: r.state?.strikes, strikeLimit: r.state?.strikeLimit };
   } catch (e) {
     if (e.offline || e.status >= 500 || e.status === 409 && /Busy/.test(e.message)) {
       await game.queuePending(run);

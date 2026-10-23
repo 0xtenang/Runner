@@ -685,7 +685,9 @@ function earnToast(e, saved) {
   if (e?.pending) return `${saved} · reward will be checked when you're back online`;
   if (e?.rejected) return `${saved} · no reward: ${e.rejected}`;
   if (e?.voided) return `${saved} · not counted (vehicle speeds)`;
-  if (e?.review) return `${saved} · +${fmtCoins(e.coins)} ${COIN} is being reviewed — usually within a day`;
+  if (e?.suspendedUntil !== undefined && e?.decision === 'voided') return `${saved} · no reward — wallet suspended ${e.suspendedUntil ? `until ${new Date(e.suspendedUntil).toLocaleDateString()}` : 'permanently'} (fair-play strikes)`;
+  if (e?.decision === 'voided') return `${saved} · no reward: ${e.reasons?.[0] || 'this run looks unreal'} — strike ${e.strikes}/${e.strikeLimit}`;
+  if (e?.decision === 'partial') return `${saved} · +${fmtCoins(e.coins)} ${COIN} (${e.payPct}% — ${e.reasons?.[0] || 'some signs looked unusual'}), usable in 24 h`;
   if (e?.capped) return `${saved} · +${fmtCoins(e.coins)} ${COIN} — today's RUNNER emission is used up`;
   if (e?.held && e.coins > 0) return `${saved} · +${fmtCoins(e.coins)} ${COIN} verified — usable in 24 h`;
   return e?.coins > 0 ? `${saved} · +${fmtCoins(e.coins)} ${COIN}${e.server ? ' (verified)' : ''}` : saved;

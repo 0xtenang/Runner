@@ -99,6 +99,15 @@
         <label class="small">Level cost curve (exponent) <input id="st-exp" class="input mono" type="number" min="0.5" max="3" step="0.1" style="width:70px"></label>
         <label class="small">Per-runner daily max (0 = off) <input id="st-max" class="input mono" type="number" min="0" style="width:110px"></label>
       </div>
+      <div class="small"><b>Fair-play rules</b></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <label class="small">Full pay at trust ≥ <input id="fp-full" class="input mono" type="number" min="1" max="100" style="width:64px"></label>
+        <label class="small">Not paid + strike below <input id="fp-void" class="input mono" type="number" min="0" max="100" style="width:64px"></label>
+        <label class="small">Partial pay % <input id="fp-pct" class="input mono" type="number" min="0" max="100" style="width:64px"></label>
+        <label class="small">Strikes to suspend <input id="fp-limit" class="input mono" type="number" min="1" max="20" style="width:56px"></label>
+        <label class="small">within (days) <input id="fp-window" class="input mono" type="number" min="1" max="365" style="width:64px"></label>
+        <label class="small">Suspensions (days, then permanent) <input id="fp-susp" class="input mono" placeholder="7, 30" style="width:90px"></label>
+      </div>
       <div id="st-preview" class="muted small"></div>
       <label class="small"><input id="st-attest" type="checkbox"> <b>Phone app only</b> — only runs from the genuine RUNNER app (Google Play Integrity / Apple App Attest) earn real RUNNER. Website runs still track. Turn on at launch, after the Google/Apple setup in the README.</label>
       <div id="st-attest-status" class="muted small"></div>
@@ -109,13 +118,15 @@
     </section>
 
     <section class="card step" id="review" hidden>
-      <h3><i>7</i>Fair play: review &amp; bans</h3>
-      <p class="muted small" style="margin:0">Runs with a low trust score (too-perfect GPS, copied routes) are held here instead of paying out. Approve to pay, void to cancel. Banned wallets can't earn, spend or claim. Opening the queue asks the dev wallet to sign once (free).</p>
-      <button class="btn pill" id="b-review">Open review queue</button>
+      <h3><i>7</i>Fair play (automatic)</h3>
+      <p class="muted small" style="margin:0">Every run is decided by rules — no reviewing needed. Trust ≥ full-pay level: paid. Between the levels: partly paid. Below the void level, a fake-GPS app or a copied route: not paid + 1 strike. Too many strikes suspend the wallet automatically (and cancel its earnings still on hold). The rules are in Game settings above. Opening the log asks the dev wallet to sign once (free).</p>
+      <button class="btn pill" id="b-review">Open fair-play log</button>
       <div id="review-list" class="small"></div>
+      <div class="small"><b>Manual ban</b> (optional — rules already suspend cheaters):</div>
       <div class="row" style="gap:8px;flex-wrap:wrap">
         <input id="ban-addr" class="input mono" placeholder="Wallet 0x…" style="flex:1;min-width:220px">
         <input id="ban-reason" class="input" placeholder="Reason (optional)" style="flex:1;min-width:140px">
+        <input id="ban-days" class="input mono" type="number" min="0" placeholder="Days (0 = permanent)" style="width:150px">
       </div>
       <div class="row" style="gap:8px">
         <button class="btn pill" id="b-ban">Ban wallet</button>
