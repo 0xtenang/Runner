@@ -63,7 +63,7 @@ async function setup() {
   ok('owner + protocol wallet = dev', u(await view('owner')) === BigInt(DEV) && u(await view('protocolWallet')) === BigInt(DEV));
   ok('tax constants 2% + 2%', u(await view('PROTOCOL_TAX_BPS')) === 200n && u(await view('HOLDER_TAX_BPS')) === 200n);
   ok('min holding 300,000', u(await view('MIN_HOLDING')) === 300_000n * E18);
-  ok('every state-changing function is accounted for (none change tax, mint, or take pooled funds)', JSON.stringify(T.writes) === JSON.stringify(['addPair', 'approve', 'burn', 'burnFrom', 'claim', 'claimHolderRewards', 'setClaimsPaused', 'setProtocolWallet', 'setSigner', 'startEmission', 'sweepExpired', 'transfer', 'transferFrom', 'transferOwnership']), T.writes.join(' '));
+  ok('every state-changing function is accounted for (none change tax, mint, or take pooled funds)', JSON.stringify(T.writes) === JSON.stringify(['addPair', 'approve', 'burn', 'burnFrom', 'claim', 'claimHolderRewards', 'release', 'releaseEarly', 'setClaimsPaused', 'setProtocolWallet', 'setSigner', 'startEmission', 'sweepExpired', 'transfer', 'transferFrom', 'transferOwnership']), T.writes.join(' '));
   ok('contract excluded from holder rewards', u(await view('excludedFromHolderRewards', tok)) === 1n);
   ok('eligible supply = dev + team (200M)', u(await view('eligibleSupply')) === 200_000_000n * E18);
   ok('zero team rejected', reverts(await c.send(DEPLOYER, null, T.ctor(DEV, DEV, ZERO)), 'ZeroAddress'));
@@ -109,7 +109,7 @@ async function setup() {
     const s = secp256k1.sign(Buffer.from(keccakHex(Buffer.from(`1901${domain}${struct}`, 'hex')), 'hex'), key);
     return { v: 27 + s.recovery, r: `0x${s.r.toString(16).padStart(64, '0')}`, s: `0x${s.s.toString(16).padStart(64, '0')}` };
   };
-  const claim = (from, account, total, deadline, sg) => call(from, 'claim', account, total, deadline, sg.v, sg.r, sg.s);
+  const claim = (from, account, total, deadline, sg, instant = false) => call(from, 'claim', account, total, deadline, sg.v, sg.r, sg.s, instant);
   const dl = () => c.now + 3600n;
   ok('domain separator matches', (await view('domainSeparator')).slice(2) === domain);
   let sg = sign(SKEY, W(1), 100n * E18, dl());
@@ -134,11 +134,16 @@ async function setup() {
   ok('no signer → rejected', reverts(await claim(W(1), W(1), 100n * E18, dl(), sg), 'BadSignature'));
   await call(DEV, 'setSigner', SIGNER);
   ok('emissionToday: full limit unused', u(today0, 0) === 10_000_000n * E18 && u(today0, 1) === 10_000_000n * E18);
+  ok('only the runner can choose instant (no one can burn your rewards)', reverts(await claim(W(7), W(1), 100n * E18, dl(), sg, true), 'OnlyRunnerCanClaimInstantly'));
   const r = await claim(W(7), W(1), 100n * E18, dl(), sg);
-  ok('claim pays runner (submitted by anyone), untaxed', r.ok && await bal(W(1)) === 100n * E18 && await bal(W(7)) === 0n, `gas ${r.gas}`);
+  const lk = await view('locksOf', W(1));
+  ok('locked claim (submitted by anyone): 100 locked for 7 days, nothing paid yet', r.ok && await bal(W(1)) === 0n && await bal(W(7)) === 0n && u(lk, 0) === 100n * E18 && u(lk, 2) === c.now + 7n * 86400n, `gas ${r.gas}`);
+  ok('locked rewards leave the run pool', u(await view('totalLocked')) === 100n * E18 && u(await view('rewardsRemaining')) === 800_000_000n * E18 - 100n * E18);
   ok('replay', reverts(await claim(W(1), W(1), 100n * E18, dl(), sg), 'NothingToClaim'));
   sg = sign(SKEY, W(1), 250n * E18, dl());
-  ok('cumulative difference', (await claim(W(1), W(1), 250n * E18, dl(), sg)).ok && await bal(W(1)) === 250n * E18);
+  const supply0 = u(await view('totalSupply'));
+  ok('instant claim of the difference: 80% paid, 20% burned', (await claim(W(1), W(1), 250n * E18, dl(), sg, true)).ok && await bal(W(1)) === 120n * E18
+    && u(await view('totalSupply')) === supply0 - 30n * E18 && u(await view('totalBurnedInstant')) === 30n * E18);
   sg = sign(SKEY, W(1), 300n * E18, dl());
   ok('tampered amount', reverts(await claim(W(1), W(1), 999n * E18, dl(), sg), 'BadSignature'));
   ok('other account', reverts(await claim(W(2), W(2), 300n * E18, dl(), sg), 'BadSignature'));
@@ -163,7 +168,66 @@ async function setup() {
   await call(DEV, 'addPair', pair);
   await buy(pair, W(2), 1_000_000n * E18);
   const held = u(await view('holderRewardsHeld'));
-  ok('holder tax kept apart from the run pool', held === 20_000n * E18 && u(await view('rewardsRemaining')) === await bal(tok) - held);
+  ok('holder tax and locks kept apart from the run pool', held === 20_000n * E18 && u(await view('rewardsRemaining')) === await bal(tok) - held - u(await view('totalLocked')));
+}
+
+// =================================================================== 7-day locks
+{
+  const { c, tok, call, view, bal } = await setup();
+  const SKEY = secp256k1.utils.randomPrivateKey();
+  const SIGNER = `0x${keccakHex(secp256k1.getPublicKey(SKEY, false).slice(1)).slice(24)}`;
+  const domain = keccakHex(Buffer.from(keccakHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)') + keccakHex('RUNNER') + keccakHex('1') + word(4663) + addrWord(tok), 'hex'));
+  const claimAs = (from, account, total, instant = false) => {
+    const deadline = c.now + 3600n;
+    const struct = keccakHex(Buffer.from(keccakHex('Claim(address account,uint256 totalEarned,uint256 deadline)') + addrWord(account) + word(total) + word(deadline), 'hex'));
+    const sg = secp256k1.sign(Buffer.from(keccakHex(Buffer.from(`1901${domain}${struct}`, 'hex')), 'hex'), SKEY);
+    return call(from, 'claim', account, total, deadline, 27 + sg.recovery, `0x${sg.r.toString(16).padStart(64, '0')}`, `0x${sg.s.toString(16).padStart(64, '0')}`, instant);
+  };
+  await call(DEV, 'setSigner', SIGNER);
+  await call(DEV, 'startEmission');
+  const A = W(1), B = W(2);
+  const supply0 = u(await view('totalSupply'));
+  await claimAs(A, A, 1000n * E18);                      // lock 1000 (day 0)
+  ok('release before 7 days → nothing', reverts(await call(W(9), 'release', A), 'NothingToRelease'));
+  c.addTime(3 * DAY);
+  await claimAs(A, A, 1500n * E18);                      // lock 500 more (day 3)
+  let lk = await view('locksOf', A);
+  ok('two locks, nothing unlocked yet', u(lk, 0) === 1500n * E18 && u(lk, 1) === 0n && u(lk, 3) === 2n);
+  c.addTime(4 * DAY + 1);                                // day 7: first lock done
+  lk = await view('locksOf', A);
+  ok('after 7 days the first lock is ready', u(lk, 0) === 500n * E18 && u(lk, 1) === 1000n * E18);
+  ok('anyone can release finished locks to the runner: 100%', (await call(W(9), 'release', A)).ok && await bal(A) === 1000n * E18 && await bal(W(9)) === 0n);
+  ok('no burn for locked rewards', u(await view('totalSupply')) === supply0);
+  c.addTime(3 * DAY);                                    // day 10: second lock done
+  await claimAs(A, A, 1600n * E18);                      // new claim auto-releases the finished lock
+  ok('a new claim pays out finished locks automatically', await bal(A) === 1500n * E18 && u(await view('locksOf', A), 0) === 100n * E18);
+  // early release: B locks 1000, waits 2 days, takes it early → 800, 200 burned
+  await claimAs(B, B, 1000n * E18);
+  c.addTime(2 * DAY);
+  const s1 = u(await view('totalSupply'));
+  ok('release early: 80% now, 20% burned', (await call(B, 'releaseEarly')).ok && await bal(B) === 800n * E18 && u(await view('totalSupply')) === s1 - 200n * E18);
+  ok('nothing left after early release', reverts(await call(B, 'releaseEarly'), 'NothingToRelease') && u(await view('locksOf', B), 3) === 0n);
+  // early release with a mix of finished and unfinished locks (no claim in between)
+  const D = W(4);
+  await claimAs(D, D, 1000n * E18);                      // lock 1000
+  c.addTime(3 * DAY);
+  await claimAs(D, D, 2000n * E18);                      // lock 1000 more
+  c.addTime(5 * DAY);                                    // first finished, second not
+  const dBefore = await bal(D), sD = u(await view('totalSupply'));
+  ok('early release: finished lock 100%, unfinished 80% (only 20% of the unfinished burned)', (await call(D, 'releaseEarly')).ok && await bal(D) - dBefore === 1800n * E18 && u(await view('totalSupply')) === sD - 200n * E18);
+  // lock limit
+  const C = W(3);
+  let total = 0n, okAll = true;
+  for (let i = 0; i < 30; i++) { total += E18; if (!(await claimAs(C, C, total)).ok) okAll = false; }
+  ok('30 active locks allowed', okAll && u(await view('locksOf', C), 3) === 30n);
+  ok('31st lock rejected until some finish', reverts(await claimAs(C, C, total + E18), 'TooManyLocks'));
+  ok('instant claims still work at the limit', (await claimAs(C, C, total + E18, true)).ok);
+  c.addTime(7 * DAY + 1);
+  ok('after locks finish, locking works again', (await claimAs(C, C, total + 2n * E18)).ok && u(await view('locksOf', C), 3) === 1n);
+  // accounting
+  const burned = u(await view('totalBurnedInstant'));
+  ok('supply fell by exactly what was burned', u(await view('totalSupply')) === supply0 - burned);
+  ok('contract balance = pool + locks (+ holder bucket)', await bal(tok) === u(await view('rewardsRemaining')) + u(await view('totalLocked')) + u(await view('holderRewardsHeld')));
 }
 
 // =================================================================== tax

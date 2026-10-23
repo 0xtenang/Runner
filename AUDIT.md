@@ -9,7 +9,7 @@
 
 | Contract | File | Creation-code keccak (solc 0.8.24, optimizer 200, EVM paris) |
 |---|---|---|
-| RUNNER token (ERC-20 + tax + holder rewards + run-reward claims) | `contracts/RunnerToken.sol` | `0x09f7e89bbe8e2289284c358a718bb4fa7c1608c5b087f4425a2eea6de9497e5b` |
+| RUNNER token (ERC-20 + tax + holder rewards + run-reward claims) | `contracts/RunnerToken.sol` | `0x79b8855dce56c09682e03b2c00cbe8b3b939d5ce6f2b023e7701a0be8b3422bb` |
 | RUNNER Genesis NFT (ERC-721, ERC-2981, ERC-721C hook) | `contracts/RunnerGenesis.sol` | `0x1c55e9cf65a7def63fa7bc19d49e3b89330b967c964fdba4e63d83a13c00b446` |
 | Rewards server (signs run-reward claims) | `api/rewards.js`, `api/_lib/*`, `js/rules.js` | — |
 
@@ -20,7 +20,7 @@
 1. Line-by-line manual review of both contracts and the server: access control, arithmetic, reentrancy, signature handling, accounting invariants, owner powers, and DEX/marketplace interactions.
 2. **Slither 0.10.4** static analysis (93 detectors). The triage is below.
 3. Tests run against the official compiler build in a local EVM (`tests/`):
-   - `token.test.mjs`: 94 checks, including the halving schedule (checked day by day against the JavaScript mirror for 400 days) and a **randomized model test**. It runs 600 random actions (buys, sells, transfers, claims, sweeps, burns, and time jumps) over 45 days. Every 5 steps it compares every balance, every daily eligible balance, the daily totals and the holder-reward bucket against an independent JavaScript model.
+   - `token.test.mjs`: 111 checks, including the 7-day locks and instant burns, the halving schedule (checked day by day against the JavaScript mirror for 400 days) and a **randomized model test**. It runs 600 random actions (buys, sells, transfers, claims, sweeps, burns, and time jumps) over 45 days. Every 5 steps it compares every balance, every daily eligible balance, the daily totals and the holder-reward bucket against an independent JavaScript model.
    - `nft.test.mjs`: 44 checks, including the rarity and price of all 9,999 tokens against the app, and a malicious re-entering validator.
    - `rewards-server.test.mjs`: 40 checks covering sign-in, run scoring, anti-cheat, spending, claims, halving rates and costs, the energy table, the global daily budget and partial claims. A server-signed claim was also accepted by the token contract on chain id 4663.
 4. **Mutation checks.** Bugs were planted on purpose to make sure the tests catch them:
@@ -31,6 +31,9 @@
    | Wrong start-of-day balance | Caught |
    | Sweep one day early | Caught |
    | Old NFT transfer ordering | Caught |
+   | Let anyone force an instant (burning) claim | Caught |
+   | Early release also burns finished locks | Caught |
+   | Locked rewards not reserved from the pool | Caught |
 
 ## Findings
 
@@ -50,6 +53,7 @@
 | 12 | Info | `block.timestamp` defines the UTC day. The sequencer can skew it by seconds. | Acceptable at daily granularity. |
 | 13 | Info (economics) | The fast schedule front-loads emission: about 38% of the pool can be released in month 1, 66% by month 3 and 75% by month 7. After that it's 100k/day for about 5.5 more years. Heavy early selling pressure is likely. | Product decision (confirmed by the owner). The server's global daily budget and the earn-rate factor follow the same schedule, so actual emission is at most the schedule. |
 | 14 | Low | The server credits runs against a daily budget, and the contract limits claims per day separately. Earnings from several days can meet on one claim day. | Handled: the server signs only what still fits in today's on-chain emission (a partial claim), and the rest can be claimed the next day. |
+| 15 | Info | Run-reward payout choice. *Instant:* 80% is paid and 20% burned from the pool, and only the runner can choose it (`msg.sender == account`), so a third party submitting a signature can't burn someone's rewards. *Locked:* 100% after 7 days, and anyone may submit it. Locks are stored in unlock order; finished ones form a prefix that is paid automatically on the next claim or by `release(account)`. `releaseEarly` pays finished locks at 100% and unfinished ones at 80% (20% burned). At most 30 active locks per wallet; past that, locking reverts until some finish, but instant claims still work. | By design. Tested, including the cases above. |
 
 ### Slither triage
 
@@ -59,6 +63,8 @@
 | `incorrect-equality` (`== today`, `== day`, `emissionStartDay == 0`) | token | Intended. These compare day numbers or the "not started" sentinel, not balances. |
 | `timestamp` | token | Intended. Daily bookkeeping and claim deadlines (#12). |
 | `missing-zero-check` (`setSigner`, `setTransferValidator`) | both | Intended. Zero means "off". |
+| `uninitialized-local` (`burnAmount` in `releaseEarly`), `uninitialized-state` (`_locks`) | token | False positives. Locals default to 0; the arrays are filled through storage pointers. |
+| `cyclomatic-complexity` (`claim`) | token | Informational. `claim` is covered by the tests above. |
 | `low-level-calls` (`_poolToken`, `mint`, `withdraw`) | both | Intended. Results and return length are checked; ETH forwarding reverts on failure. |
 | `reentrancy-*` (`transferFrom` after validator) | NFT | Safe after fix #3: all checks run after the call, and the malicious-validator test passes. |
 
@@ -77,6 +83,7 @@
     - pool = contract balance − `holderRewardsHeld`;
     - Σ balances = `totalSupply`.
 - **Run rewards:** the server signs an EIP-712 `Claim(account, totalEarned, deadline)`. The contract pays `totalEarned − claimed[account]`. Low-s signatures only, with the chain id and contract in the domain, and a deadline.
+- **Payout choice and locks:** `claim(…, instant)` sends 80% now and burns 20% (`instant`, runner only), or locks 100% for 7 days. `rewardsRemaining = balance(this) − holderRewardsHeld − totalLocked`, so locked rewards can never be paid out twice. Burned amounts reduce `totalSupply` and are tracked in `totalBurnedInstant`.
 - **Emission:** `emissionOn(day)` = max(10M >> ((day − start) / 30), 100k), or 0 before `startEmission()`, which can only be called once. Claims per day ≤ `emissionOn(today)`. `js/rules.js` mirrors this exactly, and the server scales earn rates by `emissionOn / 10M`.
 
 ### Owner powers (complete list)
@@ -88,6 +95,8 @@
 | Token | `setSigner` | The rewards server key (zero disables claims) | Daily cap |
 | Token | `setClaimsPaused` | Pause run-reward claims | Doesn't affect transfers or holder rewards |
 | Token | `startEmission` | Starts the fixed halving schedule today | Once only, can't be changed |
+
+`release(account)` and `sweepExpired` can be called by anyone; they only ever pay the rightful wallet or the protocol wallet.
 | Token | `transferOwnership` | Hand over ownership | — |
 | NFT | `setPaused` | Pause minting | Transfers unaffected |
 | NFT | `setTreasury`, `setRoyaltyReceiver` | Where mint payments and the 5% royalty go | — |

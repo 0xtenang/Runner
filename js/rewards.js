@@ -143,6 +143,19 @@ export async function upgrade(action, id, add) {
 }
 
 // ------------------------------------------------------------------ on-chain
+async function tokenCallRaw(data) {
+  let last;
+  for (const url of TOKEN_CHAIN.rpcUrls.default.http) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: TOKEN_CONTRACT, data }, 'latest'] }) });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message);
+      return String(j.result || '0x');
+    } catch (e) { last = e; }
+  }
+  throw last || new Error('Network error');
+}
+
 async function tokenCall(data) {
   let last;
   for (const url of TOKEN_CHAIN.rpcUrls.default.http) {
@@ -165,21 +178,39 @@ export async function tokenBalance(address = auth.state.address) {
 }
 
 /**
- * Moves the unclaimed balance into the wallet as real RUNNER: the server signs,
- * the wallet sends claim() to the token contract (needs a little ETH for gas).
+ * Moves the unclaimed balance on-chain: the server signs, the wallet sends claim()
+ * to the token (needs a little ETH for gas). `instant` = 80% now and 20% burned;
+ * otherwise the full amount is locked in the contract for 7 days.
  */
-export async function claimRewards(onStatus = () => {}) {
+export async function claimRewards(onStatus = () => {}, instant = false) {
   onStatus('Asking the RUNNER server to sign your claim…');
   const r = await post({ action: 'claim' });
   await game.applyServer(r.state);
   const c = r.claim;
   const already = await tokenCall(`0xc884ef83${addrWord(c.account)}`).catch(() => 0n); // claimed(account)
   if (BigInt(c.totalEarned) <= already) throw new Error('Everything you earned is already in your wallet.');
-  const data = `0x0d48a771${addrWord(c.account)}${word(c.totalEarned)}${word(c.deadline)}${word(c.v)}${c.r.slice(2)}${c.s.slice(2)}`;
+  const data = `0xec558eda${addrWord(c.account)}${word(c.totalEarned)}${word(c.deadline)}${word(c.v)}${c.r.slice(2)}${c.s.slice(2)}${word(instant ? 1 : 0)}`;
   onStatus('Confirm the claim in your wallet…');
   const hash = await auth.sendTx({ to: TOKEN_CONTRACT, data, chainId: TOKEN_CHAIN.id });
-  return { hash, amount: Number(BigInt(c.totalEarned) - already) / 1e18, partial: Boolean(c.partial) };
+  return { hash, amount: Number(BigInt(c.totalEarned) - already) / 1e18, partial: Boolean(c.partial), instant };
 }
+
+// ------------------------------------------------------------------ 7-day locks
+export const INSTANT_BURN = 0.2;
+export const LOCK_DAYS = 7;
+
+/** Locked run rewards: { locked, unlocked, nextUnlockAt (ms), count } in whole tokens. */
+export async function lockInfo(address = auth.state.address) {
+  if (!isAddr(TOKEN_CONTRACT) || !address) return null;
+  const h = (await tokenCallRaw(`0xc3f9ab58${addrWord(address)}`)).replace(/^0x/, '');
+  if (h.length < 256) return { locked: 0, unlocked: 0, nextUnlockAt: null, count: 0 };
+  const w = (i) => BigInt(`0x${h.slice(i * 64, (i + 1) * 64)}`);
+  return { locked: Number(w(0)) / 1e18, unlocked: Number(w(1)) / 1e18, nextUnlockAt: w(2) ? Number(w(2)) * 1000 : null, count: Number(w(3)) };
+}
+/** Pays out finished locks (100%). */
+export const releaseRewards = () => auth.sendTx({ to: TOKEN_CONTRACT, data: `0x19165587${addrWord(auth.state.address)}`, chainId: TOKEN_CHAIN.id });
+/** Takes every lock now: finished ones 100%, unfinished 80% (20% burned). */
+export const releaseEarly = () => auth.sendTx({ to: TOKEN_CONTRACT, data: '0xa2c48db8', chainId: TOKEN_CHAIN.id });
 
 // ------------------------------------------------------------------ holder rewards (2% of trades)
 export const MIN_HOLDING = 300_000;

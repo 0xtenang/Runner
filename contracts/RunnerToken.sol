@@ -43,6 +43,10 @@ contract RunnerToken {
     uint256 public constant EMISSION_START = 10_000_000 ether;
     uint256 public constant HALVING_DAYS = 30;
     uint256 public constant EMISSION_FLOOR = 100_000 ether;
+    /// Run-reward payout choice: take it now and 20% is burned, or lock it 7 days for 100%.
+    uint256 public constant INSTANT_BURN_BPS = 2_000;
+    uint256 public constant LOCK_PERIOD = 7 days;
+    uint256 public constant MAX_ACTIVE_LOCKS = 30;
     uint256 private constant BPS = 10_000;
 
     bytes32 private constant DOMAIN_TYPEHASH =
@@ -55,6 +59,11 @@ contract RunnerToken {
         uint32 day;          // UTC day number (timestamp / 1 days)
         uint112 minBalance;  // lowest balance held during `day`
         uint112 endBalance;  // balance after the last change on `day`
+    }
+
+    struct Lock {
+        uint128 amount;
+        uint64 unlockAt;
     }
 
     struct Day {
@@ -71,6 +80,8 @@ contract RunnerToken {
     bool public claimsPaused;
     uint256 public emissionStartDay;     // 0 = emission not started yet
     uint256 public totalClaimed;
+    uint256 public totalLocked;          // locked run rewards inside this contract
+    uint256 public totalBurnedInstant;   // burned by instant claims / early releases
 
     uint256 public eligibleSupply;       // sum of balances >= MIN_HOLDING of non-excluded wallets
     uint256 public holderRewardsHeld;    // holder tax inside this contract, not yet paid out
@@ -85,13 +96,18 @@ contract RunnerToken {
     mapping(address => Checkpoint[]) private _checkpoints;
     mapping(uint256 => Day) private _days;
     mapping(address => mapping(uint256 => bool)) public holderClaimedDay;
+    mapping(address => Lock[]) private _locks;      // in unlock order
+    mapping(address => uint256) private _lockHead;  // first lock not yet paid out
 
     uint256 private immutable _cachedChainId;
     bytes32 private immutable _cachedDomainSeparator;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed holder, address indexed spender, uint256 value);
-    event Claimed(address indexed account, uint256 amount, uint256 totalEarned);
+    event Claimed(address indexed account, uint256 amount, uint256 totalEarned, bool instant);
+    event RewardsLocked(address indexed account, uint256 amount, uint256 unlockAt);
+    event RewardsReleased(address indexed account, uint256 amount);
+    event RewardsBurned(address indexed account, uint256 amount);
     event HolderRewardsAdded(uint256 indexed day, uint256 amount);
     event HolderRewardsClaimed(address indexed holder, uint256 amount);
     event HolderRewardsExpired(uint256 indexed day, uint256 amount);
@@ -112,6 +128,9 @@ contract RunnerToken {
     error NothingToClaim();
     error DailyCapReached();
     error PoolEmpty();
+    error OnlyRunnerCanClaimInstantly();
+    error TooManyLocks();
+    error NothingToRelease();
     error NotAContract();
     error AlreadyPair();
     error NotAPool();
@@ -251,7 +270,7 @@ contract RunnerToken {
 
     /// @notice RUNNER still waiting in the run-reward pool.
     function rewardsRemaining() public view returns (uint256) {
-        return balanceOf[address(this)] - holderRewardsHeld;
+        return balanceOf[address(this)] - holderRewardsHeld - totalLocked;
     }
 
     /// @notice How much `account` can claim with a server signature for `totalEarned`.
@@ -260,10 +279,13 @@ contract RunnerToken {
         return totalEarned > done ? totalEarned - done : 0;
     }
 
-    /// @notice Pay `account` its verified run earnings. Anyone may submit the transaction;
-    ///         tokens always go to `account`.
-    function claim(address account, uint256 totalEarned, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
+    /// @notice Pay `account` its verified run earnings, either
+    ///         • instant: 80% now, 20% burned — only the runner can choose this, or
+    ///         • locked:  100% after 7 days — anyone may submit this for the runner.
+    ///         Any of the runner's locks that have finished are paid out in the same call.
+    function claim(address account, uint256 totalEarned, uint256 deadline, uint8 v, bytes32 r, bytes32 s, bool instant) external {
         if (claimsPaused) revert ClaimsPaused();
+        if (instant && msg.sender != account) revert OnlyRunnerCanClaimInstantly();
         if (emissionStartDay == 0) revert EmissionNotStarted();
         if (block.timestamp > deadline) revert Expired();
         if (account == address(0)) revert ZeroAddress();
@@ -284,8 +306,65 @@ contract RunnerToken {
         claimed[account] = totalEarned;
         claimedOnDay[day] += amount;
         totalClaimed += amount;
-        _move(address(this), account, amount, day);
-        emit Claimed(account, amount, totalEarned);
+        emit Claimed(account, amount, totalEarned, instant);
+        _releaseMatured(account, day);
+        if (instant) {
+            uint256 burnAmount = amount * INSTANT_BURN_BPS / BPS;
+            _move(address(this), account, amount - burnAmount, day);
+            _burnRewards(account, burnAmount);
+        } else {
+            Lock[] storage locks = _locks[account];
+            if (locks.length - _lockHead[account] >= MAX_ACTIVE_LOCKS) revert TooManyLocks();
+            uint256 unlockAt = block.timestamp + LOCK_PERIOD;
+            locks.push(Lock(uint128(amount), uint64(unlockAt)));
+            totalLocked += amount;
+            emit RewardsLocked(account, amount, unlockAt);
+        }
+    }
+
+    /// @notice Pay out `account`'s locks that have finished their 7 days (100%). Anyone may call.
+    function release(address account) external returns (uint256 amount) {
+        amount = _releaseMatured(account, _today());
+        if (amount == 0) revert NothingToRelease();
+    }
+
+    /// @notice Take all your locked rewards now: finished locks pay 100%, unfinished ones
+    ///         pay 80% and 20% is burned.
+    function releaseEarly() external returns (uint256 paid) {
+        uint256 day = _today();
+        Lock[] storage locks = _locks[msg.sender];
+        uint256 head = _lockHead[msg.sender];
+        uint256 n = locks.length;
+        uint256 total;
+        uint256 burnAmount;
+        for (uint256 i = head; i < n; i++) {
+            Lock memory l = locks[i];
+            total += l.amount;
+            if (l.unlockAt > block.timestamp) burnAmount += uint256(l.amount) * INSTANT_BURN_BPS / BPS;
+            delete locks[i];
+        }
+        if (total == 0) revert NothingToRelease();
+        _lockHead[msg.sender] = n;
+        totalLocked -= total;
+        paid = total - burnAmount;
+        _move(address(this), msg.sender, paid, day);
+        emit RewardsReleased(msg.sender, paid);
+        if (burnAmount > 0) _burnRewards(msg.sender, burnAmount);
+    }
+
+    /// @notice `account`'s locked run rewards: still locked, ready to release, next unlock time.
+    function locksOf(address account) external view returns (uint256 locked, uint256 unlocked, uint256 nextUnlockAt, uint256 activeLocks) {
+        Lock[] storage locks = _locks[account];
+        uint256 n = locks.length;
+        for (uint256 i = _lockHead[account]; i < n; i++) {
+            Lock memory l = locks[i];
+            if (l.unlockAt <= block.timestamp) unlocked += l.amount;
+            else {
+                locked += l.amount;
+                if (nextUnlockAt == 0) nextUnlockAt = l.unlockAt;
+            }
+        }
+        activeLocks = n - _lockHead[account];
     }
 
     /// @notice Most RUNNER the run-reward pool can pay out on `day` (0 before emission starts).
@@ -477,6 +556,31 @@ contract RunnerToken {
         balanceOf[to] = bal + value;
         _track(to, bal, bal + value, today);
         emit Transfer(address(0), to, value);
+    }
+
+    /// Pays out finished locks (they form a prefix: every lock lasts the same 7 days).
+    function _releaseMatured(address account, uint256 day) private returns (uint256 amount) {
+        Lock[] storage locks = _locks[account];
+        uint256 head = _lockHead[account];
+        uint256 n = locks.length;
+        while (head < n && locks[head].unlockAt <= block.timestamp) {
+            amount += locks[head].amount;
+            delete locks[head];
+            head++;
+        }
+        if (amount == 0) return 0;
+        _lockHead[account] = head;
+        totalLocked -= amount;
+        _move(address(this), account, amount, day);
+        emit RewardsReleased(account, amount);
+    }
+
+    /// Burns run rewards from the pool held by this contract (instant claims, early releases).
+    function _burnRewards(address account, uint256 amount) private {
+        if (amount == 0) return;
+        totalBurnedInstant += amount;
+        _burn(address(this), amount);
+        emit RewardsBurned(account, amount);
     }
 
     function _burn(address from, uint256 value) private {

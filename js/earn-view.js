@@ -19,7 +19,7 @@ const ATTR_HINT = { efficiency: `more ${COIN} per run`, resilience: 'less wear' 
 // Sneaker illustrations live in sneaker-art.js (four lines + editions).
 export { sneakerSvg } from './sneaker-art.js';
 import { sneakerSvg } from './sneaker-art.js';
-import { rewardsActive, rewardsConnected, connectRewards, syncRewards, checkRewardsStatus, upgrade, claimRewards, tokenBalance, claimedOnChain, tokenExplorerTx, holderClaimable, claimHolderRewards, MIN_HOLDING } from './rewards.js';
+import { rewardsActive, rewardsConnected, connectRewards, syncRewards, checkRewardsStatus, upgrade, claimRewards, tokenBalance, claimedOnChain, tokenExplorerTx, holderClaimable, claimHolderRewards, MIN_HOLDING, lockInfo, releaseRewards, releaseEarly, INSTANT_BURN, LOCK_DAYS } from './rewards.js';
 
 const coinIcon = '<svg class="coin-ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9"/><path d="M10 5v10M7.5 7.5h4a2 2 0 0 1 0 4h-3"/></svg>';
 export const coinTag = (n, sign = false) => `<span class="coin-amt">${coinIcon}${sign && n > 0 ? '+' : ''}${fmtCoins(n)}</span>`;
@@ -537,9 +537,29 @@ function rewardsCard(st) {
   return `<span class="muted small">Verified by the RUNNER server. Spend it on level-ups and repairs, or claim it to your wallet as real ${COIN} tokens.</span>
     ${emissionLine(st.server?.emission)}
     <span class="small">In your wallet: <b>${claimInfo ? `${fmtCoins(claimInfo.wallet)} ${COIN}` : '…'}</b></span>
-    <button class="btn primary pill sm" data-act="rw-claim" ${claimable ? '' : 'disabled'}>${claimable ? `Claim ${fmtCoins(claimable)} ${COIN} to wallet` : 'Nothing to claim yet'}</button>
+    ${claimable ? `<span class="small"><b>Claim ${fmtCoins(claimable)} ${COIN}</b> — lock it ${LOCK_DAYS} days for 100%, or take it now and ${INSTANT_BURN * 100}% is burned:</span>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <button class="btn primary pill sm" data-act="rw-claim" data-instant="0">Lock ${LOCK_DAYS} days · get ${fmtCoins(claimable)}</button>
+      <button class="btn pill sm" data-act="rw-claim" data-instant="1">Now · get ${fmtCoins(claimable * (1 - INSTANT_BURN))}</button>
+    </div>` : '<button class="btn pill sm" disabled>Nothing to claim yet</button>'}
     <span class="muted small" id="rw-status" role="status"></span>
+    ${locksBlock()}
     ${holderRewardsBlock()}`;
+}
+
+function locksBlock() {
+  const l = claimInfo?.locks;
+  if (!l || (!l.locked && !l.unlocked)) return '';
+  const when = l.nextUnlockAt ? new Date(l.nextUnlockAt).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+  return `<div class="holder-rewards">
+      <span class="lbl">Locked rewards</span>
+      ${l.unlocked ? `<span class="small">Ready: <b>${fmtCoins(l.unlocked)} ${COIN}</b></span>` : ''}
+      ${l.locked ? `<span class="small">Locked: <b>${fmtCoins(l.locked)} ${COIN}</b>${when ? ` · next unlock ${when}` : ''}</span>` : ''}
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        ${l.unlocked ? `<button class="btn primary pill sm" data-act="lock-release">Release ${fmtCoins(l.unlocked)}</button>` : ''}
+        ${l.locked ? `<button class="btn pill sm" data-act="lock-early">Take all now (−${INSTANT_BURN * 100}% of locked)</button>` : ''}
+      </div>
+    </div>`;
 }
 
 /** "Emission today 10M · rate 100% · halves 22 Nov" */
@@ -562,8 +582,8 @@ function holderRewardsBlock() {
 
 async function loadClaimInfo(onDone) {
   try {
-    const [wallet, claimed, holder] = await Promise.all([tokenBalance(), claimedOnChain(), holderClaimable()]);
-    claimInfo = { wallet, claimed, holder, address: auth.state.address };
+    const [wallet, claimed, holder, locks] = await Promise.all([tokenBalance(), claimedOnChain(), holderClaimable(), lockInfo()]);
+    claimInfo = { wallet, claimed, holder, locks, address: auth.state.address };
     onDone();
   } catch { /* chain unreachable: keep showing "…" */ }
 }
@@ -729,17 +749,34 @@ export function renderEarn(view, { toast, onCleanup }) {
           const status = view.querySelector('#rw-status');
           const say = (t) => { if (status) status.textContent = t; };
           try {
-            const { hash, amount, partial } = await claimRewards(say);
+            const instant = b.dataset.instant === '1';
+            if (instant && !confirm(`Take it now? ${INSTANT_BURN * 100}% is burned forever. Locking for ${LOCK_DAYS} days gives you 100%.`)) { b.disabled = false; break; }
+            const { hash, amount, partial } = await claimRewards(say, instant);
             say('Sent — waiting for the network…');
             await waitForReceipt(hash);
             say('');
-            showReveal({ kicker: 'Claimed', title: `${fmtCoins(amount)} ${COIN} is in your wallet`, coins: amount, note: `${partial ? "Today's claim limit is nearly used up, so this was a partial claim — the rest stays in your balance for tomorrow. " : ''}<a href="${tokenExplorerTx(hash)}" target="_blank" rel="noopener">View transaction</a>` });
+            showReveal({ kicker: instant ? 'Claimed' : 'Locked', title: instant ? `${fmtCoins(amount * (1 - INSTANT_BURN))} ${COIN} is in your wallet` : `${fmtCoins(amount)} ${COIN} unlocks in ${LOCK_DAYS} days`, coins: instant ? amount * (1 - INSTANT_BURN) : amount, note: `${instant ? `${fmtCoins(amount * INSTANT_BURN)} ${COIN} was burned. ` : 'Release it from the Earn tab after 7 days — or take it early for 80%. '}${partial ? "Today's claim limit is nearly used up, so this was a partial claim — the rest stays in your balance for tomorrow. " : ''}<a href="${tokenExplorerTx(hash)}" target="_blank" rel="noopener">View transaction</a>` });
             claimInfo = null;
             draw();
           } catch (err) {
             say('');
             throw /reject|denied|cancel/i.test(String(err.message)) ? new Error('Claim cancelled — you can claim any time.') : err;
           } finally { b.disabled = false; }
+          break;
+        }
+        case 'lock-release':
+        case 'lock-early': {
+          const early = b.dataset.act === 'lock-early';
+          if (early && !confirm(`Take all locked rewards now? Unfinished locks pay 80% — ${INSTANT_BURN * 100}% of them is burned.`)) break;
+          b.disabled = true;
+          try {
+            const hash = await (early ? releaseEarly() : releaseRewards());
+            toast('Sent — waiting for the network…');
+            await waitForReceipt(hash);
+            toast(early ? 'Locked rewards taken' : 'Released to your wallet');
+          } catch (err) {
+            throw /reject|denied|cancel/i.test(String(err.message)) ? new Error('Cancelled.') : err;
+          } finally { claimInfo = null; draw(); }
           break;
         }
         case 'holder-claim': {

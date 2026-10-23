@@ -81,7 +81,7 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
   | Month 8 onward | 100k/day for about 5.5 more years |
 
   Runners' earn rates halve on the same dates, the server never credits more than the day's emission, and claims beyond today's emission become partial claims finished the next day.
-- **Run-reward claims.** The RUNNER server signs "this account has earned X in total", and `claim()` pays X minus what was already claimed. The owner can rotate the server key or pause claims, but can **never** change the schedule or take tokens from the reward pool or the holder rewards.
+- **Run-reward claims.** The RUNNER server signs "this account has earned X in total", and `claim()` pays X minus what was already claimed. The runner chooses: **lock 7 days and get 100%**, or **take it now: 80% to the wallet, 20% burned**. Locked rewards can be released after 7 days (anyone may trigger it; it always pays the runner), or taken early at 80%. The owner can rotate the server key or pause claims, but can **never** change the schedule or take tokens from the reward pool or the holder rewards.
 - Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0x09f7e89bbe8e2289284c358a718bb4fa7c1608c5b087f4425a2eea6de9497e5b`.
 - Deploy: `/admin.html?c=token` → compile → deploy. Then set `TOKEN_CONTRACT` in `js/config.js`, add liquidity, and register the pool immediately (admin page, step 5).
 
