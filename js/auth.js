@@ -198,14 +198,22 @@ class Auth extends EventTarget {
    * Resolves with the transaction hash.
    */
   async sendEth(to, valueWei) {
+    return this.sendTx({ to, value: valueWei });
+  }
+
+  /**
+   * Sends any transaction from the embedded wallet (Privy shows a confirmation
+   * screen first). Omit `to` to deploy a contract. Resolves with the tx hash.
+   */
+  async sendTx({ to, value = 0n, data, chainId = ROBINHOOD_CHAIN.id }) {
     const w = this._wallet;
     if (!w) throw new Error('Wallet not ready yet — try again in a moment.');
-    await w.switchChain(ROBINHOOD_CHAIN.id);
+    await w.switchChain(chainId);
     const provider = await w.getEthereumProvider();
-    return provider.request({
-      method: 'eth_sendTransaction',
-      params: [{ from: w.address, to, value: `0x${valueWei.toString(16)}` }],
-    });
+    const tx = { from: w.address, value: `0x${BigInt(value).toString(16)}` };
+    if (to) tx.to = to;
+    if (data) tx.data = data;
+    return provider.request({ method: 'eth_sendTransaction', params: [tx] });
   }
 
   async exportWallet() {

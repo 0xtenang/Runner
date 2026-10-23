@@ -5,7 +5,8 @@ import { Recorder } from './recorder.js';
 import { isNative } from './geo.js';
 import { annotate, computeSplits, downsample, speedSeries, units, fmtDist, fmtDur, fmtPace, fmtElev } from './stats.js';
 import { game, EarnSession, SNEAKER_TYPES, earnPerEnergy, COIN } from './game.js';
-import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange, addressAvatar } from './earn-view.js';
+import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange, addressAvatar, syncOwnedSneakers } from './earn-view.js';
+import { PRICE_ETH } from './collection.js';
 import { auth, shortAddress, explorerUrl } from './auth.js';
 import { runOnboarding } from './onboarding.js';
 
@@ -37,7 +38,6 @@ const ICON = {
   upload: '<svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>',
   watch: '<svg viewBox="0 0 24 24"><rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6l.5-3h5L15 6M9 18l.5 3h5l.5-3M12 10v2.5l1.5 1"/></svg>',
   ruler: '<svg viewBox="0 0 24 24"><path d="M4 15 15 4l5 5L9 20z"/><path d="M8 11l2 2M11 8l2 2M14 5l1 1"/></svg>',
-  sim: '<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.4-6-10a6 6 0 1 1 12 0c0 4.6-6 10-6 10z"/><circle cx="12" cy="11" r="2"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>',
   layers: '<svg viewBox="0 0 24 24"><path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="M2.5 12.5 12 17.5l9.5-5M2.5 16.5 12 21.5l9.5-5"/></svg>',
   locate: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.2" class="fill"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
@@ -48,23 +48,17 @@ const ICON = {
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
 };
 
-const settings = {
-  get sim() { try { return localStorage.getItem('runearn.sim') === '1'; } catch { return false; } },
-  set sim(v) { try { localStorage.setItem('runearn.sim', v ? '1' : '0'); } catch { /* ignore */ } },
-};
-
 const hrm = new HeartRateMonitor();
 let earn = null; // EarnSession for the current recording
 const rec = new Recorder({
   hr: () => hrm.current(),
   persist: (snap) => db.kvSet('inprogress', { ...snap, earn: earn?.toJSON() }).catch(() => {}),
 });
-rec.sim = settings.sim;
 rec.type = 'run';
 
 // Earning runs alongside the recorder, one tick per second while moving.
 rec.addEventListener('state', () => {
-  if (rec.state === 'recording' && !earn) earn = new EarnSession(game.active, game.energy, { simulated: rec.sim });
+  if (rec.state === 'recording' && !earn) earn = new EarnSession(game.active, game.energy);
   if (rec.state === 'idle') earn = null;
 });
 // In the phone app, timers can slow down while the screen is locked even though
@@ -473,7 +467,7 @@ function renderRecord() {
     else if (follow) map.panTo([f.lat, f.lon], { animate: true });
     const acc = Math.round(f.acc ?? 0);
     gps.className = `gps-pill ${acc <= 15 ? 'good' : acc <= 35 ? 'weak' : 'bad'}`;
-    gps.querySelector('span').textContent = rec.sim ? 'Simulated GPS' : acc <= 35 ? 'GPS ready' : `Weak GPS · ±${acc} m`;
+    gps.querySelector('span').textContent = acc <= 35 ? 'GPS ready' : `Weak GPS · ±${acc} m`;
   };
   const onErr = (e) => {
     gps.className = 'gps-pill bad';
@@ -519,9 +513,14 @@ function renderRecord() {
           <div><b>${energy >= 0.05 ? `≈ ${fmtCoins(earnPerEnergy(s))} ${COIN} per energy` : 'Out of energy — tracking only'}</b>
           <span>⚡ ${energy.toFixed(1)}/${game.maxEnergy} · earn at ${paceRange(z)}</span></div>
           ${ICON.chev}
-        </a>` : ''}
-      </div>
-      ${rec.sim ? '<a class="sim-note" href="#/settings">GPS simulator is ON — turn off in Settings</a>' : ''}`;
+        </a>` : `
+        <a class="sheet-row" href="#/earn">
+          ${ICON.coin}
+          <div><b>Get a sneaker NFT to earn ${COIN}</b>
+          <span>From ${PRICE_ETH.common} ETH · you can still track runs without one</span></div>
+          ${ICON.chev}
+        </a>`}
+      </div>`;
   };
 
   // ----- during the run (map view): status, quick numbers, controls
@@ -565,7 +564,7 @@ function renderRecord() {
     setF('split', recording && curDist > 20 ? fmtPace(curDist, rec.activeSeconds - lastAt, false) : '–:––');
     const v = rec.currentSpeed();
     setF('cur', v ? fmtPace(v, 1, false) : '–');
-    setF('hr', String(hrm.current() ?? (rec.sim && rec.lastFix?.hr) ?? '–'));
+    setF('hr', String(hrm.current() ?? '–'));
     setF('coins', coinTag(earn?.coins || 0), true);
     setF('energy', earn?.sneaker ? `⚡ ${earn.energyLeft.toFixed(1)}` : '–');
     setF('bars', renderBars(), true);
@@ -702,7 +701,7 @@ async function finishRecording() {
   rec.stopGps();
   const e = act.earn;
   toast(e?.coins > 0
-    ? `Run saved · +${fmtCoins(e.coins)} ${COIN}${e.boxes.length ? ` · ${e.boxes.length} mystery box${e.boxes.length > 1 ? 'es' : ''}!` : ''}`
+    ? `Run saved · +${fmtCoins(e.coins)} ${COIN}`
     : 'Run saved', 3500);
   location.hash = `#/activity/${act.id}`;
 }
@@ -739,13 +738,13 @@ function earnCard(a) {
     <div class="card earn-card">
       <div class="row between">
         <h4 style="margin:0">Earnings</h4>
-        <span class="row">${e.simulated ? '<span class="badge neutral">Simulated</span>' : ''}${e.hrVerified ? '<span class="badge">HR verified</span>' : ''}</span>
+        <span class="row">${e.hrVerified ? '<span class="badge">HR verified</span>' : ''}</span>
       </div>
       <div class="earn-total">${coinTag(e.coins, true)} <small>${COIN}</small></div>
       <div class="stats-grid">
         <div><span class="lbl">Energy used</span><b>⚡ ${(+e.energy).toFixed(2)}</b></div>
         <div><span class="lbl">Time earning</span><b>${fmtDur(e.zoneSec)}</b></div>
-        <div><span class="lbl">Mystery boxes</span><b>${e.boxes.length}</b></div>
+        <div><span class="lbl">Sneaker</span><b>${e.sneakerLabel ? esc(e.sneakerLabel.split(' #')[0].replace(' Runner', '')) : '–'}</b></div>
       </div>
       <div class="muted small">${e.sneakerLabel ? `Sneaker: ${esc(e.sneakerLabel)}` : ''}${e.coins <= 0 && !e.energy ? ' · Run inside your sneaker\'s pace zone (with energy left) to earn.' : ''}</div>
     </div>`;
@@ -1040,10 +1039,6 @@ function renderSettings() {
           <div class="row">${ICON.watch}<div><b>Devices & import</b><div class="muted small">Garmin and other watches, heart-rate sensors</div></div></div>
           ${ICON.chev}
         </a>
-        <div class="setting">
-          <div class="row">${ICON.sim}<div><b>GPS simulator</b><div class="muted small">Fake a jog around a loop to try the app indoors</div></div></div>
-          <label class="switch"><input type="checkbox" id="sim" ${rec.sim ? 'checked' : ''}><span></span></label>
-        </div>
         <a class="setting" href="${FEEDBACK_URL}" target="_blank" rel="noopener">
           <div class="row">${ICON.chat}<div><b>Send feedback</b><div class="muted small">Report a bug or idea — it really helps the beta</div></div></div>
           ${ICON.chev}
@@ -1074,12 +1069,6 @@ function renderSettings() {
     auth.addEventListener('change', rerender);
     onCleanup(() => auth.removeEventListener('change', rerender));
   }
-  $('#sim').onchange = (e) => {
-    if (rec.state !== 'idle') { e.target.checked = rec.sim; toast('Finish your current run first'); return; }
-    settings.sim = e.target.checked;
-    rec.setSim(e.target.checked);
-    toast(e.target.checked ? 'GPS simulator on' : 'GPS simulator off');
-  };
   $('#b-wipe').onclick = async () => {
     if (rec.state !== 'idle') { toast('Finish your current run first'); return; }
     if (!confirm('Delete ALL runs, coins and sneakers on this device? This can\'t be undone.')) return;
@@ -1224,7 +1213,10 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:' && !isNative) 
 let resolvingConflict = false;
 async function syncWallet() {
   const s = auth.state;
-  if (!s.authenticated || !s.address || !s.user || !game.state || resolvingConflict) return;
+  if (!game.state || resolvingConflict) return;
+  // Signed out → no wallet → no sneakers to earn with (progress stays saved).
+  if (s.ready && !s.authenticated) { if (game.state.sneakers.length) await game.syncOwned([]); return; }
+  if (!s.authenticated || !s.address || !s.user) return;
   const w = game.state.wallet;
   const info = { address: s.address, privyId: s.user.id, method: s.user.method, email: s.user.email };
   if (!w || w.privyId === s.user.id) {
@@ -1235,6 +1227,7 @@ async function syncWallet() {
         toast(`Wallet ready · ${shortAddress(s.address)}`);
       }
     }
+    syncOwnedSneakers().catch(() => {}); // read which sneaker NFTs this wallet owns
     return;
   }
   resolvingConflict = true;

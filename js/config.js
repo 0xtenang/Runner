@@ -31,7 +31,17 @@ export const ROBINHOOD_TESTNET = {
   name: 'Robinhood Chain Testnet',
   network: 'robinhood-chain-testnet',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: ['https://rpc.testnet.chain.robinhood.com'] } },
+  rpcUrls: { default: { http: ['https://robinhood-testnet.drpc.org', 'https://rpc.testnet.chain.robinhood.com'] } },
   blockExplorers: { default: { name: 'Explorer', url: 'https://explorer.testnet.chain.robinhood.com' } },
   testnet: true,
 };
+
+// RUNNER Genesis sneaker NFTs (contracts/RunnerGenesis.sol).
+// Launching on testnet first. After deploying from /admin.html, paste the
+// contract address here. Empty address = shop shows "sales open soon".
+export const NFT_CHAIN = ROBINHOOD_TESTNET;
+export const NFT_CONTRACT = '';
+// Fingerprint of the audited build (solc 0.8.24, optimizer 200 runs, evm "paris").
+// /admin.html refuses to deploy bytecode that doesn't match.
+export const NFT_CREATION_CODE_KECCAK = '0x9d6131b6577e0744614ee3fc30e34c5aedadf43200284436f2b11cdfc93b5bb9';
+export const NFT_BASE_URI = 'https://runearn.fun/nft/';

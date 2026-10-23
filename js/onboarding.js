@@ -1,21 +1,15 @@
 // First-launch onboarding: welcome (sign in or guest) → how earning works →
-// pick a free starter sneaker → name, units, location and heart-rate setup.
-import { game, SNEAKER_TYPES, MINUTES_PER_ENERGY, COIN } from './game.js';
+// name, units, location and heart-rate setup. Sneakers are NFTs bought in the
+// Earn tab — there is no free starter.
+import { game, MINUTES_PER_ENERGY, COIN } from './game.js';
 import { auth, shortAddress } from './auth.js';
-import { sneakerSvg, showReveal, paceRange } from './earn-view.js';
+import { sneakerSvg } from './earn-view.js';
+import { traitsFor, PRICE_ETH } from './collection.js';
 import { units } from './stats.js';
-
-const STARTERS = [
-  { type: 'walker', hue: 200, best: 'Run-walk and recovery runs' },
-  { type: 'jogger', hue: 95, best: 'Easy runs — the most popular pick' },
-  { type: 'runner', hue: 15, best: 'Tempo runs and faster training' },
-  { type: 'trainer', hue: 280, best: 'Any pace — earns 15% less' },
-];
 
 export function runOnboarding() {
   return new Promise((resolve) => {
     let step = 0;
-    let choice = 'jogger';
     let locStatus = '';
     let signStatus = '';
     let name = game.state.profile?.name && game.state.profile.name !== 'Runner' ? game.state.profile.name : '';
@@ -27,6 +21,8 @@ export function runOnboarding() {
     document.body.appendChild(el);
     document.body.classList.add('no-scroll');
 
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
     const screens = [
       () => `
         <div class="ob-hero">
@@ -36,33 +32,20 @@ export function runOnboarding() {
         </div>
         <ul class="ob-list">
           <li><b>Track every run</b><span>Live GPS map, pace, splits and heart rate.</span></li>
-          <li><b>Earn ${COIN} coins</b><span>Equip a sneaker and earn while you run.</span></li>
+          <li><b>Earn ${COIN} tokens</b><span>Own a sneaker NFT and earn ${COIN} while you run.</span></li>
           <li><b>Bring your watch</b><span>Import runs from Garmin, COROS, Polar, Suunto, Apple Watch and more.</span></li>
         </ul>
         ${auth.signedIn ? `<div class="ob-signed">✓ Signed in${auth.state.user?.email ? ` as ${esc(auth.state.user.email)}` : ''} · wallet ${shortAddress(auth.state.address)}</div>` : ''}
         ${signStatus ? `<p class="ob-sign-status" role="status">${esc(signStatus)}</p>` : ''}`,
       () => `
         <h2 class="ob-title">How earning works</h2>
+        <div class="ob-shoes">${[3, 146, 42].map((id) => sneakerSvg(traitsFor(id), 'sneaker-art xs')).join('')}</div>
         <ol class="ob-steps">
-          <li><i>1</i><div><b>Equip a sneaker</b><span>Each type has a pace zone. Stay inside it to earn — a Daily Runner earns between 6:00 and 15:00 /km.</span></div></li>
-          <li><i>2</i><div><b>Spend energy</b><span>Every ${MINUTES_PER_ENERGY} minutes of earning uses 1 energy. Energy refills over 24 hours, and more sneakers means more energy.</span></div></li>
-          <li><i>3</i><div><b>Earn and upgrade</b><span>Collect coins and mystery boxes, level up, assign attribute points and mint new sneakers.</span></div></li>
-          <li><i>4</i><div><b>Keep it real</b><span>Only runs recorded live with GPS earn. Vehicle speeds don't count, and a heart-rate sensor adds a +10% bonus.</span></div></li>
+          <li><i>1</i><div><b>Get a sneaker NFT</b><span>Pick one from the RUNNER Genesis collection of 9,999 — from ${PRICE_ETH.common} ETH. It lives in your own wallet.</span></div></li>
+          <li><i>2</i><div><b>Run in its pace zone</b><span>Each sneaker class has a pace zone. Stay inside it to earn — a Daily Runner earns between 6:00 and 15:00 /km.</span></div></li>
+          <li><i>3</i><div><b>Spend energy, earn ${COIN}</b><span>Every ${MINUTES_PER_ENERGY} minutes of earning uses 1 energy. Energy refills over 24 hours — more sneakers, more energy.</span></div></li>
+          <li><i>4</i><div><b>Level up</b><span>Spend ${COIN} on level-ups, attribute points and repairs. Only live GPS runs earn — vehicle speeds don't count.</span></div></li>
         </ol>`,
-      () => `
-        <h2 class="ob-title">Pick your free sneaker</h2>
-        <p class="muted ob-sub">Pick the one that matches how you usually run. You can collect more later.</p>
-        <div class="ob-starters" role="radiogroup" aria-label="Starter sneaker">
-          ${STARTERS.map((s) => {
-            const t = SNEAKER_TYPES[s.type];
-            return `<button class="ob-starter ${choice === s.type ? 'on' : ''}" role="radio" aria-checked="${choice === s.type}" data-type="${s.type}">
-              ${sneakerSvg({ type: s.type, rarity: 'common', hue: s.hue }, 'sneaker-art sm')}
-              <b>${t.label}</b>
-              <span class="ob-zone">${paceRange(t)}</span>
-              <span class="muted small">${s.best}</span>
-            </button>`;
-          }).join('')}
-        </div>`,
       () => `
         <h2 class="ob-title">Quick setup</h2>
         <label class="ob-name">
@@ -87,7 +70,6 @@ export function runOnboarding() {
         </div>`,
     ];
 
-    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const offerSignIn = () => step === 0 && auth.state.configured && !auth.signedIn;
 
     const draw = () => {
@@ -103,9 +85,9 @@ export function runOnboarding() {
             <div class="ob-auth">
               <button class="btn primary ob-signin" data-ob="signin">Continue with Google, Apple or email</button>
               <button class="btn ob-guest" data-ob="next">Continue as guest</button>
-              <span class="muted small">Signing in creates your own ${'Robinhood Chain'} wallet — no seed phrase or private key to import.</span>
+              <span class="muted small">Signing in creates your own Robinhood Chain wallet — no seed phrase or private key to import. You need it to own sneakers and earn.</span>
             </div>` : `
-            <button class="btn primary ob-next" data-ob="next">${last ? 'Start moving' : step === 2 ? `Choose ${SNEAKER_TYPES[choice].label}` : step === 0 ? 'Get started' : 'Next'}</button>`}
+            <button class="btn primary ob-next" data-ob="next">${last ? 'Start running' : step === 0 ? 'Get started' : 'Next'}</button>`}
         </div>`;
       el.querySelector('.ob-next, .ob-signin')?.focus({ preventScroll: true });
     };
@@ -130,8 +112,6 @@ export function runOnboarding() {
     el.addEventListener('input', (e) => { if (e.target.id === 'ob-name') name = e.target.value; });
 
     el.addEventListener('click', async (e) => {
-      const starter = e.target.closest('.ob-starter');
-      if (starter) { choice = starter.dataset.type; draw(); return; }
       const u = e.target.closest('#ob-units button');
       if (u) { units.set(u.dataset.u); draw(); return; }
       if (e.target.closest('#ob-loc')) {
@@ -163,19 +143,12 @@ export function runOnboarding() {
       // Finish
       nav.disabled = true;
       await game.setName(name);
-      const s = await game.claimStarter(choice, STARTERS.find((x) => x.type === choice).hue);
+      await game.finishOnboarding();
       auth.removeEventListener('change', onAuth);
       el.classList.add('out');
       document.body.classList.remove('no-scroll');
       setTimeout(() => el.remove(), 200);
-      await showReveal({
-        kicker: 'Your first sneaker',
-        title: `${SNEAKER_TYPES[s.type].label} <span class="muted">#${s.serial}</span>`,
-        sneaker: s,
-        note: `Every sneaker rolls its own stats. Run at ${paceRange(SNEAKER_TYPES[s.type])} to earn.`,
-        buttons: [{ id: 'ok', label: "Let's go", primary: true }],
-      });
-      resolve(s);
+      resolve();
     });
 
     draw();

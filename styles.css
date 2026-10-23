@@ -611,10 +611,27 @@ body.no-scroll { overflow: hidden; }
 .coll-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .coll-tile { position: relative; display: grid; justify-items: center; gap: 2px; padding: 10px 8px; border-radius: 14px; background: var(--surface-2); text-align: center; }
 .coll-tile.owned { box-shadow: 0 0 0 2px var(--accent-strong) inset; }
-.coll-tile .badge { position: absolute; top: 8px; right: 8px; }
+.coll-tile > .badge { position: absolute; top: 8px; right: 8px; }
 .coll-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .coll-jump { display: flex; gap: 8px; }
 .coll-jump input { flex: 1; min-width: 0; font: inherit; padding: 8px 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--surface); color: var(--text); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip { border: 1.5px solid var(--line); background: var(--surface); color: var(--text); border-radius: 99px; padding: 6px 14px; font-weight: 700; font-size: 13px; cursor: pointer; }
 .chip.on { background: var(--text); color: var(--surface); border-color: var(--text); }
+
+/* ---------- NFT shop ---------- */
+.first-sneaker { display: grid; gap: 12px; }
+.first-sneaker h2 { font-size: 24px; font-weight: 850; letter-spacing: -0.02em; }
+.price-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.price-grid > div { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.price-grid > div b { margin-left: auto; }
+.price-grid b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.coll-tile { border: 0; cursor: pointer; font: inherit; color: inherit; }
+.coll-tile.sold { opacity: .55; }
+.tile-price { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 13px; margin-top: 2px; }
+.detail-art { background: var(--surface-2); border-radius: 18px; padding: 8px; }
+.buy-status { color: var(--muted); }
+.buy-status.bad { color: var(--bad); font-weight: 600; }
+.buy-status a { color: inherit; text-decoration: underline; }
+.ob-shoes { display: flex; justify-content: space-around; }
+.ob-shoes .sneaker-art.xs { width: 30%; max-width: 110px; }

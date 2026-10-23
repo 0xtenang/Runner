@@ -1,9 +1,9 @@
-// RUNNER Genesis — a fixed collection of 9,999 sneaker designs.
-// Each token number (1–9999) deterministically defines how a sneaker LOOKS:
-// line (silhouette), colours, foam tone, upper pattern, laces and edition.
-// Gameplay stats (class, rarity, attributes) are separate and live in game.js.
-// Because the look is derived from the number alone, the same token renders
-// identically everywhere — ready to become on-chain NFT metadata later.
+// RUNNER Genesis — 9,999 sneaker NFTs on Robinhood Chain.
+// A token number (1–9999) deterministically defines the whole sneaker:
+//   • rarity + mint price — same formula as the RunnerGenesis contract
+//     (contracts/RunnerGenesis.sol), so app and chain always agree
+//   • class (pace zone) and starting stats
+//   • look: line, colours, foam tone, upper pattern, laces, edition
 
 export const COLLECTION = { name: 'RUNNER Genesis', supply: 9999 };
 
@@ -22,6 +22,26 @@ export const EDITIONS = {
 };
 
 const PATTERNS = ['mesh', 'knit', 'speckle', 'plain'];
+
+export const RARITY_RANGE = { common: [4, 8], uncommon: [8, 14], rare: [15, 25], epic: [28, 42] };
+/** Mint prices in wei — must match RunnerGenesis.priceOf. */
+export const PRICE_WEI = { common: 5n * 10n ** 15n, uncommon: 15n * 10n ** 15n, rare: 4n * 10n ** 16n, epic: 10n ** 17n };
+export const PRICE_ETH = { common: '0.005', uncommon: '0.015', rare: '0.04', epic: '0.1' };
+
+/**
+ * Rarity from the token id. Identical to RunnerGenesis.rarityOf (32-bit
+ * xorshift on a multiplicative hash): 2% epic, 8% rare, 20% uncommon, 70% common.
+ */
+export function rarityOf(id) {
+  const M = 0xffffffffn;
+  let x = (BigInt(id) * 2654435761n + 24301n) & M;
+  x ^= (x << 13n) & M;
+  x ^= x >> 17n;
+  x ^= (x << 5n) & M;
+  const r = Number(x % 10000n);
+  return r < 200 ? 'epic' : r < 1000 ? 'rare' : r < 3000 ? 'uncommon' : 'common';
+}
+export const priceOf = (id) => PRICE_WEI[rarityOf(id)];
 
 /** Small deterministic PRNG (mulberry32). */
 function rng(seed) {
@@ -54,28 +74,27 @@ export function traitsFor(id) {
   // ~0.5% Gold, ~1% Ghost, ~1.5% Neon
   const roll = r();
   const edition = roll < 0.005 ? 'gold' : roll < 0.015 ? 'ghost' : roll < 0.03 ? 'neon' : 'standard';
-  return { tokenId: id, model, hue, accent, midTone, pattern, laces, edition };
-}
-
-/** A token number not yet used on this device (uniqueness is per device until on-chain). */
-export function pickTokenId(used = []) {
-  const taken = new Set(used.map(Number));
-  if (taken.size >= COLLECTION.supply) throw new Error('All 9,999 sneakers have been claimed');
-  let id;
-  do { id = 1 + Math.floor(Math.random() * COLLECTION.supply); } while (taken.has(id));
-  return id;
+  // Gameplay (drawn after the look so existing looks never change).
+  const type = weighted(r, [['walker', 20], ['jogger', 40], ['runner', 25], ['trainer', 15]]);
+  const rarity = rarityOf(id);
+  const [lo, hi] = RARITY_RANGE[rarity];
+  const stat = () => Math.round((lo + r() * (hi - lo)) * 100) / 100;
+  const base = { efficiency: stat(), resilience: stat() };
+  return { tokenId: id, model, hue, accent, midTone, pattern, laces, edition, type, rarity, base };
 }
 
 /** Collection-wide stats, computed once (how many of each line / edition). */
 let statsCache = null;
 export function collectionStats() {
   if (statsCache) return statsCache;
-  const models = {}, editions = {};
+  const models = {}, editions = {}, rarities = {}, types = {};
   for (let i = 1; i <= COLLECTION.supply; i++) {
     const t = traitsFor(i);
     models[t.model] = (models[t.model] || 0) + 1;
     editions[t.edition] = (editions[t.edition] || 0) + 1;
+    rarities[t.rarity] = (rarities[t.rarity] || 0) + 1;
+    types[t.type] = (types[t.type] || 0) + 1;
   }
-  statsCache = { models, editions };
+  statsCache = { models, editions, rarities, types };
   return statsCache;
 }

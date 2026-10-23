@@ -1,7 +1,6 @@
 import { haversine } from './stats.js';
 import { watchLocation } from './geo.js';
 
-const DEFAULT_CENTER = [-7.7956, 110.3695]; // Yogyakarta — used by the simulator if no fix yet
 const MAX_ACCURACY_M = 35;   // ignore fixes worse than this
 const MIN_STEP_M = 2;        // ignore jitter while standing still
 
@@ -17,7 +16,6 @@ export class Recorder extends EventTarget {
     this.persist = persist; // (snapshot) => void, for crash recovery
     this.watchId = null;
     this.lastFix = null;
-    this.sim = false;
     this.type = 'run';
     this.reset();
   }
@@ -40,7 +38,6 @@ export class Recorder extends EventTarget {
   // ---------- GPS ----------
   ensureGps() {
     if (this.watchId != null) return;
-    if (this.sim) return this._startSim();
     this.watchId = watchLocation(
       (f) => this._onFix(f),
       (message) => this._emit('gpserror', { message })
@@ -49,40 +46,8 @@ export class Recorder extends EventTarget {
 
   stopGps() {
     if (this.watchId == null) return;
-    if (this.watchId === 'sim') clearInterval(this.simTimer);
-    else this.watchId();
+    this.watchId();
     this.watchId = null;
-  }
-
-  setSim(on) {
-    const running = this.watchId != null;
-    this.stopGps();
-    this.sim = on;
-    if (running) this.ensureGps();
-  }
-
-  _startSim() {
-    // Jogs a ~2.2 km loop at a realistic, slightly varying pace with fake HR.
-    this.watchId = 'sim';
-    const [cLat, cLon] = this.lastFix ? [this.lastFix.lat, this.lastFix.lon] : DEFAULT_CENTER;
-    const r = 350, mPerDegLat = 111320, mPerDegLon = 111320 * Math.cos((cLat * Math.PI) / 180);
-    let ang = 0, sec = 0;
-    const emit = () => {
-      const speed = 2.45 + 0.3 * Math.sin(sec / 40); // ~7.7–9.9 km/h
-      if (this.state === 'recording') ang += speed / r;
-      sec++;
-      const wobble = () => (Math.random() - 0.5) * 2;
-      this._onFix({
-        lat: cLat + (r * Math.sin(ang) + wobble()) / mPerDegLat,
-        lon: cLon + (r * (1 - Math.cos(ang)) + wobble()) / mPerDegLon,
-        ele: 30 + 12 * Math.sin(ang * 2),
-        acc: 4 + Math.random() * 3,
-        t: Date.now(),
-        hr: Math.round(146 + 10 * Math.sin(sec / 60) + Math.random() * 3),
-      });
-    };
-    emit();
-    this.simTimer = setInterval(emit, 1000);
   }
 
   _onFix(f) {
@@ -99,7 +64,7 @@ export class Recorder extends EventTarget {
     }
     const p = { t: f.t, lat: +f.lat.toFixed(7), lon: +f.lon.toFixed(7) };
     if (f.ele != null) p.ele = Math.round(f.ele * 10) / 10;
-    const hr = this.hr?.() ?? f.hr;
+    const hr = this.hr?.();
     if (hr) p.hr = hr;
     if (this.needBreak && last) p.b = 1;
     this.needBreak = false;
