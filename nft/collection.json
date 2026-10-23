@@ -1,11 +1,13 @@
 {
   "name": "RUNNER Genesis",
   "description": "9,999 sneaker NFTs for RUNNER — the run-to-earn app. Own a sneaker, run in its pace zone and earn the RUNNER token. Four original lines (Stride, Pod, Knit, Court), four rarities and rare Neon, Ghost and Gold editions. Every token's class, rarity, stats and look are fixed by its number.",
-  "image": "https://runearn.fun/nft/image/logo",
-  "banner_image": "https://runearn.fun/nft/image/banner",
+  "image": "https://www.runearn.fun/nft/art/logo.png",
+  "banner_image": "https://www.runearn.fun/nft/art/banner.png",
   "featured_image": "https://runearn.fun/nft/image/146",
   "external_link": "https://runearn.fun",
   "seller_fee_basis_points": 500,
   "fee_recipient": "0x0f397E46e4e810313dBC782CDb0236347157f1B4",
-  "collaborators": ["0x0f397E46e4e810313dBC782CDb0236347157f1B4"]
+  "collaborators": [
+    "0x0f397E46e4e810313dBC782CDb0236347157f1B4"
+  ]
 }
