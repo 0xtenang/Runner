@@ -5,7 +5,9 @@
 
 const Cap = globalThis.Capacitor;
 export const isNative = Boolean(Cap?.isNativePlatform?.());
-const BgGeo = isNative ? Cap.registerPlugin('BackgroundGeolocation') : null;
+// capacitorExports comes from capacitor.js, which only the phone apps load.
+export const registerPlugin = (name) => globalThis.capacitorExports.registerPlugin(name);
+const BgGeo = isNative ? registerPlugin('BackgroundGeolocation') : null;
 
 /**
  * Starts watching the location. Calls onFix({lat, lon, ele, acc, t}) for each
@@ -31,18 +33,28 @@ function watchWeb(onFix, onError) {
   return () => navigator.geolocation.clearWatch(id);
 }
 
+// Android won't keep GPS alive with the screen off (foreground service) if
+// the watcher was created while the location prompt was still open, and the
+// plugin doesn't retry. So the first watcher of each app session is replaced
+// once its first fix arrives, by which point permission is granted.
+let verified = false;
+const Native = isNative && Cap.getPlatform() === 'android' ? registerPlugin('RunnerNative') : null;
+let askedNotifications = null;
+
 function watchNative(onFix, onError) {
   let stopped = false;
-  const pending = BgGeo.addWatcher(
-    {
-      // Android shows this as a notification while GPS runs in the background.
-      backgroundTitle: 'RUNNER',
-      backgroundMessage: 'RUNNER is recording your run',
-      requestPermissions: true,
-      stale: false,
-      distanceFilter: 0,
-    },
-    (loc, err) => {
+  let pending = null;
+  const options = {
+    // Android shows this as a notification while GPS runs in the background.
+    backgroundTitle: 'RUNNER',
+    backgroundMessage: 'RUNNER is recording your run',
+    requestPermissions: true,
+    stale: false,
+    distanceFilter: 0,
+  };
+  const remove = (p) => p?.then((id) => BgGeo.removeWatcher({ id })).catch(() => {});
+  const start = () => {
+    pending = BgGeo.addWatcher(options, (loc, err) => {
       if (stopped) return;
       if (err) {
         if (err.code === 'NOT_AUTHORIZED') {
@@ -52,14 +64,23 @@ function watchNative(onFix, onError) {
         return;
       }
       if (!loc) return;
+      if (!verified) {
+        verified = true;
+        const old = pending;
+        start();
+        remove(old);
+      }
       onFix({
         lat: loc.latitude, lon: loc.longitude,
         ele: loc.altitude, acc: loc.accuracy, t: loc.time || Date.now(),
       });
-    }
-  );
+    });
+  };
+  // Ask for notifications first (Android 13+), so the "recording" notice shows.
+  askedNotifications ??= Native ? Native.requestNotifications().catch(() => {}) : Promise.resolve();
+  askedNotifications.then(() => { if (!stopped) start(); });
   return () => {
     stopped = true;
-    pending.then((id) => BgGeo.removeWatcher({ id })).catch(() => {});
+    askedNotifications.then(() => remove(pending));
   };
 }

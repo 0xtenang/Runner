@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RUNNER</string>
+    <string name="title_activity_main">RUNNER</string>
+    <string name="package_name">fun.runearn.app</string>
+    <string name="custom_url_scheme">fun.runearn.app</string>
+    <!-- Background GPS notification (capacitor-community/background-geolocation) -->
+    <string name="capacitor_background_geolocation_notification_channel_name">Run recording</string>
+    <string name="capacitor_background_geolocation_notification_icon">drawable/ic_tracking</string>
+    <string name="capacitor_background_geolocation_notification_color">#a3e635</string>
+</resources>

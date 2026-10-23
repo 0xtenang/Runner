@@ -8,5 +8,15 @@
     "sync": "node scripts/copy-web.mjs && cap sync",
     "ios": "node scripts/copy-web.mjs && cap sync ios && cap open ios",
     "android": "node scripts/copy-web.mjs && cap sync android && cap open android"
+  },
+  "dependencies": {
+    "@capacitor-community/background-geolocation": "1.2.26",
+    "@capacitor/android": "7.6.9",
+    "@capacitor/app": "7.1.2",
+    "@capacitor/core": "7.6.9",
+    "@capacitor/ios": "7.6.9"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "7.6.9"
   }
 }

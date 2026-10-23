@@ -67,8 +67,14 @@ rec.addEventListener('state', () => {
   if (rec.state === 'recording' && !earn) earn = new EarnSession(game.active, game.energy, { simulated: rec.sim });
   if (rec.state === 'idle') earn = null;
 });
+// In the phone app, timers can slow down while the screen is locked even though
+// GPS keeps recording, so count the real time since the last tick.
+let lastEarnTick = 0;
 rec.addEventListener('tick', () => {
-  if (rec.state === 'recording' && earn) earn.tick(rec.currentSpeed(), !!hrm.current());
+  const now = Date.now();
+  const dt = isNative && lastEarnTick ? Math.min(Math.max((now - lastEarnTick) / 1000, 0), 30) : 1;
+  lastEarnTick = now;
+  if (rec.state === 'recording' && earn) earn.tick(rec.currentSpeed(), !!hrm.current(), dt);
 });
 
 let cleanup = [];
@@ -348,7 +354,7 @@ rec.addEventListener('tick', () => {
   // Phones suspend web apps in the background (screen locked / app switched),
   // so ticks stop. A long gap between ticks means tracking was paused.
   const gap = (now - live.lastTick) / 1000;
-  if (live.lastTick && gap > 8) {
+  if (live.lastTick && gap > 8 && !isNative) { // the phone app keeps GPS running
     live.gapSec += gap;
     live.lastGap = gap;
     toast(`GPS was paused for ${fmtDur(gap)} while RUNNER wasn't on screen. Keep the app open with the screen on while you run.`, 6000);
