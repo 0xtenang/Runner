@@ -219,7 +219,7 @@ class Game extends EventTarget {
     st.coins = view.balance;
     st.energy = view.energy;
     st.energyAt = Date.now();
-    st.server = { earned: view.earned, spent: view.spent, withdrawn: view.withdrawn, factor: view.emission?.factor ?? 1, emission: view.emission || null, settings: view.settings || null, boost: view.boost ?? 1, at: Date.now() };
+    st.server = { earned: view.earned, spent: view.spent, withdrawn: view.withdrawn, factor: view.emission?.factor ?? 1, emission: view.emission || null, settings: view.settings || null, boost: view.boost ?? 1, pending: view.pending || 0, underReview: view.underReview || 0, nextRelease: view.nextRelease || null, at: Date.now() };
     for (const s of st.sneakers) {
       const p = view.sneakers?.[s.tokenId];
       if (p) Object.assign(s, { level: p.level, durability: p.durability, points: { ...p.points }, unspent: p.unspent });

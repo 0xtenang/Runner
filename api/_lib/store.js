@@ -48,3 +48,43 @@ export async function incrBy(key, n) {
   if (memory) { const v = (memory.get(key) ? JSON.parse(memory.get(key).v) : 0) + n; memory.set(key, { v: JSON.stringify(v) }); return v; }
   return Number(await redis('INCRBY', key, String(n)));
 }
+
+/** Counter that expires `ms` after its first increment (rate limits). Returns the new value. */
+export async function incrTtl(key, ms) {
+  if (memory) {
+    const e = memory.get(key);
+    const live = e && (!e.exp || e.exp > Date.now());
+    const v = (live ? JSON.parse(e.v) : 0) + 1;
+    memory.set(key, { v: JSON.stringify(v), exp: live ? e.exp : Date.now() + ms });
+    return v;
+  }
+  const v = Number(await redis('INCR', key));
+  if (v === 1) await redis('PEXPIRE', key, String(ms));
+  return v;
+}
+
+// Small string lists (review queue, ban list): newest first, trimmed to `max`.
+export async function listPush(key, value, max = 1000) {
+  if (memory) {
+    const list = memory.get(key) ? JSON.parse(memory.get(key).v) : [];
+    memory.set(key, { v: JSON.stringify([value, ...list.filter((x) => x !== value)].slice(0, max)) });
+    return;
+  }
+  await redis('LREM', key, '0', value);
+  await redis('LPUSH', key, value);
+  await redis('LTRIM', key, '0', String(max - 1));
+}
+
+export async function listRange(key, n = 200) {
+  if (memory) return (memory.get(key) ? JSON.parse(memory.get(key).v) : []).slice(0, n);
+  return (await redis('LRANGE', key, '0', String(n - 1))) || [];
+}
+
+export async function listRemove(key, value) {
+  if (memory) {
+    const list = memory.get(key) ? JSON.parse(memory.get(key).v) : [];
+    memory.set(key, { v: JSON.stringify(list.filter((x) => x !== value)) });
+    return;
+  }
+  await redis('LREM', key, '0', value);
+}

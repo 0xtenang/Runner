@@ -9,6 +9,12 @@
 //     claim    {session}           → EIP-712 signature for RunnerToken.claim()
 //     settings-set {settings, message, signature} → dev wallet updates game settings
 //                  (level prices, per-runner daily max, NFT boosts)
+//     admin-session / admin {op}    → review queue (approve / void held runs), bans
+//
+// Fair play: every run gets a trust score (api/_lib/trust.js). Earnings become usable
+// 24 hours after the run; runs scoring under 70 (or copied tracks) are held until an
+// admin approves or voids them. Banned wallets can't earn, spend or claim. Requests
+// are rate-limited per IP and per wallet.
 //
 // Emission follows the token's halving schedule (js/rules.js mirrors it): every
 // run's earn rate is multiplied by that day's emission factor, the server never
@@ -29,6 +35,7 @@ import {
 import { addressOfKey, claimDigest, signDigest, personalDigest, recoverAddress, keccak, toHex, isAddress } from './_lib/eth.js';
 import * as store from './_lib/store.js';
 import { ownedTokenIds, emissionSchedule, claimState, heldContracts } from './_lib/chain.js';
+import { trustScore, trackFingerprint, TRUST_REVIEW_BELOW } from './_lib/trust.js';
 
 const env = globalThis.process?.env || {};
 const KEY = (env.SIGNER_PRIVATE_KEY || '').trim();
@@ -41,6 +48,9 @@ const MAX_POINTS = 20000;
 const MAX_RUN_MS = 6 * 3600e3;
 const MAX_AGE_MS = 72 * 3600e3;
 const CLAIM_TTL_S = 3600;
+const HOLD_MS = 24 * 3600e3;           // earnings usable 24 h after the run
+const REVIEW_KEY = 'rw:review';         // held runs: "address:runId"
+const BANS_KEY = 'rw:bans';             // banned addresses
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new HttpError(status, message); };
@@ -102,12 +112,23 @@ const mac = (payload) => toHex(keccak(`runner-session:${KEY}:${payload}`));
 export const sessionMessage = (address, issued) =>
   `Sign in to RUNNER rewards (runearn.fun)\nWallet: ${address.toLowerCase()}\nIssued: ${issued}`;
 
-function openSession(body) {
+function openSession(body, { admin = false } = {}) {
   const [p, m] = String(body.session || '').split('.');
   if (!p || !m || mac(p) !== m) fail(401, 'Session expired — sign in again.');
   const s = JSON.parse(unb64(p));
   if (!(s.exp > Date.now()) || !isAddress(s.a)) fail(401, 'Session expired — sign in again.');
+  if (admin && !(s.adm && admins().includes(s.a.toLowerCase()))) fail(403, 'Admin only.');
   return s.a.toLowerCase();
+}
+
+export const adminMessage = (address, issued) => `RUNNER admin sign-in\nWallet: ${address.toLowerCase()}\nIssued: ${issued}`;
+function createAdminSession({ address, message, signature }) {
+  const issued = String(message || '').split('\nIssued: ')[1] || '';
+  if (!isAddress(address) || message !== adminMessage(address, issued) || !(Math.abs(Date.now() - Date.parse(issued)) < 10 * 60e3)) fail(400, 'Unexpected or old admin message');
+  const who = recoverAddress(personalDigest(message), signature);
+  if (!who || who !== address.toLowerCase() || !admins().includes(who)) fail(403, 'Only the dev wallet can open the review queue.');
+  const payload = b64(JSON.stringify({ a: who, adm: 1, exp: Date.now() + 12 * 3600e3 }));
+  return { session: `${payload}.${mac(payload)}` };
 }
 
 function createSession({ address, message, signature }) {
@@ -125,7 +146,7 @@ function createSession({ address, message, signature }) {
 // ------------------------------------------------------------------ state
 const userKey = (a) => `rw:u:${a}`;
 const sneakerKey = (id) => `rw:t:${id}`;
-const freshUser = () => ({ earned: 0, spent: 0, signed: 0, energy: null, energyAt: Date.now(), lastEnd: 0, runs: [] });
+const freshUser = () => ({ earned: 0, spent: 0, signed: 0, energy: null, energyAt: Date.now(), lastEnd: 0, runs: [], pending: [] });
 
 async function loadSneaker(id) {
   const saved = await store.get(sneakerKey(id));
@@ -142,7 +163,23 @@ async function loadUser(address, owned) {
   if (u.energy == null) u.energy = max;
   u.energy = regenEnergy(u.energy, u.energyAt, max);
   u.energyAt = Date.now();
+  releaseDue(u);
   return u;
+}
+
+/** Moves held earnings whose 24 h have passed (and that aren't under review) into the balance. */
+function releaseDue(u) {
+  const now = Date.now();
+  const keep = [];
+  for (const p of u.pending) {
+    if (!p.review && p.releaseAt <= now) u.earned += p.micro;
+    else keep.push(p);
+  }
+  u.pending = keep;
+}
+const isBanned = async (address) => Boolean(await store.get(`rw:ban:${address}`));
+async function assertNotBanned(address) {
+  if (await isBanned(address)) fail(403, 'This wallet is suspended from RUNNER rewards. Contact support if you think this is a mistake.');
 }
 const available = (u) => u.earned - u.spent - u.signed;
 
@@ -158,6 +195,9 @@ async function view(address, u, owned) {
     earned: u.earned / MICRO,
     spent: u.spent / MICRO,
     withdrawn: u.signed / MICRO,
+    pending: u.pending.filter((p) => !p.review).reduce((t, p) => t + p.micro, 0) / MICRO,
+    underReview: u.pending.filter((p) => p.review).reduce((t, p) => t + p.micro, 0) / MICRO,
+    nextRelease: u.pending.filter((p) => !p.review).reduce((t, p) => Math.min(t, p.releaseAt), Infinity) === Infinity ? null : u.pending.filter((p) => !p.review).reduce((t, p) => Math.min(t, p.releaseAt), Infinity),
     energy: round2(u.energy),
     maxEnergy: maxEnergy(owned.length),
     owned,
@@ -196,6 +236,7 @@ function cleanTrack(raw) {
     if (t <= lastT) fail(400, 'GPS points out of order');
     lastT = t;
     const q = { t, lat, lon };
+    if (p.acc != null && Number(p.acc) >= 0 && Number(p.acc) < 1000) q.acc = Math.round(Number(p.acc));
     if (p.hr != null && Number(p.hr) > 30 && Number(p.hr) < 240) q.hr = Number(p.hr);
     if (p.b) q.b = 1;
     pts.push(q);
@@ -211,6 +252,14 @@ async function submitRun(address, { run }) {
   const pts = cleanTrack(run?.points);
   const tokenId = Number(run?.tokenId);
   const start = pts[0].t, end = pts[pts.length - 1].t;
+  await assertNotBanned(address);
+  await rateLimit(`run:${address}`, 30, 3600e3);
+  const trust = trustScore(pts);
+  const fp = trackFingerprint(pts);
+  if (fp && !(await store.setNX(`rw:fp:${fp}`, address, 30 * 864e5))) {
+    trust.score = Math.max(0, trust.score - 60);
+    trust.reasons.push('Same route as a run that was already uploaded');
+  }
   return withUser(address, async (u, owned) => {
     if (!owned.includes(tokenId)) fail(403, `This wallet doesn't own Genesis #${tokenId}.`);
     if (start < u.lastEnd) fail(409, 'This run overlaps one that was already counted.');
@@ -241,15 +290,21 @@ async function submitRun(address, { run }) {
     }
 
     u.energy = Math.max(0, u.energy - used);
-    u.earned += micro;
     u.lastEnd = end;
     s.lastEnd = end;
     s.durability = Math.max(0, round2(s.durability - used * durabilityLossPerEnergy(s)));
     await saveSneaker(s);
+    const id = toHex(keccak(`${address}:${tokenId}:${start}:${end}`)).slice(0, 16);
+    const review = micro > 0 && trust.score < TRUST_REVIEW_BELOW;
+    const releaseAt = Date.now() + HOLD_MS;
+    if (micro > 0) {
+      u.pending.push({ id, micro, releaseAt, review });
+      if (review) await store.listPush(REVIEW_KEY, `${address}:${id}`);
+    }
     const record = {
-      id: toHex(keccak(`${address}:${tokenId}:${start}:${end}`)).slice(0, 16),
-      start, end, tokenId, coins: micro / MICRO, energy: round2(used), zoneSec: Math.round(session.zoneSec),
+      id, start, end, tokenId, coins: micro / MICRO, energy: round2(used), zoneSec: Math.round(session.zoneSec),
       vehicleSec: Math.round(session.vehicleSec), voided, capped, factor, boost,
+      trust: trust.score, reasons: trust.reasons, review, releaseAt: micro > 0 ? releaseAt : null, status: micro > 0 ? (review ? 'review' : 'held') : 'none',
     };
     u.runs = [record, ...u.runs].slice(0, 30);
     return { run: record, state: await view(address, u, owned) };
@@ -265,6 +320,7 @@ function spend(u, runner) {
 
 async function upgrade(address, body, action) {
   const tokenId = Number(body.tokenId);
+  await assertNotBanned(address);
   return withUser(address, async (u, owned) => {
     if (!owned.includes(tokenId)) fail(403, `This wallet doesn't own Genesis #${tokenId}.`);
     const s = await loadSneaker(tokenId);
@@ -292,6 +348,7 @@ async function upgrade(address, body, action) {
 
 // ------------------------------------------------------------------ claims
 async function claim(address) {
+  await assertNotBanned(address);
   return withUser(address, async (u, owned) => {
     const total = u.earned - u.spent;              // everything ever earned and not spent in-app
     if (total <= 0) fail(400, 'Nothing to claim yet — go for a run!');
@@ -314,6 +371,58 @@ async function claim(address) {
   });
 }
 
+// ------------------------------------------------------------------ rate limits
+async function rateLimit(key, limit, windowMs) {
+  if (!store.storeConfigured()) return;
+  const n = await store.incrTtl(`rw:rl:${key}`, windowMs);
+  if (n > limit) fail(429, 'Too many requests — please slow down and try again in a few minutes.');
+}
+
+// ------------------------------------------------------------------ admin: review queue, bans
+async function adminOp(admin, body) {
+  const op = body.op;
+  if (op === 'queue') {
+    const items = [];
+    for (const key of await store.listRange(REVIEW_KEY, 200)) {
+      const [address, id] = key.split(':');
+      const u = (await store.get(userKey(address))) || {};
+      const run = (u.runs || []).find((r) => r.id === id);
+      const p = (u.pending || []).find((x) => x.id === id);
+      if (!p) { await store.listRemove(REVIEW_KEY, key); continue; }
+      items.push({ address, id, coins: p.micro / MICRO, trust: run?.trust, reasons: run?.reasons || [], tokenId: run?.tokenId, start: run?.start, end: run?.end, banned: await isBanned(address) });
+    }
+    return { queue: items, bans: await store.listRange(BANS_KEY, 500) };
+  }
+  if (op === 'approve' || op === 'void') {
+    const address = String(body.address || '').toLowerCase(), id = String(body.id || '');
+    if (!isAddress(address)) fail(400, 'Bad address');
+    await withUser(address, async (u) => {
+      const p = u.pending.find((x) => x.id === id);
+      if (!p) fail(404, 'That run is no longer waiting for review.');
+      u.pending = u.pending.filter((x) => x.id !== id);
+      if (op === 'approve') u.earned += p.micro;
+      const run = u.runs.find((r) => r.id === id);
+      if (run) run.status = op === 'approve' ? 'approved' : 'voided';
+      return { ok: true };
+    });
+    await store.listRemove(REVIEW_KEY, `${address}:${id}`);
+    return { ok: true, op, address, id, by: admin };
+  }
+  if (op === 'ban' || op === 'unban') {
+    const address = String(body.address || '').toLowerCase();
+    if (!isAddress(address)) fail(400, 'Bad address');
+    if (op === 'ban') {
+      await store.set(`rw:ban:${address}`, { at: Date.now(), by: admin, reason: String(body.reason || '').slice(0, 200) });
+      await store.listPush(BANS_KEY, address, 5000);
+    } else {
+      await store.del(`rw:ban:${address}`);
+      await store.listRemove(BANS_KEY, address);
+    }
+    return { ok: true, op, address };
+  }
+  fail(400, 'Unknown admin operation');
+}
+
 // ------------------------------------------------------------------ handler
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -331,12 +440,17 @@ export default async function handler(req, res) {
       res.status(200).json({ live: isLive(), signer: signerAddress(), store: store.storeConfigured(), token: TOKEN_CONTRACT || null, nft: NFT_CONTRACT || null, chainId: TOKEN_CHAIN.id, emission: sch?.startDay ? emissionView() : null, settings });
       return;
     }
+    if (req.method !== 'POST') fail(405, 'POST only');
+    const ip = String(req.headers?.['x-forwarded-for'] || req.headers?.['x-real-ip'] || 'local').split(',')[0].trim();
+    await rateLimit(`ip:${ip}`, 120, 60e3);
+    if (['session', 'admin-session', 'settings-set'].includes(action)) await rateLimit(`ipsess:${ip}`, 20, 3600e3);
     if (action === 'settings-set') {
       if (!store.storeConfigured()) fail(503, 'Database not connected yet.');
       res.status(200).json(await setSettings(body));
       return;
     }
-    if (req.method !== 'POST') fail(405, 'POST only');
+    if (action === 'admin-session') { res.status(200).json(createAdminSession(body)); return; }
+    if (action === 'admin') { res.status(200).json(await adminOp(openSession(body, { admin: true }), body)); return; }
     if (!isLive()) fail(503, 'Rewards are not switched on yet.');
     let out;
     if (action === 'session') out = createSession(body);

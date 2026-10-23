@@ -114,12 +114,12 @@ export async function settleRun(earnSession, activityId, points) {
   const base = { coins: 0, energy: 0, voided: false, sneakerId: earnSession.sneakerId, zoneSec: Math.round(earnSession.zoneSec), server: true,
     sneakerLabel: sneaker ? `#${sneaker.serial}` : null, hrVerified: earnSession.hrSec > earnSession.zoneSec * 0.8 && earnSession.zoneSec > 0 };
   if (!sneaker || earnSession.used <= 0) return base;
-  const run = { tokenId: sneaker.tokenId, points: points.map(({ t, lat, lon, hr, b }) => ({ t, lat, lon, ...(hr ? { hr } : {}), ...(b ? { b } : {}) })) };
+  const run = { tokenId: sneaker.tokenId, points: points.map(({ t, lat, lon, hr, b, acc }) => ({ t, lat, lon, ...(hr ? { hr } : {}), ...(b ? { b } : {}), ...(acc != null ? { acc } : {}) })) };
   try {
     const r = await post({ action: 'run', run });
     await game.applyServer(r.state);
     game.logServerRun(r.run, activityId);
-    return { ...base, coins: r.run.coins, energy: r.run.energy, voided: r.run.voided, capped: r.run.capped, zoneSec: r.run.zoneSec };
+    return { ...base, coins: r.run.coins, energy: r.run.energy, voided: r.run.voided, capped: r.run.capped, zoneSec: r.run.zoneSec, review: r.run.review, held: r.run.status === 'held', releaseAt: r.run.releaseAt };
   } catch (e) {
     if (e.offline || e.status >= 500 || e.status === 409 && /Busy/.test(e.message)) {
       await game.queuePending(run);

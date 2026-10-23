@@ -97,6 +97,7 @@ function render() {
   $('#server').hidden = kind !== 'token';
   $('#launch').hidden = kind !== 'token' || !TOKEN_CONTRACT;
   $('#controls').hidden = kind !== 'token';
+  $('#review').hidden = kind !== 'token';
   if (kind === 'token') refreshServer();
   refreshWho();
 }
@@ -346,6 +347,70 @@ $('#b-settings').onclick = async () => {
     $('#settings').innerHTML = `<span class="bad">${/reject|denied|cancel/i.test(m) ? 'Cancelled.' : esc(m.slice(0, 300))}</span>`;
   } finally { $('#b-settings').disabled = false; }
 };
+
+// ----- 7. fair play: review queue and bans
+let adminSession = null;
+try { adminSession = sessionStorage.getItem('runner.admin.session'); } catch { /* storage blocked */ }
+async function adminCall(body, retried = false) {
+  if (!adminSession) {
+    const address = window.ethereum ? (await window.ethereum.request({ method: 'eth_requestAccounts' }))[0] : auth.state.address;
+    if (!address) throw new Error('Sign in as the dev wallet first.');
+    const message = `RUNNER admin sign-in\nWallet: ${address.toLowerCase()}\nIssued: ${new Date().toISOString()}`;
+    const signature = await signAsDev(message);
+    const r = await fetch('/api/rewards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'admin-session', address, message, signature }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `Server error ${r.status}`);
+    adminSession = j.session;
+    try { sessionStorage.setItem('runner.admin.session', adminSession); } catch { /* fine */ }
+  }
+  const r = await fetch('/api/rewards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'admin', session: adminSession, ...body }) });
+  const j = await r.json();
+  if (r.status === 401 && !retried) { adminSession = null; return adminCall(body, true); }
+  if (!r.ok) throw new Error(j.error || `Server error ${r.status}`);
+  return j;
+}
+
+async function loadQueue() {
+  const { queue, bans } = await adminCall({ op: 'queue' });
+  const when = (t) => (t ? new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '');
+  $('#review-list').innerHTML = `
+    ${queue.length ? queue.map((q) => `
+      <div class="result" style="margin-top:8px">
+        <span><b>${fmtN(q.coins)} RUNNER</b> · trust <b class="${q.trust < 40 ? 'bad' : ''}">${q.trust ?? '?'}</b>/100 · Genesis #${q.tokenId ?? '?'} · ${when(q.start)}${q.banned ? ' · <span class="bad">banned</span>' : ''}</span>
+        <span class="mono">${esc(q.address)}</span>
+        <span class="muted">${q.reasons.map(esc).join(' · ') || 'No details'}</span>
+        <div class="row" style="gap:8px">
+          <button class="btn primary pill sm" data-rv="approve" data-a="${esc(q.address)}" data-id="${esc(q.id)}">Approve</button>
+          <button class="btn pill sm" data-rv="void" data-a="${esc(q.address)}" data-id="${esc(q.id)}">Void</button>
+          <button class="btn pill sm" data-rv="ban" data-a="${esc(q.address)}">Ban wallet</button>
+        </div>
+      </div>`).join('') : '<p class="ok" style="margin:8px 0 0">Nothing waiting for review.</p>'}
+    ${bans.length ? `<p class="muted" style="margin:10px 0 0">Banned (${bans.length}): <span class="mono">${bans.slice(0, 20).map(esc).join(', ')}${bans.length > 20 ? '…' : ''}</span></p>` : ''}`;
+}
+
+$('#b-review').onclick = async () => {
+  $('#b-review').disabled = true;
+  try { $('#review-list').textContent = 'Loading…'; await loadQueue(); } catch (e) { $('#review-list').innerHTML = `<span class="bad">${esc(String(e.message).slice(0, 300))}</span>`; } finally { $('#b-review').disabled = false; }
+};
+$('#review-list').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-rv]');
+  if (!b) return;
+  const op = b.dataset.rv;
+  if (op === 'void' && !confirm('Void this run? The runner gets nothing for it.')) return;
+  if (op === 'ban' && !confirm(`Ban ${b.dataset.a}? They won't be able to earn, spend or claim.`)) return;
+  b.disabled = true;
+  try { await adminCall({ op, address: b.dataset.a, id: b.dataset.id }); await loadQueue(); } catch (err) { alert(err.message); b.disabled = false; }
+});
+for (const op of ['ban', 'unban']) {
+  $(`#b-${op}`).onclick = async () => {
+    const address = $('#ban-addr').value.trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) { $('#ban-out').innerHTML = '<span class="bad">Paste a wallet address.</span>'; return; }
+    try {
+      await adminCall({ op, address, reason: $('#ban-reason').value });
+      $('#ban-out').innerHTML = `<span class="ok">✓ ${op === 'ban' ? 'Banned' : 'Unbanned'} ${esc(address)}</span>`;
+    } catch (err) { $('#ban-out').innerHTML = `<span class="bad">${esc(String(err.message).slice(0, 300))}</span>`; }
+  };
+}
 
 $('#b-emission').onclick = async () => {
   if (!confirm('Start the RUNNER run-reward emission today?\n\n10,000,000 RUNNER/day, halving every 30 days, never below 100,000/day. This can only be done once and can\'t be undone.')) return;

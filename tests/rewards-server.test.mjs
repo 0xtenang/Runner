@@ -7,6 +7,12 @@ const eth = await imp('api/_lib/eth.js');
 const { traitsFor } = await imp('js/collection.js');
 const rules = await imp('js/rules.js');
 
+// Test clock: the server reads Date.now(), so the 24-hour hold can be fast-forwarded.
+const realNow = Date.now.bind(Date);
+let clockOffset = 0;
+Date.now = () => realNow() + clockOffset;
+const iso = () => new Date(Date.now()).toISOString();
+
 const toHex = eth.toHex;
 const rnd = () => toHex(secp.utils.randomPrivateKey());
 const SERVER_KEY = rnd(), USER_KEY = rnd(), OTHER_KEY = rnd(), ADMIN_KEY = rnd();
@@ -21,10 +27,11 @@ Object.assign(process.env, {
   REWARDS_FAKE_TOKEN: JSON.stringify({ startDay: Math.floor(Date.now() / 864e5), claimedToday: '0', claimed: {} }),
 });
 const TODAY = Math.floor(Date.now() / 864e5);
-const { default: handler, sessionMessage, settingsMessage } = await imp('api/rewards.js');
-const call = async (body, method = 'POST') => {
+const { default: handler, sessionMessage, settingsMessage, adminMessage } = await imp('api/rewards.js');
+let ipCounter = 0;
+const call = async (body, method = 'POST', ip = `10.0.${Math.floor(ipCounter / 250)}.${ipCounter++ % 250}`) => {
   let code = 200, out;
-  await handler({ method, body, query: {} }, { setHeader() {}, status(c) { code = c; return this; }, end() {}, json(o) { out = o; } });
+  await handler({ method, body, query: {}, headers: { 'x-forwarded-for': ip } }, { setHeader() {}, status(c) { code = c; return this; }, end() {}, json(o) { out = o; } });
   return { code, ...out };
 };
 const results = []; const ok = (n, c, x = '') => results.push(`${c ? 'PASS' : 'FAIL'} ${n}${x ? ' — ' + x : ''}`);
@@ -35,7 +42,7 @@ const st = await call({ action: 'status' }, 'GET');
 ok('status live', st.live === true && st.signer === eth.addressOfKey(SERVER_KEY), JSON.stringify(st));
 
 // sessions
-const issued = new Date().toISOString();
+const issued = iso();
 const msg = sessionMessage(USER, issued);
 let r = await call({ action: 'session', address: USER, message: msg, signature: await signPersonal(OTHER_KEY, msg) });
 ok('session with someone else\'s signature rejected', r.code === 401, r.error);
@@ -54,16 +61,32 @@ ok('forged session rejected', (await call({ action: 'state', session: forged }))
 r = await call({ action: 'state', session: S });
 ok('fresh state', r.code === 200 && r.balance === 0 && r.energy === 4 && r.maxEnergy === 2 ? false : r.balance === 0 && r.maxEnergy === 1 && r.energy === 1, JSON.stringify({ e: r.energy, m: r.maxEnergy, owned: r.owned }));
 
-// track builder: kmh constant, 1 point / 2 s, heading north
-const track = (start, minutes, kmh, { dt = 2000, jumpAt = -1 } = {}) => {
-  const pts = []; let lat = -6.2, lon = 106.8; const n = Math.round(minutes * 60000 / dt);
+// Track builder. Default: realistic — fixes ~every 2 s with jitter, speed ±10%, a
+// wandering heading and varying accuracy. perfect: a scripted track (exact timing,
+// constant speed, straight line, no accuracy) like a cheater's generator.
+let seed = 12345;
+const rand = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+const track = (start, minutes, kmh, { dt = 2000, jumpAt = -1, perfect = false } = {}) => {
+  const pts = [];
+  let lat = -6.2 + rand() * 0.05, lon = 106.8 + rand() * 0.05, t = start, heading = rand() * Math.PI * 2;
+  const n = Math.round(minutes * 60000 / dt);
   for (let i = 0; i <= n; i++) {
-    pts.push({ t: start + i * dt, lat: +lat.toFixed(7), lon });
-    lat += (kmh / 3.6) * (dt / 1000) / 111195 * (i === jumpAt ? 50 : 1);
+    const p = { t: Math.round(t), lat: +lat.toFixed(7), lon: +lon.toFixed(7) };
+    if (!perfect) p.acc = 3 + Math.floor(rand() * 9);
+    pts.push(p);
+    const step = perfect ? dt : dt + (rand() - 0.5) * 600;
+    const v = (kmh / 3.6) * (perfect ? 1 : 0.9 + rand() * 0.2);
+    if (!perfect) heading += (rand() - 0.5) * 0.3;
+    const d = (v * step) / 1000 * (i === jumpAt ? 50 : 1);
+    const h = perfect ? 0 : heading;
+    lat += (d * Math.cos(h)) / 111195;
+    lon += (d * Math.sin(h)) / (111195 * Math.cos((lat * Math.PI) / 180));
+    t += step;
   }
   return pts;
 };
-const now = Date.now();
+let now = Date.now();
+const advance = (ms) => { clockOffset += ms; now = Date.now(); };
 const jog = traitsFor(JOG);
 const expected = rules.earnPerMinute({ ...jog, durability: 100, points: { efficiency: 0, resilience: 0 } }) * 30; // 1 energy = 30 min
 
@@ -72,6 +95,7 @@ ok('sneaker not owned rejected', r.code === 403, r.error);
 r = await call({ action: 'run', session: S, run: { tokenId: JOG, points: track(now - 3600e3, 35, 8) } });
 ok('35-min run at 8 km/h credits 30 earning minutes (1 energy)', r.code === 200 && Math.abs(r.run.coins - expected) < expected * 0.02 && r.state.energy === 0, `got ${r.run?.coins} expected ${expected.toFixed(4)} energy ${r.state?.energy} ${r.error || ''}`);
 const firstCoins = r.run.coins;
+ok('realistic run: trust ≥ 70, earnings held 24 h (not spendable yet)', r.run.trust >= 70 && r.run.status === 'held' && r.state.balance === 0 && Math.abs(r.state.pending - firstCoins) < 1e-6, JSON.stringify({ trust: r.run.trust, reasons: r.run.reasons, status: r.run.status, bal: r.state.balance }));
 r = await call({ action: 'run', session: S, run: { tokenId: JOG, points: track(now - 3600e3, 35, 8) } });
 ok('replayed run rejected', r.code === 409, r.error);
 r = await call({ action: 'run', session: S, run: { tokenId: JOG, points: track(now - 1200e3, 10, 8) } });
@@ -80,7 +104,7 @@ ok('no energy left → earns ~0 (only seconds of refill)', r.code === 200 && r.r
 // energy refills over time: fake by editing clock? use a second user with fresh energy instead
 const U2_KEY = rnd(), U2 = eth.addressOfKey(U2_KEY);
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO], [U2]: [JOG, TEMPO] });
-const m2 = sessionMessage(U2, new Date().toISOString());
+const m2 = sessionMessage(U2, iso());
 const S2 = (await call({ action: 'session', address: U2, message: m2, signature: await signPersonal(U2_KEY, m2) })).session;
 r = await call({ action: 'run', session: S2, run: { tokenId: JOG, points: track(now - 1500e3, 10, 8) } });
 ok('same sneaker reused by new owner in the same period rejected', r.code === 409, r.error);
@@ -96,6 +120,10 @@ const bad = track(now - 100e3, 1, 10); bad[5].t = bad[3].t;
 r = await call({ action: 'run', session: S2, run: { tokenId: TEMPO, points: bad } });
 ok('out-of-order points rejected', r.code === 400, r.error);
 
+// 24 hours later the held earnings become usable
+advance(24 * 3600e3 + 60e3);
+r = await call({ action: 'state', session: S });
+ok('after 24 h the earnings are released', Math.abs(r.balance - firstCoins) < 0.01 && r.pending === 0, JSON.stringify({ bal: r.balance, pending: r.pending }));
 // spending: level up until the balance runs out
 let levels = 0, spentNow = 0;
 for (;;) {
@@ -127,7 +155,7 @@ for (let i = JOG + 1; i < 800 && !JOG2; i++) if (traitsFor(i).type === 'jogger')
 const U3_KEY = rnd(), U3 = eth.addressOfKey(U3_KEY);
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO], [U2]: [JOG, TEMPO], [U3]: [JOG2] });
 process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY - 30, claimedToday: '0', claimed: {} }); // one halving ago
-const m3 = sessionMessage(U3, new Date().toISOString());
+const m3 = sessionMessage(U3, iso());
 const S3 = (await call({ action: 'session', address: U3, message: m3, signature: await signPersonal(U3_KEY, m3) })).session;
 const st3 = await call({ action: 'state', session: S3 });
 ok('state reports emission: 5M today, rate 50%, next halving', st3.emission.limit === 5_000_000 && st3.emission.factor === 0.5 && st3.emission.nextHalving === (TODAY + 30) * 864e5, JSON.stringify(st3.emission));
@@ -138,12 +166,12 @@ ok('after one halving the same run earns half', r.code === 200 && Math.abs(r.run
 const earned3 = r.run.coins;
 // fill today's budget so only 1 RUNNER is left, then a run gets capped
 const storeMod = await imp('api/_lib/store.js');
-const budgetKey = `rw:budget:${TODAY}`;
+const budgetKey = `rw:budget:${rules.utcDay(now - 3000e3 + 10 * 60e3)}`;
 const used = Number((await storeMod.get(budgetKey)) || 0);
 await storeMod.incrBy(budgetKey, 5_000_000 * 1e6 - used - 1e6);
 const U4_KEY = rnd(), U4 = eth.addressOfKey(U4_KEY);
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO], [U2]: [JOG, TEMPO], [U3]: [JOG2], [U4]: [TEMPO + 1000] });
-const m4 = sessionMessage(U4, new Date().toISOString());
+const m4 = sessionMessage(U4, iso());
 const S4 = (await call({ action: 'session', address: U4, message: m4, signature: await signPersonal(U4_KEY, m4) })).session;
 r = await call({ action: 'run', session: S4, run: { tokenId: TEMPO + 1000, points: track(now - 3000e3, 10, 12) } });
 ok('costs halve with emission (level-up at 50%)', rules.levelUpCost({ level: 0 }, 0.5) === rules.levelUpCost({ level: 0 }) / 2 && rules.repairCost({ level: 0, durability: 50 }, 0.5) === rules.repairCost({ level: 0, durability: 50 }) / 2);
@@ -153,6 +181,7 @@ ok('energy table 1/2/4/6/10', [1, 2, 3, 9, 15, 30].map(rules.maxEnergy).join() =
 ok('Common lasts ~9 days of 1 energy/day before 50% durability', Math.round(50 / rules.durabilityLossPerEnergy({ base: { efficiency: 6, resilience: 6 }, points: {}, durability: 100 })) === 9);
 ok('global daily budget: run capped at what is left (1 RUNNER)', r.code === 200 && r.run.capped && Math.abs(r.run.coins - 1) < 1e-6, JSON.stringify(r.run || r));
 ok('budget never exceeded', Number(await storeMod.get(budgetKey)) === 5_000_000 * 1e6);
+advance(24 * 3600e3 + 60e3); // U3's earnings released
 // partial claim: only 2 RUNNER left in today's on-chain emission
 const limitWei = 5_000_000n * 10n ** 18n;
 process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY - 30, claimedToday: String(limitWei - 2n * 10n ** 18n), claimed: {} });
@@ -169,7 +198,7 @@ process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: 0 });
 ok('before emission starts the server is not live', (await call({ action: 'status' }, 'GET')).live === false);
 process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY, claimedToday: '0', claimed: {} });
 // ---- game settings (admin), boosts, per-runner cap, schedule changes
-const settingsCall = async (key, settings, issued = new Date().toISOString()) => {
+const settingsCall = async (key, settings, issued = iso()) => {
   const message = settingsMessage(JSON.stringify(settings), issued);
   return call({ action: 'settings-set', settings, message, signature: await signPersonal(key, message) });
 };
@@ -188,7 +217,7 @@ const U5_KEY = rnd(), U5 = eth.addressOfKey(U5_KEY);
 process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY, claimedToday: '0', claimed: {} });
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [U5]: [JOG3] });
 process.env.REWARDS_FAKE_HELD = JSON.stringify({ [U5]: [BOOST] });
-const m5 = sessionMessage(U5, new Date().toISOString());
+const m5 = sessionMessage(U5, iso());
 const S5 = (await call({ action: 'session', address: U5, message: m5, signature: await signPersonal(U5_KEY, m5) })).session;
 const st5 = await call({ action: 'state', session: S5 });
 ok('state reports the boost (×1.1)', Math.abs(st5.boost - 1.1) < 1e-9);
@@ -196,25 +225,88 @@ const jog3 = traitsFor(JOG3);
 const exp3 = rules.earnPerMinute({ ...jog3, durability: 100, points: { efficiency: 0, resilience: 0 } }) * 30 * 1.1;
 r = await call({ action: 'run', session: S5, run: { tokenId: JOG3, points: track(now - 9000e3, 35, 8) } });
 ok('NFT boost adds 10% to the run', r.code === 200 && Math.abs(r.run.coins - exp3) < exp3 * 0.02 && Math.abs(r.run.boost - 1.1) < 1e-9, `got ${r.run?.coins} expected ${exp3.toFixed(1)}`);
+advance(24 * 3600e3 + 60e3); // U5's earnings released
 r = await call({ action: 'levelup', session: S5, tokenId: JOG3 });
 ok('new level price applies right away (2,000 for level 1)', r.code === 200 && Math.abs(r.spent - 2000) < 1e-6, JSON.stringify(r).slice(0, 120));
 // per-runner daily max: 500 RUNNER at a 10M day
 await settingsCall(ADMIN_KEY, { ...newSettings, perRunnerDailyMax: 500, boosts: [] });
 const U6_KEY = rnd(), U6 = eth.addressOfKey(U6_KEY);
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [U6]: [JOG3 + 2] });
-const m6 = sessionMessage(U6, new Date().toISOString());
+const m6 = sessionMessage(U6, iso());
 const S6 = (await call({ action: 'session', address: U6, message: m6, signature: await signPersonal(U6_KEY, m6) })).session;
 r = await call({ action: 'run', session: S6, run: { tokenId: JOG3 + 2, points: track(now - 9000e3, 35, 8) } });
 ok('per-runner daily max caps a runner at 500', r.code === 200 && r.run.capped && Math.abs(r.run.coins - 500) < 1e-6, JSON.stringify(r.run || r));
 // a changed on-chain schedule (20M/day today) doubles the earn rate
-process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY - 40, current: { dailyStart: 20_000_000, floor: 100_000, halvingDays: 30, fromDay: TODAY }, next: null, claimedToday: '0', claimed: {} });
+const D = rules.utcDay();
+process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: D - 40, current: { dailyStart: 20_000_000, floor: 100_000, halvingDays: 30, fromDay: D }, next: null, claimedToday: '0', claimed: {} });
 const st6 = await call({ action: 'state', session: S6 });
 ok('schedule change: 20M today → earn rate 200%', st6.emission.limit === 20_000_000 && st6.emission.factor === 2);
-process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY - 40, current: { dailyStart: 10_000_000, floor: 100_000, halvingDays: 30, fromDay: TODAY - 40 }, next: { dailyStart: 2_000_000, floor: 0, halvingDays: 60, fromDay: TODAY + 1 }, claimedToday: '0', claimed: {} });
+process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: D - 40, current: { dailyStart: 10_000_000, floor: 100_000, halvingDays: 30, fromDay: D - 40 }, next: { dailyStart: 2_000_000, floor: 0, halvingDays: 60, fromDay: D + 1 }, claimedToday: '0', claimed: {} });
 const st7 = await call({ action: 'state', session: S6 });
-ok('a pending schedule is reported for the app', st7.emission.change?.dailyStart === 2_000_000 && st7.emission.change.fromDay === TODAY + 1 && st7.emission.limit === 5_000_000);
+ok('a pending schedule is reported for the app', st7.emission.change?.dailyStart === 2_000_000 && st7.emission.change.fromDay === D + 1 && st7.emission.limit === 5_000_000);
 await settingsCall(ADMIN_KEY, rules.DEFAULT_SETTINGS);
-process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY, claimedToday: '0', claimed: {} });
+process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: rules.utcDay() - 1, claimedToday: '0', claimed: {} });
+
+// ---- fair play: trust score, review queue, bans, rate limits
+const trust = await imp('api/_lib/trust.js');
+const tReal = trust.trustScore(track(now - 4000e3, 30, 8));
+const tFake = trust.trustScore(track(now - 4000e3, 30, 8, { perfect: true }));
+ok('trust: realistic track scores high', tReal.score >= 90, JSON.stringify(tReal));
+ok('trust: scripted track (exact timing, constant speed, straight line) scores low', tFake.score < 40 && tFake.reasons.length >= 3, JSON.stringify(tFake));
+const J = []; // five Daily Runner sneakers for these tests
+for (let i = 1200; i < 3000 && J.length < 5; i++) if (traitsFor(i).type === 'jogger') J.push(i);
+const FT = J[0];
+const C_KEY = rnd(), CH = eth.addressOfKey(C_KEY), H_KEY = rnd(), HO = eth.addressOfKey(H_KEY);
+process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [CH]: [J[0], J[1], J[2]], [HO]: [J[3], J[4]], [USER]: [JOG, TEMPO] });
+const sess = async (key, addr) => { const m = sessionMessage(addr, iso()); return (await call({ action: 'session', address: addr, message: m, signature: await signPersonal(key, m) })).session; };
+const SC = await sess(C_KEY, CH), SH = await sess(H_KEY, HO);
+r = await call({ action: 'run', session: SC, run: { tokenId: FT, points: track(now - 7000e3, 35, 8, { perfect: true }) } });
+const heldId = r.run?.id, heldCoins = r.run?.coins;
+ok('scripted run is held for review (not paid)', r.code === 200 && r.run.review && r.run.status === 'review' && r.state.underReview > 0 && r.state.pending === 0, JSON.stringify({ trust: r.run?.trust, status: r.run?.status }));
+const honest = track(now - 7000e3, 35, 8);
+r = await call({ action: 'run', session: SH, run: { tokenId: J[3], points: honest } });
+ok('honest run → held 24 h, not reviewed', r.code === 200 && r.run.status === 'held');
+advance(2 * 3600e3);
+r = await call({ action: 'run', session: SC, run: { tokenId: J[1], points: honest.map((p) => ({ ...p, t: p.t + 2 * 3600e3 })) } });
+ok('copied route (someone else\'s track) → flagged and held', r.code === 200 && r.run.review && r.run.reasons.some((x) => /Same route/.test(x)), JSON.stringify(r.run?.reasons));
+const copiedId = r.run.id;
+advance(24 * 3600e3 + 60e3);
+r = await call({ action: 'state', session: SC });
+ok('runs under review stay held after 24 h', r.balance === 0 && r.underReview > 0);
+// admin
+const adminSess = async (key) => { const a = eth.addressOfKey(key); const m = adminMessage(a, iso()); return call({ action: 'admin-session', address: a, message: m, signature: await signPersonal(key, m) }); };
+ok('only the dev wallet can open the review queue', (await adminSess(USER_KEY)).code === 403);
+const AS = (await adminSess(ADMIN_KEY)).session;
+ok('a normal session can\'t use admin actions', (await call({ action: 'admin', session: SC, op: 'queue' })).code === 403);
+r = await call({ action: 'admin', session: AS, op: 'queue' });
+ok('review queue lists the held runs with reasons', r.code === 200 && r.queue.some((q) => q.id === heldId && q.trust < 70 && q.reasons.length) && r.queue.some((q) => q.id === copiedId), JSON.stringify(r).slice(0, 200));
+r = await call({ action: 'admin', session: AS, op: 'approve', address: CH, id: heldId });
+ok('approve pays the run immediately', r.code === 200 && Math.abs((await call({ action: 'state', session: SC })).balance - heldCoins) < 0.01);
+r = await call({ action: 'admin', session: AS, op: 'void', address: CH, id: copiedId });
+const stc = await call({ action: 'state', session: SC });
+ok('void cancels the run (nothing paid, out of review)', r.code === 200 && stc.underReview === 0 && Math.abs(stc.balance - heldCoins) < 0.01 && stc.runs.find((x) => x.id === copiedId)?.status === 'voided');
+ok('queue is empty after decisions', !(await call({ action: 'admin', session: AS, op: 'queue' })).queue.some((q) => q.address === CH));
+r = await call({ action: 'admin', session: AS, op: 'ban', address: CH, reason: 'GPS spoofing' });
+ok('ban: listed', r.code === 200 && (await call({ action: 'admin', session: AS, op: 'queue' })).bans.includes(CH));
+ok('banned wallet can\'t upload runs', (await call({ action: 'run', session: SC, run: { tokenId: J[2], points: track(now - 3000e3, 20, 8) } })).code === 403);
+ok('banned wallet can\'t claim', (await call({ action: 'claim', session: SC })).code === 403);
+ok('banned wallet can\'t spend', (await call({ action: 'levelup', session: SC, tokenId: FT })).code === 403);
+await call({ action: 'admin', session: AS, op: 'unban', address: CH });
+ok('unban restores access', (await call({ action: 'levelup', session: SC, tokenId: FT })).code === 200);
+// rate limits
+let limited = false;
+for (let i = 0; i < 25 && !limited; i++) {
+  const m = sessionMessage(HO, iso());
+  const rr = await call({ action: 'session', address: HO, message: m, signature: await signPersonal(H_KEY, m) }, 'POST', '192.168.9.9');
+  if (rr.code === 429) limited = i >= 20;
+}
+ok('rate limit: more than 20 sign-ins an hour from one IP → 429', limited);
+let runLimited = false;
+for (let i = 0; i < 35 && !runLimited; i++) {
+  const rr = await call({ action: 'run', session: SH, run: { tokenId: J[4], points: [{ t: now - 1000, lat: 1, lon: 1 }, { t: now - 900, lat: 1, lon: 1.00001 }] } });
+  if (rr.code === 429) runLimited = i >= 29;
+}
+ok('rate limit: more than 30 run uploads an hour per wallet → 429', runLimited);
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO] });
 // concurrency lock
 const [a, b] = await Promise.all([call({ action: 'state', session: S }), call({ action: 'state', session: S })]);

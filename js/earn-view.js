@@ -535,6 +535,7 @@ function rewardsCard(st) {
   const srv = st.server || { earned: 0, spent: 0 };
   const claimable = claimInfo?.address === auth.state.address ? Math.max(0, srv.earned - srv.spent - claimInfo.claimed) : null;
   return `<span class="muted small">Verified by the RUNNER server. Spend it on level-ups and repairs, or claim it to your wallet as real ${COIN} tokens.</span>
+    ${heldLine(st.server)}
     ${emissionLine(st.server?.emission)}
     <span class="small">In your wallet: <b>${claimInfo ? `${fmtCoins(claimInfo.wallet)} ${COIN}` : '…'}</b></span>
     ${claimable ? `<span class="small"><b>Claim ${fmtCoins(claimable)} ${COIN}</b> — lock it ${LOCK_DAYS} days for 100%, or take it now and ${INSTANT_BURN * 100}% is burned:</span>
@@ -560,6 +561,14 @@ function locksBlock() {
         ${l.locked ? `<button class="btn pill sm" data-act="lock-early">Take all now (−${INSTANT_BURN * 100}% of locked)</button>` : ''}
       </div>
     </div>`;
+}
+
+/** Earnings still in their 24-hour hold or under review. */
+function heldLine(srv) {
+  if (!srv || (!srv.pending && !srv.underReview)) return '';
+  const when = srv.nextRelease ? new Date(srv.nextRelease).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+  return `<span class="small">${srv.pending ? `On hold: <b>${fmtCoins(srv.pending)} ${COIN}</b>${when ? ` · usable from ${when}` : ''}` : ''}${srv.pending && srv.underReview ? ' · ' : ''}${srv.underReview ? `Under review: <b>${fmtCoins(srv.underReview)} ${COIN}</b>` : ''}</span>
+    <span class="muted small">New earnings are usable 24 hours after a run, so unusual runs can be checked first.</span>`;
 }
 
 /** "Emission today 10M · rate 100% · halves 22 Nov" */

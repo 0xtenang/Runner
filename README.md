@@ -106,6 +106,14 @@ Setup, once both contracts are deployed:
 3. Back on the admin page, the dev wallet presses **Set server address on the token** (or calls `setSigner` on Blockscout).
 4. On launch day, the dev wallet presses **Start emission**. The halving clock starts then.
 
-Until all three are done, the app keeps working in local mode. What the server can't fully stop is GPS-spoofing apps on a phone. Per-wallet energy limits earning to 30 minutes a day per energy (1 sneaker: 30 min, 30+ sneakers: 5 h), and the token's daily emission bounds the total.
+Until all three are done, the app keeps working in local mode.
 
-Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, level costs, game settings, NFT boosts, the per-runner cap, schedule changes, the daily budget and partial claims (52 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.
+**Fair play.**
+- **Trust score:** every run gets a 0–100 score (`api/_lib/trust.js`). Scripted or spoofed tracks tend to be too clean: perfectly regular timing, constant speed, straight lines, unchanging GPS accuracy, or a copy of someone else's route.
+- **24-hour hold:** earnings become usable 24 hours after a run.
+- **Review:** runs scoring under 70 wait for the dev wallet to approve or void them on the admin page (*Fair play: review & bans*). Nothing is voided automatically.
+- **Bans:** banned wallets can't earn, spend or claim.
+- **Rate limits:** requests are capped per IP and per wallet.
+- **Limits:** a careful forger can still imitate GPS noise. Phone-app-only earning with device attestation and step checks is the planned next layer. Per-wallet energy and the daily emission bound the damage meanwhile.
+
+Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, level costs, game settings, NFT boosts, the per-runner cap, schedule changes, the daily budget, partial claims, the trust score, the 24-hour hold, the review queue, bans and rate limits (73 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.

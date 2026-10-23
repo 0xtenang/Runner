@@ -64,6 +64,7 @@ export class Recorder extends EventTarget {
     }
     const p = { t: f.t, lat: +f.lat.toFixed(7), lon: +f.lon.toFixed(7) };
     if (f.ele != null) p.ele = Math.round(f.ele * 10) / 10;
+    if (f.acc != null) p.acc = Math.round(f.acc); // reported accuracy (m) — part of the server's trust check
     const hr = this.hr?.();
     if (hr) p.hr = hr;
     if (this.needBreak && last) p.b = 1;
