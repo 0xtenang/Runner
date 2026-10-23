@@ -626,11 +626,11 @@ export function renderEarn(view, { toast, onCleanup }) {
           <p class="muted small" style="margin:0">Assigned points are permanent.</p>` : ''}
         ${s.durability < 50 ? `<div class="note warn">Durability below 50 is reducing your Efficiency. Repair to earn at full rate.</div>` : ''}
         <div class="actions-row">
-          <button class="btn ${stagedTotal(st) ? '' : 'primary'}" data-act="level" data-id="${s.id}" ${s.level >= MAX_LEVEL || coins < levelUpCost(s) ? 'disabled' : ''}>
-            ${s.level >= MAX_LEVEL ? 'Max level' : `Level up · ${coinTag(levelUpCost(s))}`}
+          <button class="btn ${stagedTotal(st) ? '' : 'primary'}" data-act="level" data-id="${s.id}" ${s.level >= MAX_LEVEL || coins < levelUpCost(s, game.emissionFactor) ? 'disabled' : ''}>
+            ${s.level >= MAX_LEVEL ? 'Max level' : `Level up · ${coinTag(levelUpCost(s, game.emissionFactor))}`}
           </button>
-          <button class="btn" data-act="repair" data-id="${s.id}" ${!repairCost(s) || coins < repairCost(s) ? 'disabled' : ''}>
-            Repair${repairCost(s) ? ` · ${coinTag(repairCost(s))}` : ''}
+          <button class="btn" data-act="repair" data-id="${s.id}" ${!repairCost(s, game.emissionFactor) || coins < repairCost(s, game.emissionFactor) ? 'disabled' : ''}>
+            Repair${repairCost(s, game.emissionFactor) ? ` · ${coinTag(repairCost(s, game.emissionFactor))}` : ''}
           </button>
         </div>
         <p class="muted small" style="margin:0">Each level gives ${POINTS_PER_LEVEL[s.rarity]} attribute points (${RARITIES[s.rarity].label}).</p>

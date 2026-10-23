@@ -3,8 +3,8 @@
 // exact code before paying real RUNNER. Keep this file free of browser APIs.
 //
 //   Class    — sets the pace zone you earn in.
-//   Energy   — every 5 minutes of earning costs 1 energy. Max energy grows with
-//              the number of sneakers you own and refills fully every 24 h.
+//   Energy   — 1 energy = 30 minutes of earning. Max energy grows with the number
+//              of sneakers you own (1 sneaker: 1 energy) and refills fully every 24 h.
 //   Earning  — RUNNER/minute = 112.5 × Efficiency × emission factor, only while
 //              your GPS pace is inside the sneaker's zone. +10% with a live
 //              Bluetooth HR sensor.
@@ -12,7 +12,8 @@
 //              30 days, never below 100k/day. The emission factor (1, ½, ¼ … down to
 //              1%) scales every runner's earn rate on the same dates.
 //   Durability drops per energy spent (less with high Resilience); below 50 it
-//              cuts Efficiency. Repair it with RUNNER.
+//              cuts Efficiency. Repair it with RUNNER. Repair and level-up costs
+//              follow the emission factor, so they halve together with earnings.
 //   Levels   — level-ups cost RUNNER and grant attribute points (4/6/8/10 by
 //              rarity) that the player assigns to Efficiency or Resilience.
 
@@ -20,7 +21,7 @@ import { traitsFor } from './collection.js';
 import { haversine } from './stats.js';
 
 export const COIN = 'RUNNER';
-export const MINUTES_PER_ENERGY = 5;
+export const MINUTES_PER_ENERGY = 30;
 export const VEHICLE_KMH = 25;   // faster than this = probably in a vehicle
 export const HR_BONUS = 1.1;
 export const MAX_LEVEL = 30;
@@ -44,11 +45,11 @@ export const round2 = (x) => Math.round(x * 100) / 100;
 
 // ---------------------------------------------------------------- rules
 export function maxEnergy(sneakerCount) {
-  if (sneakerCount >= 30) return 20;
-  if (sneakerCount >= 15) return 12;
-  if (sneakerCount >= 9) return 9;
-  if (sneakerCount >= 3) return 4;
-  return 2;
+  if (sneakerCount >= 30) return 10;  // 5 h
+  if (sneakerCount >= 15) return 6;   // 3 h
+  if (sneakerCount >= 9) return 4;    // 2 h
+  if (sneakerCount >= 3) return 2;    // 1 h
+  return 1;                           // 30 min
 }
 
 export const ATTRS = ['efficiency', 'resilience'];
@@ -66,7 +67,7 @@ export function attrs(s, staged = null) {
 export const EMISSION_START = 10_000_000;
 export const HALVING_DAYS = 30;
 export const EMISSION_FLOOR = 100_000;
-/** Earn-rate scale: sized so ~1,000 daily runners use the launch-day emission. */
+/** Earn-rate scale: ~330 daily runners (30 min each) use the launch-day emission. */
 export const EARN_SCALE = 750;
 
 /** RUNNER the pool may pay out on UTC day `day` (0 before the start day). */
@@ -87,9 +88,12 @@ export function nextHalving(day, startDay) {
 
 export const earnPerMinute = (s, factor = 1) => 0.15 * EARN_SCALE * factor * attrs(s).efficiency * SNEAKER_TYPES[s.type].mult;
 export const earnPerEnergy = (s, factor = 1) => earnPerMinute(s, factor) * MINUTES_PER_ENERGY;
-export const levelUpCost = (s) => 10 * EARN_SCALE * (s.level + 1);
-export const repairCost = (s) => Math.ceil((100 - s.durability) * 0.1 * EARN_SCALE * (1 + s.level * 0.1));
-export const durabilityLossPerEnergy = (s) => Math.max(0.5, 3 - attrs(s).resilience * 0.05);
+// Costs scale with the emission factor (whole RUNNER, never below 1) so they stay in
+// proportion to what a sneaker earns after each halving.
+export const levelUpCost = (s, factor = 1) => Math.max(1, Math.round(10 * EARN_SCALE * factor * (s.level + 1)));
+export const repairCost = (s, factor = 1) => (s.durability >= 100 ? 0 : Math.max(1, Math.ceil((100 - s.durability) * 0.1 * EARN_SCALE * factor * (1 + s.level * 0.1))));
+// ~5.4 per energy for a typical Common: 100 → 50 in about 9 days of one energy a day.
+export const durabilityLossPerEnergy = (s) => Math.max(1, 6 - attrs(s).resilience * 0.1);
 
 /** A playable sneaker for Genesis token `tokenId` (fresh progress). */
 export function sneakerFromToken(tokenId) {
@@ -151,7 +155,7 @@ export class EarnSession {
 /** Energy after refilling from `energyAt` to `now` (full refill takes 24 h). */
 export function regenEnergy(energy, energyAt, max, now = Date.now()) {
   const hours = Math.max(0, now - energyAt) / 3.6e6;
-  return energy < max ? Math.min(max, energy + (hours * max) / 24) : energy;
+  return Math.min(max, energy + (hours * max) / 24); // also trims energy saved under an older, higher max
 }
 
 const TRAIL_MS = 20000;      // same window as Recorder.currentSpeed

@@ -22,7 +22,7 @@
 3. Tests run against the official compiler build in a local EVM (`tests/`):
    - `token.test.mjs`: 94 checks, including the halving schedule (checked day by day against the JavaScript mirror for 400 days) and a **randomized model test**. It runs 600 random actions (buys, sells, transfers, claims, sweeps, burns, and time jumps) over 45 days. Every 5 steps it compares every balance, every daily eligible balance, the daily totals and the holder-reward bucket against an independent JavaScript model.
    - `nft.test.mjs`: 44 checks, including the rarity and price of all 9,999 tokens against the app, and a malicious re-entering validator.
-   - `rewards-server.test.mjs`: 36 checks covering sign-in, run scoring, anti-cheat, spending, claims, halving rates, the global daily budget and partial claims. A server-signed claim was also accepted by the token contract on chain id 4663.
+   - `rewards-server.test.mjs`: 40 checks covering sign-in, run scoring, anti-cheat, spending, claims, halving rates and costs, the energy table, the global daily budget and partial claims. A server-signed claim was also accepted by the token contract on chain id 4663.
 4. **Mutation checks.** Bugs were planted on purpose to make sure the tests catch them:
 
    | Planted bug | Result |
@@ -44,7 +44,7 @@
 | 6 | Low | Token: unclaimed holder rewards only move to the protocol when someone calls `sweepExpired`. They are already unclaimable after 7 days, but they sit in the contract until swept. | **Open: by design.** Anyone can sweep, and the admin page has a button. Bounded per call by `maxDays`. |
 | 7 | Low | Server: the HR +10% bonus trusts heart-rate values sent by the phone. | **Open.** Small and bounded by energy. Could be disabled for real-token runs. |
 | 8 | Low | Server: no rate limiting on `/api/rewards`. Spam costs function time but can't credit tokens. | **Open.** Add Vercel rate limiting or Upstash's rate-limit helper before a public launch. |
-| 9 | Info | No server can fully stop GPS-spoofing apps. | Bounded by per-wallet energy (2–20 energy/day, 5 min each), the per-sneaker overlap lock and the token's daily claim cap. |
+| 9 | Info | No server can fully stop GPS-spoofing apps. | Bounded by per-wallet energy (1–10 energy/day, 30 min each), the per-sneaker overlap lock and the token's daily claim cap. |
 | 10 | Info | Fee-on-transfer tokens don't work in Uniswap-V3/V4-style pools, and V2 routers need the `…SupportingFeeOnTransferTokens` swap functions. Adding or removing liquidity after `addPair` is taxed 4% on the RUNNER side. | Documented. Use a V2-style pool and expect wallets and DEX UIs to need about 5% slippage. |
 | 11 | Info | Holder rewards follow the chosen design: dev and team wallets are eligible, and the protocol wallet's tax income also counts once held for a full day. With 100M + 100M in those wallets, they take a large share of the 2% until tokens are distributed. | Product decision (confirmed by the owner). |
 | 12 | Info | `block.timestamp` defines the UTC day. The sequencer can skew it by seconds. | Acceptable at daily granularity. |

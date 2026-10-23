@@ -90,7 +90,7 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 `api/rewards.js` (Vercel function) is the source of truth for anything worth real RUNNER. The app uploads every finished run's GPS track. The server re-scores it with the same rules the app uses (`js/rules.js`) and checks the following before crediting it:
 
 - the wallet owns the sneaker on-chain;
-- energy is available;
+- energy is available (1 energy = 30 minutes of earning; 1–2 sneakers give 1 energy, 3–8 give 2, 9–14 give 4, 15–29 give 6, 30+ give 10, refilling over 24 h);
 - the run doesn't overlap an earlier one, for this wallet or for this sneaker;
 - it's under 72 hours old;
 - its speeds are possible on foot.
@@ -104,6 +104,6 @@ Setup, once both contracts are deployed:
 3. Back on the admin page, the dev wallet presses **Set server address on the token** (or calls `setSigner` on Blockscout).
 4. On launch day, the dev wallet presses **Start emission**. The halving clock starts then.
 
-Until all three are done, the app keeps working in local mode. What the server can't fully stop is GPS-spoofing apps on a phone. Per-wallet energy limits each sneaker to a few minutes of earning a day, and the token's daily claim cap bounds the total.
+Until all three are done, the app keeps working in local mode. What the server can't fully stop is GPS-spoofing apps on a phone. Per-wallet energy limits earning to 30 minutes a day per energy (1 sneaker: 30 min, 30+ sneakers: 5 h), and the token's daily emission bounds the total.
 
-Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, the daily budget and partial claims (36 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.
+Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, the daily budget and partial claims (40 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.

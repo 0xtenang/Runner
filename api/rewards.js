@@ -221,13 +221,14 @@ async function upgrade(address, body, action) {
   return withUser(address, async (u, owned) => {
     if (!owned.includes(tokenId)) fail(403, `This wallet doesn't own Genesis #${tokenId}.`);
     const s = await loadSneaker(tokenId);
+    const factor = emissionFactor(utcDay(), startDay); // costs halve with emission
     if (action === 'levelup') {
       if (s.level >= MAX_LEVEL) fail(400, 'Already max level');
-      spend(u, levelUpCost(s));
+      spend(u, levelUpCost(s, factor));
       s.level++;
       s.unspent += POINTS_PER_LEVEL[s.rarity];
     } else if (action === 'repair') {
-      const cost = repairCost(s);
+      const cost = repairCost(s, factor);
       if (cost > 0) { spend(u, cost); s.durability = 100; }
     } else if (action === 'allocate') {
       const add = body.add || {};

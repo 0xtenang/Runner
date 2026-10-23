@@ -52,7 +52,7 @@ ok('forged session rejected', (await call({ action: 'state', session: forged }))
 
 // state
 r = await call({ action: 'state', session: S });
-ok('fresh state', r.code === 200 && r.balance === 0 && r.energy === 4 && r.maxEnergy === 2 ? false : r.balance === 0 && r.maxEnergy === 2 && r.energy === 2, JSON.stringify({ e: r.energy, m: r.maxEnergy, owned: r.owned }));
+ok('fresh state', r.code === 200 && r.balance === 0 && r.energy === 4 && r.maxEnergy === 2 ? false : r.balance === 0 && r.maxEnergy === 1 && r.energy === 1, JSON.stringify({ e: r.energy, m: r.maxEnergy, owned: r.owned }));
 
 // track builder: kmh constant, 1 point / 2 s, heading north
 const track = (start, minutes, kmh, { dt = 2000, jumpAt = -1 } = {}) => {
@@ -65,16 +65,16 @@ const track = (start, minutes, kmh, { dt = 2000, jumpAt = -1 } = {}) => {
 };
 const now = Date.now();
 const jog = traitsFor(JOG);
-const expected = rules.earnPerMinute({ ...jog, durability: 100, points: { efficiency: 0, resilience: 0 } }) * 10; // 2 energy = 10 min
+const expected = rules.earnPerMinute({ ...jog, durability: 100, points: { efficiency: 0, resilience: 0 } }) * 30; // 1 energy = 30 min
 
 r = await call({ action: 'run', session: S, run: { tokenId: 7777, points: track(now - 3600e3, 12, 8) } });
 ok('sneaker not owned rejected', r.code === 403, r.error);
-r = await call({ action: 'run', session: S, run: { tokenId: JOG, points: track(now - 3600e3, 12, 8) } });
-ok('12-min run at 8 km/h credits 10 earning minutes', r.code === 200 && Math.abs(r.run.coins - expected) < expected * 0.02 && r.state.energy === 0, `got ${r.run?.coins} expected ${expected.toFixed(4)} energy ${r.state?.energy} ${r.error || ''}`);
+r = await call({ action: 'run', session: S, run: { tokenId: JOG, points: track(now - 3600e3, 35, 8) } });
+ok('35-min run at 8 km/h credits 30 earning minutes (1 energy)', r.code === 200 && Math.abs(r.run.coins - expected) < expected * 0.02 && r.state.energy === 0, `got ${r.run?.coins} expected ${expected.toFixed(4)} energy ${r.state?.energy} ${r.error || ''}`);
 const firstCoins = r.run.coins;
-r = await call({ action: 'run', session: S, run: { tokenId: JOG, points: track(now - 3600e3, 12, 8) } });
+r = await call({ action: 'run', session: S, run: { tokenId: JOG, points: track(now - 3600e3, 35, 8) } });
 ok('replayed run rejected', r.code === 409, r.error);
-r = await call({ action: 'run', session: S, run: { tokenId: JOG, points: track(now - 1800e3, 10, 8) } });
+r = await call({ action: 'run', session: S, run: { tokenId: JOG, points: track(now - 1200e3, 10, 8) } });
 ok('no energy left → earns ~0 (only seconds of refill)', r.code === 200 && r.run.coins < 0.01, JSON.stringify(r.run || r));
 
 // energy refills over time: fake by editing clock? use a second user with fresh energy instead
@@ -100,13 +100,17 @@ ok('out-of-order points rejected', r.code === 400, r.error);
 r = await call({ action: 'levelup', session: S, tokenId: JOG });
 const LV1 = rules.levelUpCost({ level: 0 });
 ok(`level-up spends ${LV1} RUNNER and grants points`, r.code === 200 && Math.abs(r.balance - (firstCoins - LV1)) < 0.01 && r.sneakers[JOG].level === 1 && r.sneakers[JOG].unspent === rules.POINTS_PER_LEVEL[jog.rarity], JSON.stringify(r).slice(0, 200));
+const LV2 = rules.levelUpCost({ level: 1 }), LV3 = rules.levelUpCost({ level: 2 });
 r = await call({ action: 'levelup', session: S, tokenId: JOG });
-ok('second level-up rejected: not enough', r.code === 400, r.error);
-r = await call({ action: 'allocate', session: S, tokenId: JOG, add: { efficiency: rules.POINTS_PER_LEVEL[jog.rarity] + 1 } });
+ok(`second level-up (${LV2}) affordable after a 30-min run`, r.code === 200 && r.sneakers[JOG].level === 2);
+r = await call({ action: 'levelup', session: S, tokenId: JOG });
+ok(`third level-up (${LV3}) rejected: not enough`, r.code === 400 && /Not enough/.test(r.error), r.error);
+const PTS = 2 * rules.POINTS_PER_LEVEL[jog.rarity];
+r = await call({ action: 'allocate', session: S, tokenId: JOG, add: { efficiency: PTS + 1 } });
 ok('allocating more points than unspent rejected', r.code === 400, r.error);
-r = await call({ action: 'allocate', session: S, tokenId: JOG, add: { efficiency: rules.POINTS_PER_LEVEL[jog.rarity] - 1, resilience: 1 } });
-ok('allocating points works', r.code === 200 && r.sneakers[JOG].points.efficiency === rules.POINTS_PER_LEVEL[jog.rarity] - 1 && r.sneakers[JOG].unspent === 0);
-const spentNow = LV1;
+r = await call({ action: 'allocate', session: S, tokenId: JOG, add: { efficiency: PTS - 1, resilience: 1 } });
+ok('allocating points works', r.code === 200 && r.sneakers[JOG].points.efficiency === PTS - 1 && r.sneakers[JOG].unspent === 0);
+const spentNow = LV1 + LV2;
 // claims
 r = await call({ action: 'claim', session: S });
 const c = r.claim;
@@ -129,8 +133,8 @@ const S3 = (await call({ action: 'session', address: U3, message: m3, signature:
 const st3 = await call({ action: 'state', session: S3 });
 ok('state reports emission: 5M today, rate 50%, next halving', st3.emission.limit === 5_000_000 && st3.emission.factor === 0.5 && st3.emission.nextHalving === (TODAY + 30) * 864e5, JSON.stringify(st3.emission));
 const jog2 = traitsFor(JOG2);
-const exp2 = rules.earnPerMinute({ ...jog2, durability: 100, points: { efficiency: 0, resilience: 0 } }, 0.5) * 10;
-r = await call({ action: 'run', session: S3, run: { tokenId: JOG2, points: track(now - 7200e3, 12, 8) } });
+const exp2 = rules.earnPerMinute({ ...jog2, durability: 100, points: { efficiency: 0, resilience: 0 } }, 0.5) * 30;
+r = await call({ action: 'run', session: S3, run: { tokenId: JOG2, points: track(now - 7200e3, 35, 8) } });
 ok('after one halving the same run earns half', r.code === 200 && Math.abs(r.run.coins - exp2) < exp2 * 0.02 && r.run.factor === 0.5, `got ${r.run?.coins} expected ${exp2.toFixed(2)}`);
 const earned3 = r.run.coins;
 // fill today's budget so only 1 RUNNER is left, then a run gets capped
@@ -143,6 +147,9 @@ process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO], [U2]: [J
 const m4 = sessionMessage(U4, new Date().toISOString());
 const S4 = (await call({ action: 'session', address: U4, message: m4, signature: await signPersonal(U4_KEY, m4) })).session;
 r = await call({ action: 'run', session: S4, run: { tokenId: TEMPO + 1000, points: track(now - 3000e3, 10, 12) } });
+ok('costs halve with emission (level-up at 50%)', rules.levelUpCost({ level: 0 }, 0.5) === LV1 / 2 && rules.repairCost({ level: 0, durability: 50 }, 0.5) === rules.repairCost({ level: 0, durability: 50 }) / 2);
+ok('energy table 1/2/4/6/10', [1, 2, 3, 9, 15, 30].map(rules.maxEnergy).join() === '1,1,2,4,6,10');
+ok('Common lasts ~9 days of 1 energy/day before 50% durability', Math.round(50 / rules.durabilityLossPerEnergy({ base: { efficiency: 6, resilience: 6 }, points: {}, durability: 100 })) === 9);
 ok('global daily budget: run capped at what is left (1 RUNNER)', r.code === 200 && r.run.capped && Math.abs(r.run.coins - 1) < 1e-6, JSON.stringify(r.run || r));
 ok('budget never exceeded', Number(await storeMod.get(budgetKey)) === 5_000_000 * 1e6);
 // partial claim: only 2 RUNNER left in today's on-chain emission

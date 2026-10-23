@@ -151,7 +151,7 @@ class Game extends EventTarget {
   async levelUp(id) {
     const s = this.sneaker(id);
     if (s.level >= MAX_LEVEL) throw new Error('Already max level');
-    this._spend(levelUpCost(s), 'levelup', `Level up #${s.serial} → Lv ${s.level + 1}`);
+    this._spend(levelUpCost(s, this.emissionFactor), 'levelup', `Level up #${s.serial} → Lv ${s.level + 1}`);
     s.level++;
     s.unspent += POINTS_PER_LEVEL[s.rarity];
     await this.save();
@@ -172,7 +172,7 @@ class Game extends EventTarget {
 
   async repair(id) {
     const s = this.sneaker(id);
-    const cost = repairCost(s);
+    const cost = repairCost(s, this.emissionFactor);
     if (!cost) return;
     this._spend(cost, 'repair', `Repaired #${s.serial}`);
     s.durability = 100;
