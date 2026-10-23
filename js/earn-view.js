@@ -653,7 +653,7 @@ export function renderEarn(view, { toast, onCleanup }) {
             Repair${repairCost(s, game.emissionFactor) ? ` · ${coinTag(repairCost(s, game.emissionFactor))}` : ''}
           </button>
         </div>
-        <p class="muted small" style="margin:0">Each level gives ${POINTS_PER_LEVEL[s.rarity]} attribute points (${RARITIES[s.rarity].label}).</p>
+        <p class="muted small" style="margin:0">Each level gives ${POINTS_PER_LEVEL[s.rarity]} attribute point${POINTS_PER_LEVEL[s.rarity] === 1 ? '' : 's'} (${RARITIES[s.rarity].label}).</p>
       </div>`;
   }
 
@@ -794,7 +794,7 @@ export function renderEarn(view, { toast, onCleanup }) {
         case 'level': {
           await upgrade('levelup', id);
           const s = game.sneaker(id);
-          toast(`Lv ${s.level}! +${POINTS_PER_LEVEL[s.rarity]} attribute points to assign`);
+          toast(`Lv ${s.level}! +${POINTS_PER_LEVEL[s.rarity]} attribute point${POINTS_PER_LEVEL[s.rarity] === 1 ? '' : 's'} to assign`);
           break;
         }
         case 'repair': await upgrade('repair', id); toast('Sneaker repaired'); break;

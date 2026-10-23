@@ -95,7 +95,7 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 - it's under 72 hours old;
 - its speeds are possible on foot.
 
-Level-ups and repairs are paid from the server balance. **Claim** asks the server to sign, then the wallet sends `claim()` to the token, paying a tiny ETH gas fee.
+Level-ups and repairs are paid from the server balance. Levels run 0–30. A level-up costs 3,000 × (next level)² RUNNER and gives 1 point (Common, Uncommon) or 2 points (Rare, Epic). Level-up and repair costs halve with emission. **Claim** asks the server to sign, then the wallet sends `claim()` to the token, paying a tiny ETH gas fee.
 
 Setup, once both contracts are deployed:
 
@@ -106,4 +106,4 @@ Setup, once both contracts are deployed:
 
 Until all three are done, the app keeps working in local mode. What the server can't fully stop is GPS-spoofing apps on a phone. Per-wallet energy limits earning to 30 minutes a day per energy (1 sneaker: 30 min, 30+ sneakers: 5 h), and the token's daily emission bounds the total.
 
-Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, the daily budget and partial claims (40 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.
+Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, level costs, the daily budget and partial claims (42 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.

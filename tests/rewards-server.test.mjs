@@ -148,6 +148,8 @@ const m4 = sessionMessage(U4, new Date().toISOString());
 const S4 = (await call({ action: 'session', address: U4, message: m4, signature: await signPersonal(U4_KEY, m4) })).session;
 r = await call({ action: 'run', session: S4, run: { tokenId: TEMPO + 1000, points: track(now - 3000e3, 10, 12) } });
 ok('costs halve with emission (level-up at 50%)', rules.levelUpCost({ level: 0 }, 0.5) === LV1 / 2 && rules.repairCost({ level: 0, durability: 50 }, 0.5) === rules.repairCost({ level: 0, durability: 50 }) / 2);
+ok('level costs grow quadratically: 3k, 75k at lv5, 2.7M at lv30', rules.levelUpCost({ level: 0 }) === 3000 && rules.levelUpCost({ level: 4 }) === 75000 && rules.levelUpCost({ level: 29 }) === 2_700_000);
+ok('points per level 1/1/2/2', JSON.stringify(rules.POINTS_PER_LEVEL) === JSON.stringify({ common: 1, uncommon: 1, rare: 2, epic: 2 }));
 ok('energy table 1/2/4/6/10', [1, 2, 3, 9, 15, 30].map(rules.maxEnergy).join() === '1,1,2,4,6,10');
 ok('Common lasts ~9 days of 1 energy/day before 50% durability', Math.round(50 / rules.durabilityLossPerEnergy({ base: { efficiency: 6, resilience: 6 }, points: {}, durability: 100 })) === 9);
 ok('global daily budget: run capped at what is left (1 RUNNER)', r.code === 200 && r.run.capped && Math.abs(r.run.coins - 1) < 1e-6, JSON.stringify(r.run || r));

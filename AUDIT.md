@@ -22,7 +22,7 @@
 3. Tests run against the official compiler build in a local EVM (`tests/`):
    - `token.test.mjs`: 111 checks, including the 7-day locks and instant burns, the halving schedule (checked day by day against the JavaScript mirror for 400 days) and a **randomized model test**. It runs 600 random actions (buys, sells, transfers, claims, sweeps, burns, and time jumps) over 45 days. Every 5 steps it compares every balance, every daily eligible balance, the daily totals and the holder-reward bucket against an independent JavaScript model.
    - `nft.test.mjs`: 44 checks, including the rarity and price of all 9,999 tokens against the app, and a malicious re-entering validator.
-   - `rewards-server.test.mjs`: 40 checks covering sign-in, run scoring, anti-cheat, spending, claims, halving rates and costs, the energy table, the global daily budget and partial claims. A server-signed claim was also accepted by the token contract on chain id 4663.
+   - `rewards-server.test.mjs`: 42 checks covering sign-in, run scoring, anti-cheat, spending, claims, halving rates and costs, the energy table, level costs, the global daily budget and partial claims. A server-signed claim was also accepted by the token contract on chain id 4663.
 4. **Mutation checks.** Bugs were planted on purpose to make sure the tests catch them:
 
    | Planted bug | Result |

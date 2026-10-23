@@ -14,8 +14,10 @@
 //   Durability drops per energy spent (less with high Resilience); below 50 it
 //              cuts Efficiency. Repair it with RUNNER. Repair and level-up costs
 //              follow the emission factor, so they halve together with earnings.
-//   Levels   — level-ups cost RUNNER and grant attribute points (4/6/8/10 by
-//              rarity) that the player assigns to Efficiency or Resilience.
+//   Levels   — 0–30. Level-ups cost 3,000 × (next level)² RUNNER (× emission factor)
+//              and grant attribute points (Common 1, Uncommon 1, Rare 2, Epic 2) that
+//              the player assigns to Efficiency or Resilience. Quadratic costs keep a
+//              few maxed sneakers from taking the whole daily emission.
 
 import { traitsFor } from './collection.js';
 import { haversine } from './stats.js';
@@ -53,7 +55,8 @@ export function maxEnergy(sneakerCount) {
 }
 
 export const ATTRS = ['efficiency', 'resilience'];
-export const POINTS_PER_LEVEL = { common: 4, uncommon: 6, rare: 8, epic: 10 };
+export const POINTS_PER_LEVEL = { common: 1, uncommon: 1, rare: 2, epic: 2 };
+export const LEVEL_COST_BASE = 3000;
 
 /** Effective attributes: base + allocated level-up points (+ optional staged points). */
 export function attrs(s, staged = null) {
@@ -90,7 +93,7 @@ export const earnPerMinute = (s, factor = 1) => 0.15 * EARN_SCALE * factor * att
 export const earnPerEnergy = (s, factor = 1) => earnPerMinute(s, factor) * MINUTES_PER_ENERGY;
 // Costs scale with the emission factor (whole RUNNER, never below 1) so they stay in
 // proportion to what a sneaker earns after each halving.
-export const levelUpCost = (s, factor = 1) => Math.max(1, Math.round(10 * EARN_SCALE * factor * (s.level + 1)));
+export const levelUpCost = (s, factor = 1) => Math.max(1, Math.round(LEVEL_COST_BASE * (s.level + 1) ** 2 * factor));
 export const repairCost = (s, factor = 1) => (s.durability >= 100 ? 0 : Math.max(1, Math.ceil((100 - s.durability) * 0.1 * EARN_SCALE * factor * (1 + s.level * 0.1))));
 // ~5.4 per energy for a typical Common: 100 → 50 in about 9 days of one energy a day.
 export const durabilityLossPerEnergy = (s) => Math.max(1, 6 - attrs(s).resilience * 0.1);
