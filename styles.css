@@ -1,5 +1,5 @@
 /* RUN EARN — clean, Strava-like layout: white surfaces, bold numbers,
-   round icon buttons and a floating tab bar. Lime is the brand accent. */
+   round icon buttons and a floating tab bar. Vermilion orange (from the logo) is the brand accent. */
 :root {
   --bg: #f2f2f2;
   --surface: #ffffff;
@@ -7,11 +7,12 @@
   --text: #111111;
   --muted: #6b6b6b;
   --line: #e6e6e6;
-  --accent: #a3e635;         /* lime — buttons, fills */
-  --accent-strong: #3f7a0c;  /* text/lines on surfaces */
-  --accent-soft: #eefbd5;
-  --accent-ink: #0b0b0c;
-  --route: #16a34a;
+  --accent: #E8483B;         /* vermilion — buttons, fills (same as the logo) */
+  --accent-strong: #C2331F;  /* text/lines on light surfaces */
+  --accent-soft: #FDE7E3;
+  --accent-ink: #ffffff;     /* text on accent fills */
+  --accent-glow: rgba(232, 72, 59, .38);
+  --route: #E8483B;
   --coin: #b78300;
   --coin-soft: #fff4d1;
   --good: #16a34a;
@@ -32,9 +33,11 @@
     --text: #f2f2f3;
     --muted: #9c9ba3;
     --line: #2b2b2f;
-    --accent-strong: #a3e635;
-    --accent-soft: #24310f;
-    --route: #a3e635;
+    --accent: #F0553F;
+    --accent-strong: #FF7B62;
+    --accent-soft: #3A1712;
+    --accent-glow: rgba(240, 85, 63, .45);
+    --route: #FF6A50;
     --coin: #fbbf24;
     --coin-soft: #3a2c08;
     --hr: #fb7185;
@@ -214,7 +217,7 @@ body.immersive .topbar, body.immersive .tabbar { display: none; }
 }
 .start-btn svg {
   width: 92px; height: 92px; padding: 25px 23px 25px 29px; border-radius: 50%;
-  background: var(--accent); fill: var(--accent-ink); box-shadow: 0 8px 22px rgba(132, 204, 22, .45);
+  background: var(--accent); fill: var(--accent-ink); box-shadow: 0 8px 22px var(--accent-glow);
 }
 .start-btn svg .fill { fill: var(--accent-ink); }
 .sheet-list { background: var(--surface-2); border-radius: 18px; overflow: hidden; }
@@ -440,7 +443,7 @@ body.no-scroll { overflow: hidden; }
 .ob-body { flex: 1; display: grid; align-content: start; gap: 16px; }
 .ob-next { width: 100%; min-height: 56px; font-size: 17px; border-radius: 99px; }
 .ob-hero { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 24px 0 8px; }
-.ob-hero img { border-radius: 22px; box-shadow: 0 10px 30px rgba(132, 204, 22, .3); }
+.ob-hero img { border-radius: 22px; box-shadow: 0 10px 30px var(--accent-glow); }
 .ob-hero h1 { font-size: 40px; font-weight: 900; letter-spacing: -0.02em; }
 .ob-hero h1 em { font-style: normal; color: var(--accent-strong); }
 .ob-tag { margin: 0; font-size: 17px; color: var(--muted); }

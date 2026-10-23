@@ -160,7 +160,7 @@ class Auth extends EventTarget {
         loginMethods: ['google', 'apple', 'email'],
         appearance: {
           theme: dark ? 'dark' : 'light',
-          accentColor: '#a3e635',
+          accentColor: '#E8483B',
           logo: isNative ? 'https://www.runearn.fun/icon.svg' : new URL('icon.svg', location.href).href,
           landingHeader: 'Sign in to RUNNER',
           loginMessage: 'Your wallet is created automatically — no seed phrase needed.',
