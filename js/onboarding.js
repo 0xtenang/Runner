@@ -89,7 +89,7 @@ export function runOnboarding() {
             </div>` : `
             <button class="btn primary ob-next" data-ob="next">${last ? 'Start running' : step === 0 ? 'Get started' : 'Next'}</button>`}
         </div>`;
-      el.querySelector('.ob-next, .ob-signin')?.focus({ preventScroll: true });
+      el.querySelector('.ob-next, .ob-signin')?.focus({ preventScroll: true, focusVisible: false }); // keyboard users land on it; no ring for touch
     };
 
     // Advance automatically once sign-in completes (Privy finishes asynchronously).

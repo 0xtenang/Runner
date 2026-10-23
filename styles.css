@@ -60,6 +60,9 @@ body {
 a { color: inherit; text-decoration: none; }
 h1, h2, h3, h4 { margin: 0; line-height: 1.2; }
 button { font: inherit; color: inherit; }
+/* Focus ring only for keyboard navigation, in the brand colour (not the WebView default). */
+:focus:not(:focus-visible) { outline: none; }
+.btn:focus-visible, .icon-btn:focus-visible, a:focus-visible, button:focus-visible { outline: 3px solid var(--accent-strong); outline-offset: 2px; }
 svg { stroke-linecap: round; stroke-linejoin: round; }
 .link { color: var(--accent-strong); font-weight: 700; }
 .muted { color: var(--muted); }

@@ -35,7 +35,7 @@ const ICON = {
   stop: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" class="fill"/></svg>',
   heart: '<svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.3a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/><path d="M3.5 12.5h4l1.5-2.5 2.5 5 1.5-2.5h7.5"/></svg>',
   coin: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v9M9.6 9.6h3.6a1.9 1.9 0 0 1 0 3.8H10.4"/></svg>',
-  watch: '<svg viewBox="0 0 24 24"><rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6l.5-3h5L15 6M9 18l.5 3h5l.5-3M12 10v2.5l1.5 1"/></svg>',
+  route: '<svg viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8.2 18H13a3 3 0 0 0 0-6h-2a3 3 0 0 1 0-6h4.8"/></svg>',
   ruler: '<svg viewBox="0 0 24 24"><path d="M4 15 15 4l5 5L9 20z"/><path d="M8 11l2 2M11 8l2 2M14 5l1 1"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>',
   doc: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 15.5h7M9 8.5h3"/></svg>',
@@ -85,7 +85,7 @@ function toast(msg, ms = 2600) {
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const MAP_ROUTE = '#15803d'; // map tiles are light in both themes, so routes use a deep green
+const MAP_ROUTE = '#E8483B'; // brand vermilion; map tiles are light in both themes, and a white casing keeps it crisp
 
 /** Route line with a white casing so it stands out on any map. */
 function routeLine(latlngs, weight = 4) {
@@ -303,7 +303,7 @@ async function renderHome() {
       </div>
       ${runs.length ? runs.map(post).join('') : `
         <div class="post empty">
-          ${ICON.watch}
+          ${ICON.route}
           <h3>No runs yet</h3>
           <p class="muted">Record your first run with your phone — RUNNER tracks the route, pace and splits.</p>
           <div class="actions-row" style="justify-content:center">
@@ -836,7 +836,7 @@ async function renderActivity(id) {
     map.fitBounds(line.getBounds(), { padding: [24, 24] }); // a map needs a view before layers are added
     line.addTo(map);
     L.circleMarker(segs[0][0], { radius: 7, color: '#fff', weight: 2, fillColor: '#16a34a', fillOpacity: 1 }).addTo(map);
-    L.circleMarker(segs.at(-1).at(-1), { radius: 7, color: '#fff', weight: 2, fillColor: '#dc2626', fillOpacity: 1 }).addTo(map);
+    L.circleMarker(segs.at(-1).at(-1), { radius: 7, color: '#fff', weight: 2, fillColor: '#141414', fillOpacity: 1 }).addTo(map); // finish: dark, so it stands out from the orange line
     onCleanup(() => map.remove());
   }
 
@@ -942,7 +942,7 @@ async function renderYou(tab = 'progress') {
   if (tab === 'runs') {
     body.innerHTML = runs.length ? `<div class="card run-list">${runs.map((a) => `
       <a class="run-row" href="#/activity/${a.id}">
-        <span class="run-thumb">${routeSvg(a.preview) || ICON.watch}</span>
+        <span class="run-thumb">${routeSvg(a.preview) || ICON.route}</span>
         <span class="run-info"><b>${esc(a.name)}</b><span class="muted small">${fmtDate(a.startTime)}</span>
           <span class="run-stats">${fmtDist(a.distance)} · ${fmtPace(a.distance, a.movingTime)} · ${fmtTime(a.movingTime)}</span></span>
       </a>`).join('')}</div>` : '<div class="card muted">No runs yet.</div>';
