@@ -460,7 +460,7 @@ function openSneakerDetail(id, toast, onBought) {
     ${traitRow(t)}
     <div class="sneaker-facts">
       <div><span class="lbl">Pace zone</span><b>${paceRange(zone)}</b></div>
-      <div><span class="lbl">Earns / energy</span><b>${coinTag(earnPerEnergy(preview, game.emissionFactor))}</b></div>
+      <div><span class="lbl">Earns / energy</span><b>${coinTag(earnPerEnergy(preview, game.earnFactor))}</b></div>
       <div><span class="lbl">Level-up points</span><b>${POINTS_PER_LEVEL[t.rarity]} / level</b></div>
     </div>
     <div class="sneaker-facts">
@@ -567,7 +567,9 @@ function emissionLine(em) {
   if (!em?.startDay) return '';
   const fmtM = (n) => (n >= 1e6 ? `${(n / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 })}M` : `${Math.round(n / 1e3)}k`);
   const next = em.nextHalving ? ` · halves ${new Date(em.nextHalving).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ' · final rate';
-  return `<span class="small">Emission today <b>${fmtM(em.limit)} ${COIN}</b> · earn rate <b>${Math.round(em.factor * 100)}%</b>${next}</span>`;
+  const boost = game.boost > 1 ? ` · NFT boost <b>+${Math.round((game.boost - 1) * 100)}%</b>` : '';
+  const change = em.change ? `<br><span class="muted">From ${new Date(em.change.fromDay * 864e5).toLocaleDateString([], { day: 'numeric', month: 'short' })}: ${fmtM(em.change.dailyStart)}/day, halving every ${em.change.halvingDays} days</span>` : '';
+  return `<span class="small">Emission today <b>${fmtM(em.limit)} ${COIN}</b> · earn rate <b>${Math.round(em.factor * 100)}%</b>${next}${boost}${change}</span>`;
 }
 
 function holderRewardsBlock() {
@@ -626,7 +628,7 @@ export function renderEarn(view, { toast, onCleanup }) {
         ${traitRow(s)}
         <div class="sneaker-facts">
           <div><span class="lbl">Pace zone</span><b>${paceRange(SNEAKER_TYPES[s.type])}</b></div>
-          <div><span class="lbl">Per energy</span><b>${coinTag(earnPerEnergy(preview, game.emissionFactor))}</b></div>
+          <div><span class="lbl">Per energy</span><b>${coinTag(earnPerEnergy(preview, game.earnFactor))}</b></div>
           <div><span class="lbl">Wear / energy</span><b>${durabilityLossPerEnergy(preview).toFixed(1)}</b></div>
         </div>
         ${s.unspent > 0 ? `
@@ -646,8 +648,8 @@ export function renderEarn(view, { toast, onCleanup }) {
           <p class="muted small" style="margin:0">Assigned points are permanent.</p>` : ''}
         ${s.durability < 50 ? `<div class="note warn">Durability below 50 is reducing your Efficiency. Repair to earn at full rate.</div>` : ''}
         <div class="actions-row">
-          <button class="btn ${stagedTotal(st) ? '' : 'primary'}" data-act="level" data-id="${s.id}" ${s.level >= MAX_LEVEL || coins < levelUpCost(s, game.emissionFactor) ? 'disabled' : ''}>
-            ${s.level >= MAX_LEVEL ? 'Max level' : `Level up · ${coinTag(levelUpCost(s, game.emissionFactor))}`}
+          <button class="btn ${stagedTotal(st) ? '' : 'primary'}" data-act="level" data-id="${s.id}" ${s.level >= MAX_LEVEL || coins < levelUpCost(s, game.emissionFactor, game.settings) ? 'disabled' : ''}>
+            ${s.level >= MAX_LEVEL ? 'Max level' : `Level up · ${coinTag(levelUpCost(s, game.emissionFactor, game.settings))}`}
           </button>
           <button class="btn" data-act="repair" data-id="${s.id}" ${!repairCost(s, game.emissionFactor) || coins < repairCost(s, game.emissionFactor) ? 'disabled' : ''}>
             Repair${repairCost(s, game.emissionFactor) ? ` · ${coinTag(repairCost(s, game.emissionFactor))}` : ''}

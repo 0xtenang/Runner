@@ -7,6 +7,7 @@ import {
   TOKEN_CHAIN, TOKEN_CONTRACT, TOKEN_CREATION_CODE_KECCAK, TEAM_WALLET,
 } from './config.js';
 import { formatEth } from './wallet.js';
+import { DEFAULT_SETTINGS } from './rules.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -95,6 +96,7 @@ function render() {
   bytecode = null;
   $('#server').hidden = kind !== 'token';
   $('#launch').hidden = kind !== 'token' || !TOKEN_CONTRACT;
+  $('#controls').hidden = kind !== 'token';
   if (kind === 'token') refreshServer();
   refreshWho();
 }
@@ -218,6 +220,7 @@ async function refreshServer() {
   ].join('');
   $('#b-setsigner').disabled = !(TOKEN_CONTRACT && s?.signer && (!onChainSigner || onChainSigner.toLowerCase() !== s.signer.toLowerCase()));
   $('#b-emission').disabled = !(TOKEN_CONTRACT && s && !s.emission);
+  fillControls(s);
 }
 
 $('#b-genkey').onclick = async () => {
@@ -272,6 +275,76 @@ $('#b-setsigner').onclick = async () => {
   if (!signer) return;
   await runTx($('#b-setsigner'), $('#setsigner'), () => sendAsDev(TOKEN_CONTRACT, `0x6c19e783${encAddress(signer)}`), '✓ Server address set — claims are on.'); // setSigner(address)
   refreshServer();
+};
+
+// ----- 6. controls after launch
+const fmtN = (n) => Math.round(n).toLocaleString();
+function fillControls(s) {
+  const em = s?.emission;
+  $('#em-now').innerHTML = em
+    ? `Now: ${fmtN(em.limit)} RUNNER today (earn rate ${Math.round(em.factor * 100)}%)${em.nextHalving ? `, next halving ${new Date(em.nextHalving).toLocaleDateString()}` : ''}.${em.change ? ` Scheduled from ${new Date(em.change.fromDay * 864e5).toLocaleDateString()}: ${fmtN(em.change.dailyStart)}/day, halving every ${em.change.halvingDays} days, floor ${fmtN(em.change.floor)}.` : ''}`
+    : 'Emission not started — a schedule set now replaces the launch schedule (10M/day, 30 days, floor 100k).';
+  const st = s?.settings || DEFAULT_SETTINGS;
+  if (!$('#st-base').dataset.filled) {
+    $('#st-base').value = st.levelCostBase;
+    $('#st-exp').value = st.levelCostExp;
+    $('#st-max').value = st.perRunnerDailyMax;
+    $('#st-boosts').value = (st.boosts || []).map((b) => `${b.contract}, ${b.label}, ${b.boostBps / 100}`).join('\n');
+    $('#st-base').dataset.filled = '1';
+    previewLevels();
+  }
+}
+function previewLevels() {
+  const base = Number($('#st-base').value), exp = Number($('#st-exp').value);
+  if (!(base > 0 && exp > 0)) { $('#st-preview').textContent = ''; return; }
+  const cost = (l) => Math.round(base * l ** exp);
+  let total = 0; for (let l = 1; l <= 30; l++) total += cost(l);
+  $('#st-preview').textContent = `Level 1: ${fmtN(cost(1))} · level 10: ${fmtN(cost(10))} · level 30: ${fmtN(cost(30))} · total to 30: ${fmtN(total)} RUNNER (at a 10M/day emission; halves with emission)`;
+}
+['#st-base', '#st-exp'].forEach((id) => $(id).addEventListener('input', previewLevels));
+
+/** personal_sign as the dev wallet (browser wallet if present, else Privy when signed in as it). */
+async function signAsDev(message) {
+  const injected = window.ethereum;
+  if (injected) {
+    const [from] = await injected.request({ method: 'eth_requestAccounts' });
+    if (from.toLowerCase() !== DEV_WALLET.toLowerCase()) throw new Error(`Switch your browser wallet to the dev wallet ${DEV_WALLET}.`);
+    const hexMsg = `0x${hex(new TextEncoder().encode(message))}`;
+    return injected.request({ method: 'personal_sign', params: [hexMsg, from] });
+  }
+  if (!auth.signedIn || auth.state.address.toLowerCase() !== DEV_WALLET.toLowerCase()) throw new Error(`Sign in as the dev wallet ${DEV_WALLET} to change settings.`);
+  return auth.signMessage(message);
+}
+
+$('#b-schedule').onclick = async () => {
+  const start = Number($('#em-start').value), halving = Number($('#em-halving').value), floor = Number($('#em-floor').value);
+  if (!(start >= 0 && start <= 20_000_000 && floor >= 0 && floor <= start && halving >= 7 && halving <= 3650)) { $('#schedule').innerHTML = '<span class="bad">Daily amount 0–20,000,000, floor ≤ daily amount, halving 7–3650 days.</span>'; return; }
+  if (!confirm(`New emission schedule from tomorrow (UTC):\n${fmtN(start)} RUNNER/day, halving every ${halving} days, never below ${fmtN(floor)}/day.\n\nEarn rates follow it. Continue?`)) return;
+  const wei = (n) => word(BigInt(Math.round(n)) * 10n ** 18n);
+  await runTx($('#b-schedule'), $('#schedule'), () => sendAsDev(TOKEN_CONTRACT, `0x81947a26${wei(start)}${word(halving)}${wei(floor)}`), '✓ Schedule set — it starts tomorrow (UTC).'); // setEmissionSchedule(uint256,uint256,uint256)
+  refreshServer();
+};
+
+$('#b-settings').onclick = async () => {
+  try {
+    const boosts = $('#st-boosts').value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+      const [contract, label, pct] = l.split(',').map((x) => x.trim());
+      if (!/^0x[0-9a-fA-F]{40}$/.test(contract || '') || !(Number(pct) >= 0 && Number(pct) <= 100)) throw new Error(`Bad boost line: ${l}`);
+      return { contract: contract.toLowerCase(), label: label || 'NFT boost', boostBps: Math.round(Number(pct) * 100) };
+    });
+    const settings = { levelCostBase: Number($('#st-base').value), levelCostExp: Number($('#st-exp').value), perRunnerDailyMax: Number($('#st-max').value) || 0, boosts };
+    const message = `RUNNER settings\n${JSON.stringify(settings)}\nIssued: ${new Date().toISOString()}`;
+    $('#b-settings').disabled = true;
+    $('#settings').textContent = 'Sign the settings message in your wallet…';
+    const signature = await signAsDev(message);
+    const r = await fetch('/api/rewards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'settings-set', settings, message, signature }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `Server error ${r.status}`);
+    $('#settings').innerHTML = '<span class="ok">✓ Game settings saved — the app uses them right away.</span>';
+  } catch (e) {
+    const m = String(e?.message || e);
+    $('#settings').innerHTML = `<span class="bad">${/reject|denied|cancel/i.test(m) ? 'Cancelled.' : esc(m.slice(0, 300))}</span>`;
+  } finally { $('#b-settings').disabled = false; }
 };
 
 $('#b-emission').onclick = async () => {

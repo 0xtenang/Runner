@@ -59,7 +59,7 @@ rec.type = 'run';
 
 // Earning runs alongside the recorder, one tick per second while moving.
 rec.addEventListener('state', () => {
-  if (rec.state === 'recording' && !earn) earn = new EarnSession(game.active, game.energy, game.emissionFactor);
+  if (rec.state === 'recording' && !earn) earn = new EarnSession(game.active, game.energy, game.earnFactor);
   if (rec.state === 'idle') earn = null;
 });
 // In the phone app, timers can slow down while the screen is locked even though
@@ -511,7 +511,7 @@ function renderRecord() {
         ${s ? `
         <a class="sheet-row" href="#/earn">
           ${ICON.coin}
-          <div><b>${energy >= 0.05 ? `≈ ${fmtCoins(earnPerEnergy(s, game.emissionFactor))} ${COIN} per energy` : 'Out of energy — tracking only'}</b>
+          <div><b>${energy >= 0.05 ? `≈ ${fmtCoins(earnPerEnergy(s, game.earnFactor))} ${COIN} per energy` : 'Out of energy — tracking only'}</b>
           <span>⚡ ${energy.toFixed(1)}/${game.maxEnergy} · earn at ${paceRange(z)}</span></div>
           ${ICON.chev}
         </a>` : `

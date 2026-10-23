@@ -81,6 +81,31 @@
       <button class="btn pill" id="b-sweep">Sweep expired holder rewards</button>
       <div id="sweep" class="small"></div>
     </section>
+    <section class="card step" id="controls" hidden>
+      <h3><i>6</i>Controls after launch</h3>
+      <div class="small"><b>Emission schedule</b> (on the token, dev wallet). The new schedule starts the next UTC day with a fresh halving clock; never above 20,000,000/day.</div>
+      <div id="em-now" class="muted small"></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <label class="small">RUNNER/day <input id="em-start" class="input mono" type="number" min="0" max="20000000" value="10000000" style="width:130px"></label>
+        <label class="small">Halve every (days) <input id="em-halving" class="input mono" type="number" min="7" max="3650" value="30" style="width:80px"></label>
+        <label class="small">Floor/day <input id="em-floor" class="input mono" type="number" min="0" value="100000" style="width:110px"></label>
+      </div>
+      <button class="btn pill" id="b-schedule">Set emission schedule</button>
+      <div id="schedule" class="small"></div>
+
+      <div class="small" style="margin-top:10px"><b>Game settings</b> (rewards server; apply immediately). Saving asks the dev wallet to sign — free, no transaction.</div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <label class="small">Level cost base <input id="st-base" class="input mono" type="number" min="1" style="width:100px"></label>
+        <label class="small">Level cost curve (exponent) <input id="st-exp" class="input mono" type="number" min="0.5" max="3" step="0.1" style="width:70px"></label>
+        <label class="small">Per-runner daily max (0 = off) <input id="st-max" class="input mono" type="number" min="0" style="width:110px"></label>
+      </div>
+      <div id="st-preview" class="muted small"></div>
+      <label class="small">NFT boosts — one per line: <span class="mono">contract address, label, boost %</span>
+        <textarea id="st-boosts" class="input mono" rows="3" placeholder="0x…, Season 2, 10"></textarea></label>
+      <button class="btn pill" id="b-settings">Save game settings</button>
+      <div id="settings" class="small"></div>
+    </section>
+
   </main>
   <div id="toast-host"></div>
   <script type="module" src="js/admin.js"></script>

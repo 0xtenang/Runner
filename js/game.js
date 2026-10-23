@@ -8,7 +8,7 @@
 import { db } from './db.js';
 import {
   COIN, SNEAKER_TYPES, RARITIES, maxEnergy, ATTRS, POINTS_PER_LEVEL, MAX_LEVEL,
-  levelUpCost, repairCost, durabilityLossPerEnergy, sneakerFromToken, round2, isVoided,
+  levelUpCost, repairCost, durabilityLossPerEnergy, sneakerFromToken, round2, isVoided, DEFAULT_SETTINGS,
 } from './rules.js';
 
 export * from './rules.js';
@@ -81,6 +81,12 @@ class Game extends EventTarget {
   get maxEnergy() { return maxEnergy(this.state.sneakers.length); }
   /** Current halving factor from the rewards server (1 in local mode). */
   get emissionFactor() { return this.state.server?.factor ?? 1; }
+  /** NFT boost multiplier from the rewards server (1 = none). */
+  get boost() { return this.state.server?.boost ?? 1; }
+  /** What earn rates are multiplied by: halving factor × NFT boost. */
+  get earnFactor() { return this.emissionFactor * this.boost; }
+  /** Game settings (level prices…) from the rewards server, defaults in local mode. */
+  get settings() { return this.state.server?.settings || DEFAULT_SETTINGS; }
   get energy() { this._regen(); return this.state.energy; }
   get coins() { return this.state.coins; }
   get active() { return this.state.sneakers.find((s) => s.id === this.state.activeId) || this.state.sneakers[0] || null; }
@@ -151,7 +157,7 @@ class Game extends EventTarget {
   async levelUp(id) {
     const s = this.sneaker(id);
     if (s.level >= MAX_LEVEL) throw new Error('Already max level');
-    this._spend(levelUpCost(s, this.emissionFactor), 'levelup', `Level up #${s.serial} → Lv ${s.level + 1}`);
+    this._spend(levelUpCost(s, this.emissionFactor, this.settings), 'levelup', `Level up #${s.serial} → Lv ${s.level + 1}`);
     s.level++;
     s.unspent += POINTS_PER_LEVEL[s.rarity];
     await this.save();
@@ -213,7 +219,7 @@ class Game extends EventTarget {
     st.coins = view.balance;
     st.energy = view.energy;
     st.energyAt = Date.now();
-    st.server = { earned: view.earned, spent: view.spent, withdrawn: view.withdrawn, factor: view.emission?.factor ?? 1, emission: view.emission || null, at: Date.now() };
+    st.server = { earned: view.earned, spent: view.spent, withdrawn: view.withdrawn, factor: view.emission?.factor ?? 1, emission: view.emission || null, settings: view.settings || null, boost: view.boost ?? 1, at: Date.now() };
     for (const s of st.sneakers) {
       const p = view.sneakers?.[s.tokenId];
       if (p) Object.assign(s, { level: p.level, durability: p.durability, points: { ...p.points }, unspent: p.unspent });

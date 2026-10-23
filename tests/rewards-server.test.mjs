@@ -9,19 +9,19 @@ const rules = await imp('js/rules.js');
 
 const toHex = eth.toHex;
 const rnd = () => toHex(secp.utils.randomPrivateKey());
-const SERVER_KEY = rnd(), USER_KEY = rnd(), OTHER_KEY = rnd();
+const SERVER_KEY = rnd(), USER_KEY = rnd(), OTHER_KEY = rnd(), ADMIN_KEY = rnd();
 const USER = eth.addressOfKey(USER_KEY), OTHER = eth.addressOfKey(OTHER_KEY);
 // a Daily Runner (jogger, 4–10 km/h) and a Tempo Runner token
 let JOG = 0, TEMPO = 0;
 for (let i = 1; i < 500 && (!JOG || !TEMPO); i++) { const t = traitsFor(i); if (!JOG && t.type === 'jogger') JOG = i; if (!TEMPO && t.type === 'runner') TEMPO = i; }
 Object.assign(process.env, {
-  REWARDS_STORE: 'memory', SIGNER_PRIVATE_KEY: SERVER_KEY,
+  REWARDS_STORE: 'memory', SIGNER_PRIVATE_KEY: SERVER_KEY, ADMIN_WALLETS: eth.addressOfKey(ADMIN_KEY),
   REWARDS_TEST_TOKEN: '0x8f7a45ebde059392e46a46dcc14ab24681a961ea', REWARDS_TEST_NFT: '0x' + '99'.repeat(20),
   REWARDS_FAKE_OWNED: JSON.stringify({ [USER]: [JOG, TEMPO] }),
   REWARDS_FAKE_TOKEN: JSON.stringify({ startDay: Math.floor(Date.now() / 864e5), claimedToday: '0', claimed: {} }),
 });
 const TODAY = Math.floor(Date.now() / 864e5);
-const { default: handler, sessionMessage } = await imp('api/rewards.js');
+const { default: handler, sessionMessage, settingsMessage } = await imp('api/rewards.js');
 const call = async (body, method = 'POST') => {
   let code = 200, out;
   await handler({ method, body, query: {} }, { setHeader() {}, status(c) { code = c; return this; }, end() {}, json(o) { out = o; } });
@@ -96,21 +96,20 @@ const bad = track(now - 100e3, 1, 10); bad[5].t = bad[3].t;
 r = await call({ action: 'run', session: S2, run: { tokenId: TEMPO, points: bad } });
 ok('out-of-order points rejected', r.code === 400, r.error);
 
-// spending
-r = await call({ action: 'levelup', session: S, tokenId: JOG });
-const LV1 = rules.levelUpCost({ level: 0 });
-ok(`level-up spends ${LV1} RUNNER and grants points`, r.code === 200 && Math.abs(r.balance - (firstCoins - LV1)) < 0.01 && r.sneakers[JOG].level === 1 && r.sneakers[JOG].unspent === rules.POINTS_PER_LEVEL[jog.rarity], JSON.stringify(r).slice(0, 200));
-const LV2 = rules.levelUpCost({ level: 1 }), LV3 = rules.levelUpCost({ level: 2 });
-r = await call({ action: 'levelup', session: S, tokenId: JOG });
-ok(`second level-up (${LV2}) affordable after a 30-min run`, r.code === 200 && r.sneakers[JOG].level === 2);
-r = await call({ action: 'levelup', session: S, tokenId: JOG });
-ok(`third level-up (${LV3}) rejected: not enough`, r.code === 400 && /Not enough/.test(r.error), r.error);
-const PTS = 2 * rules.POINTS_PER_LEVEL[jog.rarity];
+// spending: level up until the balance runs out
+let levels = 0, spentNow = 0;
+for (;;) {
+  const cost = rules.levelUpCost({ level: levels });
+  r = await call({ action: 'levelup', session: S, tokenId: JOG });
+  if (r.code !== 200) { ok(`level ${levels + 1} (${cost}) rejected only when unaffordable`, /Not enough/.test(r.error) && firstCoins - spentNow < cost, r.error); break; }
+  levels++; spentNow += cost;
+}
+ok(`a 30-min Common run pays for ${levels} level-ups (default prices)`, levels >= 4 && levels <= 6, String(levels));
+const PTS = levels * rules.POINTS_PER_LEVEL[jog.rarity];
 r = await call({ action: 'allocate', session: S, tokenId: JOG, add: { efficiency: PTS + 1 } });
 ok('allocating more points than unspent rejected', r.code === 400, r.error);
 r = await call({ action: 'allocate', session: S, tokenId: JOG, add: { efficiency: PTS - 1, resilience: 1 } });
 ok('allocating points works', r.code === 200 && r.sneakers[JOG].points.efficiency === PTS - 1 && r.sneakers[JOG].unspent === 0);
-const spentNow = LV1 + LV2;
 // claims
 r = await call({ action: 'claim', session: S });
 const c = r.claim;
@@ -147,8 +146,8 @@ process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO], [U2]: [J
 const m4 = sessionMessage(U4, new Date().toISOString());
 const S4 = (await call({ action: 'session', address: U4, message: m4, signature: await signPersonal(U4_KEY, m4) })).session;
 r = await call({ action: 'run', session: S4, run: { tokenId: TEMPO + 1000, points: track(now - 3000e3, 10, 12) } });
-ok('costs halve with emission (level-up at 50%)', rules.levelUpCost({ level: 0 }, 0.5) === LV1 / 2 && rules.repairCost({ level: 0, durability: 50 }, 0.5) === rules.repairCost({ level: 0, durability: 50 }) / 2);
-ok('level costs grow quadratically: 3k, 75k at lv5, 2.7M at lv30', rules.levelUpCost({ level: 0 }) === 3000 && rules.levelUpCost({ level: 4 }) === 75000 && rules.levelUpCost({ level: 29 }) === 2_700_000);
+ok('costs halve with emission (level-up at 50%)', rules.levelUpCost({ level: 0 }, 0.5) === rules.levelUpCost({ level: 0 }) / 2 && rules.repairCost({ level: 0, durability: 50 }, 0.5) === rules.repairCost({ level: 0, durability: 50 }) / 2);
+ok('default level costs 1,100 × level^1.5', rules.levelUpCost({ level: 0 }) === 1100 && rules.levelUpCost({ level: 9 }) === 34785 && rules.levelUpCost({ level: 29 }) === 180748);
 ok('points per level 1/1/2/2', JSON.stringify(rules.POINTS_PER_LEVEL) === JSON.stringify({ common: 1, uncommon: 1, rare: 2, epic: 2 }));
 ok('energy table 1/2/4/6/10', [1, 2, 3, 9, 15, 30].map(rules.maxEnergy).join() === '1,1,2,4,6,10');
 ok('Common lasts ~9 days of 1 energy/day before 50% durability', Math.round(50 / rules.durabilityLossPerEnergy({ base: { efficiency: 6, resilience: 6 }, points: {}, durability: 100 })) === 9);
@@ -169,6 +168,54 @@ ok('next day the rest can be claimed', r.code === 200 && !r.claim.partial && Mat
 process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: 0 });
 ok('before emission starts the server is not live', (await call({ action: 'status' }, 'GET')).live === false);
 process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY, claimedToday: '0', claimed: {} });
+// ---- game settings (admin), boosts, per-runner cap, schedule changes
+const settingsCall = async (key, settings, issued = new Date().toISOString()) => {
+  const message = settingsMessage(JSON.stringify(settings), issued);
+  return call({ action: 'settings-set', settings, message, signature: await signPersonal(key, message) });
+};
+const BOOST = '0x' + '77'.repeat(20);
+const newSettings = { levelCostBase: 2000, levelCostExp: 2, perRunnerDailyMax: 0, boosts: [{ contract: BOOST, label: 'Season 2', boostBps: 1000 }] };
+ok('settings: non-admin signature rejected', (await settingsCall(USER_KEY, newSettings)).code === 403);
+ok('settings: old message rejected', (await settingsCall(ADMIN_KEY, newSettings, new Date(Date.now() - 3600e3).toISOString())).code === 400);
+ok('settings: invalid values rejected', (await settingsCall(ADMIN_KEY, { ...newSettings, levelCostExp: 9 })).code === 400);
+r = await settingsCall(ADMIN_KEY, newSettings);
+ok('settings: admin saves level prices and boosts', r.code === 200 && r.settings.levelCostBase === 2000 && r.settings.boosts[0].boostBps === 1000, JSON.stringify(r));
+ok('status reports the settings', (await call({ action: 'status' }, 'GET')).settings.levelCostExp === 2);
+// boost: U5 holds a Season 2 NFT → +10%
+let JOG3 = 0;
+for (let i = JOG2 + 1; i < 900 && !JOG3; i++) if (traitsFor(i).type === 'jogger') JOG3 = i;
+const U5_KEY = rnd(), U5 = eth.addressOfKey(U5_KEY);
+process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY, claimedToday: '0', claimed: {} });
+process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [U5]: [JOG3] });
+process.env.REWARDS_FAKE_HELD = JSON.stringify({ [U5]: [BOOST] });
+const m5 = sessionMessage(U5, new Date().toISOString());
+const S5 = (await call({ action: 'session', address: U5, message: m5, signature: await signPersonal(U5_KEY, m5) })).session;
+const st5 = await call({ action: 'state', session: S5 });
+ok('state reports the boost (×1.1)', Math.abs(st5.boost - 1.1) < 1e-9);
+const jog3 = traitsFor(JOG3);
+const exp3 = rules.earnPerMinute({ ...jog3, durability: 100, points: { efficiency: 0, resilience: 0 } }) * 30 * 1.1;
+r = await call({ action: 'run', session: S5, run: { tokenId: JOG3, points: track(now - 9000e3, 35, 8) } });
+ok('NFT boost adds 10% to the run', r.code === 200 && Math.abs(r.run.coins - exp3) < exp3 * 0.02 && Math.abs(r.run.boost - 1.1) < 1e-9, `got ${r.run?.coins} expected ${exp3.toFixed(1)}`);
+r = await call({ action: 'levelup', session: S5, tokenId: JOG3 });
+ok('new level price applies right away (2,000 for level 1)', r.code === 200 && Math.abs(r.spent - 2000) < 1e-6, JSON.stringify(r).slice(0, 120));
+// per-runner daily max: 500 RUNNER at a 10M day
+await settingsCall(ADMIN_KEY, { ...newSettings, perRunnerDailyMax: 500, boosts: [] });
+const U6_KEY = rnd(), U6 = eth.addressOfKey(U6_KEY);
+process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [U6]: [JOG3 + 2] });
+const m6 = sessionMessage(U6, new Date().toISOString());
+const S6 = (await call({ action: 'session', address: U6, message: m6, signature: await signPersonal(U6_KEY, m6) })).session;
+r = await call({ action: 'run', session: S6, run: { tokenId: JOG3 + 2, points: track(now - 9000e3, 35, 8) } });
+ok('per-runner daily max caps a runner at 500', r.code === 200 && r.run.capped && Math.abs(r.run.coins - 500) < 1e-6, JSON.stringify(r.run || r));
+// a changed on-chain schedule (20M/day today) doubles the earn rate
+process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY - 40, current: { dailyStart: 20_000_000, floor: 100_000, halvingDays: 30, fromDay: TODAY }, next: null, claimedToday: '0', claimed: {} });
+const st6 = await call({ action: 'state', session: S6 });
+ok('schedule change: 20M today → earn rate 200%', st6.emission.limit === 20_000_000 && st6.emission.factor === 2);
+process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY - 40, current: { dailyStart: 10_000_000, floor: 100_000, halvingDays: 30, fromDay: TODAY - 40 }, next: { dailyStart: 2_000_000, floor: 0, halvingDays: 60, fromDay: TODAY + 1 }, claimedToday: '0', claimed: {} });
+const st7 = await call({ action: 'state', session: S6 });
+ok('a pending schedule is reported for the app', st7.emission.change?.dailyStart === 2_000_000 && st7.emission.change.fromDay === TODAY + 1 && st7.emission.limit === 5_000_000);
+await settingsCall(ADMIN_KEY, rules.DEFAULT_SETTINGS);
+process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY, claimedToday: '0', claimed: {} });
+process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO] });
 // concurrency lock
 const [a, b] = await Promise.all([call({ action: 'state', session: S }), call({ action: 'state', session: S })]);
 ok('parallel requests: one waits (409) or both ok, never corrupt', [a.code, b.code].includes(200));

@@ -36,14 +36,50 @@ const tokenUint = async (token, data) => {
   return BigInt(!r || r === '0x' ? 0 : r);
 };
 
-let startCache = null;
-/** UTC day the run-reward emission started (0 = not started). Never changes once set. */
-export async function emissionStartDay(token = TOKEN_CONTRACT) {
-  if (TESTING && env.REWARDS_FAKE_TOKEN) return JSON.parse(env.REWARDS_FAKE_TOKEN).startDay || 0;
-  if (startCache) return startCache;
-  const d = Number(await tokenUint(token, '0xe27831bb'));
-  if (d) startCache = d;
-  return d;
+let scheduleCache = null; // { at, value }
+/**
+ * The token's emission schedule in whole RUNNER: { startDay, current, next } (see
+ * js/rules.js), or null before startEmission(). Cached for a minute.
+ */
+export async function emissionSchedule(token = TOKEN_CONTRACT) {
+  if (TESTING && env.REWARDS_FAKE_TOKEN) {
+    const f = JSON.parse(env.REWARDS_FAKE_TOKEN);
+    if (!f.startDay) return null;
+    return { startDay: f.startDay, current: f.current || { dailyStart: 10_000_000, floor: 100_000, halvingDays: 30, fromDay: f.startDay }, next: f.next || null };
+  }
+  if (scheduleCache && Date.now() - scheduleCache.at < 60e3) return scheduleCache.value;
+  const startDay = Number(await tokenUint(token, '0xe27831bb')); // emissionStartDay()
+  let value = null;
+  if (startDay) {
+    value = decodeSchedule(await rpc(TOKEN_CHAIN, 'eth_call', [{ to: token, data: '0xed51e69c' }, 'latest']), startDay); // emissionSchedule()
+  }
+  scheduleCache = { at: Date.now(), value };
+  return value;
+}
+
+/** Decodes emissionSchedule() return data (two Schedule structs) into whole-RUNNER numbers. */
+export function decodeSchedule(ret, startDay) {
+  const h = String(ret).replace(/^0x/, '');
+  const w = (i) => BigInt(`0x${h.slice(i * 64, (i + 1) * 64) || '0'}`);
+  const sch = (o) => ({ dailyStart: Number(w(o) / 10n ** 18n), floor: Number(w(o + 1) / 10n ** 18n), halvingDays: Number(w(o + 2)), fromDay: Number(w(o + 3)) });
+  const next = sch(4);
+  return { startDay, current: sch(0), next: next.fromDay ? next : null };
+}
+
+/** Which of `contracts` (ERC-721) `address` holds at least one token of. */
+export async function heldContracts(address, contracts) {
+  if (!contracts.length) return [];
+  if (TESTING && env.REWARDS_FAKE_HELD) {
+    const held = (JSON.parse(env.REWARDS_FAKE_HELD)[address.toLowerCase()] || []).map((c) => c.toLowerCase());
+    return contracts.filter((c) => held.includes(c.toLowerCase()));
+  }
+  const results = await Promise.all(contracts.map(async (c) => {
+    try {
+      const r = await rpc(NFT_CHAIN, 'eth_call', [{ to: c, data: `0x70a08231${addrWord(address)}` }, 'latest']); // balanceOf(address)
+      return BigInt(!r || r === '0x' ? 0 : r) > 0n ? c : null;
+    } catch { return null; }
+  }));
+  return results.filter(Boolean);
 }
 
 /** On-chain claim state: RUNNER (wei) already claimed by `account`, and claimed today by everyone. */

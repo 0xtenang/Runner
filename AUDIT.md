@@ -9,7 +9,7 @@
 
 | Contract | File | Creation-code keccak (solc 0.8.24, optimizer 200, EVM paris) |
 |---|---|---|
-| RUNNER token (ERC-20 + tax + holder rewards + run-reward claims) | `contracts/RunnerToken.sol` | `0x79b8855dce56c09682e03b2c00cbe8b3b939d5ce6f2b023e7701a0be8b3422bb` |
+| RUNNER token (ERC-20 + tax + holder rewards + run-reward claims) | `contracts/RunnerToken.sol` | `0x35522dc313137bcbaf3b594d746ad9c60b130ce3b9800af30431ba4c1cddaf62` |
 | RUNNER Genesis NFT (ERC-721, ERC-2981, ERC-721C hook) | `contracts/RunnerGenesis.sol` | `0x1c55e9cf65a7def63fa7bc19d49e3b89330b967c964fdba4e63d83a13c00b446` |
 | Rewards server (signs run-reward claims) | `api/rewards.js`, `api/_lib/*`, `js/rules.js` | — |
 
@@ -20,9 +20,9 @@
 1. Line-by-line manual review of both contracts and the server: access control, arithmetic, reentrancy, signature handling, accounting invariants, owner powers, and DEX/marketplace interactions.
 2. **Slither 0.10.4** static analysis (93 detectors). The triage is below.
 3. Tests run against the official compiler build in a local EVM (`tests/`):
-   - `token.test.mjs`: 111 checks, including the 7-day locks and instant burns, the halving schedule (checked day by day against the JavaScript mirror for 400 days) and a **randomized model test**. It runs 600 random actions (buys, sells, transfers, claims, sweeps, burns, and time jumps) over 45 days. Every 5 steps it compares every balance, every daily eligible balance, the daily totals and the holder-reward bucket against an independent JavaScript model.
+   - `token.test.mjs`: 126 checks, including emission-schedule changes (limits, next-day start, fresh halving clock, the server's decoder), the 7-day locks and instant burns, the halving schedule (checked day by day against the JavaScript mirror for 400 days) and a **randomized model test**. It runs 600 random actions (buys, sells, transfers, claims, sweeps, burns, and time jumps) over 45 days. Every 5 steps it compares every balance, every daily eligible balance, the daily totals and the holder-reward bucket against an independent JavaScript model.
    - `nft.test.mjs`: 44 checks, including the rarity and price of all 9,999 tokens against the app, and a malicious re-entering validator.
-   - `rewards-server.test.mjs`: 42 checks covering sign-in, run scoring, anti-cheat, spending, claims, halving rates and costs, the energy table, level costs, the global daily budget and partial claims. A server-signed claim was also accepted by the token contract on chain id 4663.
+   - `rewards-server.test.mjs`: 52 checks covering admin-signed game settings, NFT boosts, the per-runner daily max, on-chain schedule changes, sign-in, run scoring, anti-cheat, spending, claims, halving rates and costs, the energy table, level costs, the global daily budget and partial claims. A server-signed claim was also accepted by the token contract on chain id 4663.
 4. **Mutation checks.** Bugs were planted on purpose to make sure the tests catch them:
 
    | Planted bug | Result |
@@ -34,12 +34,14 @@
    | Let anyone force an instant (burning) claim | Caught |
    | Early release also burns finished locks | Caught |
    | Locked rewards not reserved from the pool | Caught |
+   | Emission schedule without the 20M ceiling | Caught |
+   | New schedule taking effect the same day | Caught |
 
 ## Findings
 
 | # | Severity | Finding | Status |
 |---|---|---|---|
-| 1 | **High** | Token: a stolen owner key could drain the run-reward pool. `setSigner` plus a raisable daily cap let the owner mint claims for any amount. | **Fixed.** The adjustable cap is replaced by a fixed emission schedule in code (10M/day from `startEmission`, halving every 30 days, floor 100k/day) that no one can raise. **Remaining risk:** while the schedule is high (month 1: 10M/day = 1.25% of the pool), a stolen owner or server key could take up to the day's emission until the owner pauses claims. Keep the owner in a multisig (#4) and watch claims closely in the first months. |
+| 1 | **High** | Token: a stolen owner key could drain the run-reward pool. `setSigner` plus an unlimited daily cap let the owner mint claims for any amount. | **Fixed.** Daily claims follow an emission schedule that can never exceed `MAX_DAILY_EMISSION` = 20,000,000/day (2.5% of the pool), and schedule changes only start the next UTC day. **Remaining risk:** a stolen owner key could set 20M/day from the next day plus a new signer, taking up to 20M/day until stopped. A stolen server key alone can take up to the day's emission until the owner pauses claims. Put the owner in a multisig (#4). |
 | 2 | **Medium** | Token: `addPair` accepted any contract, so the owner could register a user's smart-contract wallet (e.g. a Safe) as a "pool". That wallet would be taxed on every transfer and cut out of holder rewards. | **Fixed.** `addPair` requires the contract to report RUNNER as `token0()` or `token1()`. Pools are add-only. |
 | 3 | **Medium** | NFT: the ERC-721C validator was called after the ownership checks. A validator that re-enters `transferFrom` could move the token in between and corrupt the ownership records. A test reproduces this on the old code. | **Fixed.** The validator is called first, and every check reads state after it. |
 | 4 | Medium (centralization) | Both contracts have one owner, the dev wallet EOA. Owner powers are listed below. If that key is lost or stolen, the NFT owner could freeze NFT transfers through a blocking validator, and the token owner could pause run claims or redirect the protocol share. | **Open: recommendation.** Make the owner a multisig (e.g. Safe 2-of-3) before launch, or at least keep the dev key on a hardware wallet. |
@@ -54,6 +56,8 @@
 | 13 | Info (economics) | The fast schedule front-loads emission: about 38% of the pool can be released in month 1, 66% by month 3 and 75% by month 7. After that it's 100k/day for about 5.5 more years. Heavy early selling pressure is likely. | Product decision (confirmed by the owner). The server's global daily budget and the earn-rate factor follow the same schedule, so actual emission is at most the schedule. |
 | 14 | Low | The server credits runs against a daily budget, and the contract limits claims per day separately. Earnings from several days can meet on one claim day. | Handled: the server signs only what still fits in today's on-chain emission (a partial claim), and the rest can be claimed the next day. |
 | 15 | Info | Run-reward payout choice. *Instant:* 80% is paid and 20% burned from the pool, and only the runner can choose it (`msg.sender == account`), so a third party submitting a signature can't burn someone's rewards. *Locked:* 100% after 7 days, and anyone may submit it. Locks are stored in unlock order; finished ones form a prefix that is paid automatically on the next claim or by `release(account)`. `releaseEarly` pays finished locks at 100% and unfinished ones at 80% (20% burned). At most 30 active locks per wallet; past that, locking reverts until some finish, but instant claims still work. | By design. Tested, including the cases above. |
+| 16 | Medium (centralization) | Emission is adjustable: the owner's `setEmissionSchedule(dailyStart, halvingDays, floor)` takes effect the next UTC day with a fresh halving clock. Limits: ≤ 20M/day, floor ≤ daily amount, halving every 7–3650 days. Setting 0 stops emission from the next day. | Product decision (confirmed by the owner, who wants the ability to correct a schedule that is too fast or too slow). Covered by #1's ceiling; multisig recommended. |
+| 17 | Low (centralization) | Server game settings (level-price base and curve, per-runner daily max, NFT boost collections up to +100% in total) are changed by a message signed by the dev wallet or `ADMIN_WALLETS`. A stolen admin key could, for example, add a boost for an NFT the attacker holds. | Off-chain and bounded: boosts are capped at +100%, and all crediting stays within the day's emission and the per-runner cap. Settings messages expire after 10 minutes. Keep the admin key safe; settings are visible on `/api/rewards?action=status`. |
 
 ### Slither triage
 
@@ -84,7 +88,7 @@
     - Σ balances = `totalSupply`.
 - **Run rewards:** the server signs an EIP-712 `Claim(account, totalEarned, deadline)`. The contract pays `totalEarned − claimed[account]`. Low-s signatures only, with the chain id and contract in the domain, and a deadline.
 - **Payout choice and locks:** `claim(…, instant)` sends 80% now and burns 20% (`instant`, runner only), or locks 100% for 7 days. `rewardsRemaining = balance(this) − holderRewardsHeld − totalLocked`, so locked rewards can never be paid out twice. Burned amounts reduce `totalSupply` and are tracked in `totalBurnedInstant`.
-- **Emission:** `emissionOn(day)` = max(10M >> ((day − start) / 30), 100k), or 0 before `startEmission()`, which can only be called once. Claims per day ≤ `emissionOn(today)`. `js/rules.js` mirrors this exactly, and the server scales earn rates by `emissionOn / 10M`.
+- **Emission:** `emissionOn(day)` = max(dailyStart >> ((day − fromDay) / halvingDays), floor) under the schedule in force (a pending one applies from its `fromDay`), or 0 before `startEmission()`, which can only be called once. Launch schedule: 10M/day, halving every 30 days, floor 100k. `setEmissionSchedule` (owner) starts a new one the next day with a fresh clock, ≤ 20M/day. Claims per day ≤ `emissionOn(today)`. `js/rules.js` mirrors this exactly, and the server scales earn rates by `emissionOn / 10M`.
 
 ### Owner powers (complete list)
 
@@ -94,7 +98,9 @@
 | Token | `setProtocolWallet` | Where the 2% protocol tax and expired holder rewards go | — |
 | Token | `setSigner` | The rewards server key (zero disables claims) | Daily cap |
 | Token | `setClaimsPaused` | Pause run-reward claims | Doesn't affect transfers or holder rewards |
-| Token | `startEmission` | Starts the fixed halving schedule today | Once only, can't be changed |
+| Token | `startEmission` | Starts the emission schedule today | Once only |
+| Token | `setEmissionSchedule` | New daily amount, halving period and floor, from the next UTC day | ≤ 20M/day, halving 7–3650 days, floor ≤ daily amount |
+| Server | game settings (signed message) | Level-price base and curve, per-runner daily max, NFT boost collections | Boosts ≤ +100% in total; always within the day's emission |
 
 `release(account)` and `sweepExpired` can be called by anyone; they only ever pay the rightful wallet or the protocol wallet.
 | Token | `transferOwnership` | Hand over ownership | — |
@@ -104,7 +110,7 @@
 | NFT | `setTransferValidator` | Royalty enforcement (OpenSea). A malicious validator could block transfers. | See #4 |
 | NFT | `withdraw` | Sweep stray ETH to the treasury | Mint payments never stay in the contract |
 
-Nobody, including the owner, can change the tax or the emission schedule, mint tokens, or take tokens out of the run-reward pool or the holder-reward bucket.
+Nobody, including the owner, can change the tax, raise emission above 20M/day, change today's emission, mint tokens, or take tokens out of the run-reward pool or the holder-reward bucket.
 
 ## Before mainnet
 

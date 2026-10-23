@@ -7,6 +7,8 @@
 //     run      {session, run}      → re-scores an uploaded GPS run with js/rules.js and credits it
 //     levelup / allocate / repair  → in-app spending from the server balance
 //     claim    {session}           → EIP-712 signature for RunnerToken.claim()
+//     settings-set {settings, message, signature} → dev wallet updates game settings
+//                  (level prices, per-runner daily max, NFT boosts)
 //
 // Emission follows the token's halving schedule (js/rules.js mirrors it): every
 // run's earn rate is multiplied by that day's emission factor, the server never
@@ -18,15 +20,15 @@
 //
 // Vercel env vars: SIGNER_PRIVATE_KEY (server key, its address is set on the
 // token with setSigner) and the Upstash Redis REST URL/token.
-import { TOKEN_CHAIN, TOKEN_CONTRACT as CONFIG_TOKEN, NFT_CONTRACT as CONFIG_NFT } from '../js/config.js';
+import { TOKEN_CHAIN, TOKEN_CONTRACT as CONFIG_TOKEN, NFT_CONTRACT as CONFIG_NFT, DEV_WALLET } from '../js/config.js';
 import {
   scoreTrack, isVoided, maxEnergy, regenEnergy, sneakerFromToken, levelUpCost, repairCost,
   durabilityLossPerEnergy, ATTRS, POINTS_PER_LEVEL, MAX_LEVEL, round2,
-  emissionOn, emissionFactor, nextHalving, utcDay,
+  emissionOn, emissionFactor, nextHalving, utcDay, DEFAULT_SETTINGS, boostMultiplier,
 } from '../js/rules.js';
 import { addressOfKey, claimDigest, signDigest, personalDigest, recoverAddress, keccak, toHex, isAddress } from './_lib/eth.js';
 import * as store from './_lib/store.js';
-import { ownedTokenIds, emissionStartDay, claimState } from './_lib/chain.js';
+import { ownedTokenIds, emissionSchedule, claimState, heldContracts } from './_lib/chain.js';
 
 const env = globalThis.process?.env || {};
 const KEY = (env.SIGNER_PRIVATE_KEY || '').trim();
@@ -47,12 +49,47 @@ const signerAddress = () => {
   try { return /^(0x)?[0-9a-fA-F]{64}$/.test(KEY) ? addressOfKey(KEY) : null; } catch { return null; }
 };
 const contractsSet = () => isAddress(TOKEN_CONTRACT) && isAddress(NFT_CONTRACT);
-let startDay = 0; // emission start day, read from the token on each request (cached once set)
-const isLive = () => Boolean(signerAddress() && store.storeConfigured() && contractsSet() && startDay);
+let sch = null;                  // emission schedule from the token (see js/rules.js), read per request
+let settings = DEFAULT_SETTINGS; // game settings from the store, read per request
+const isLive = () => Boolean(signerAddress() && store.storeConfigured() && contractsSet() && sch?.startDay);
 
 function emissionView() {
   const today = utcDay();
-  return { startDay, today, limit: emissionOn(today, startDay), factor: emissionFactor(today, startDay), nextHalving: nextHalving(today, startDay) };
+  return {
+    startDay: sch.startDay, today, limit: emissionOn(today, sch), factor: emissionFactor(today, sch), nextHalving: nextHalving(today, sch),
+    change: sch.next && sch.next.fromDay > today ? sch.next : null,
+  };
+}
+
+// ------------------------------------------------------------------ game settings (admin)
+const SETTINGS_KEY = 'rw:settings';
+const admins = () => [DEV_WALLET, ...String(env.ADMIN_WALLETS || '').split(',')].map((a) => a.trim().toLowerCase()).filter(isAddress);
+export const settingsMessage = (json, issued) => `RUNNER settings\n${json}\nIssued: ${issued}`;
+
+function validateSettings(x) {
+  const num = (v, lo, hi, name) => { const n = Number(v); if (!Number.isFinite(n) || n < lo || n > hi) fail(400, `${name} must be between ${lo} and ${hi}`); return n; };
+  const boosts = Array.isArray(x?.boosts) ? x.boosts : [];
+  if (boosts.length > 20) fail(400, 'At most 20 boost collections');
+  return {
+    levelCostBase: num(x?.levelCostBase, 1, 1e9, 'Level cost base'),
+    levelCostExp: num(x?.levelCostExp, 0.5, 3, 'Level cost exponent'),
+    perRunnerDailyMax: num(x?.perRunnerDailyMax ?? 0, 0, 1e9, 'Per-runner daily max'),
+    boosts: boosts.map((b) => {
+      if (!isAddress(b?.contract)) fail(400, `Bad boost contract ${b?.contract}`);
+      return { contract: b.contract.toLowerCase(), label: String(b.label || 'NFT boost').trim().slice(0, 40), boostBps: Math.round(num(b.boostBps, 0, 10_000, 'Boost')) };
+    }),
+  };
+}
+
+async function setSettings({ settings: next, message, signature }) {
+  const json = JSON.stringify(next);
+  const issued = String(message || '').split('\nIssued: ')[1] || '';
+  if (message !== settingsMessage(json, issued) || !(Math.abs(Date.now() - Date.parse(issued)) < 10 * 60e3)) fail(400, 'Unexpected or old settings message');
+  const who = recoverAddress(personalDigest(message), signature);
+  if (!who || !admins().includes(who)) fail(403, 'Only the dev wallet can change game settings.');
+  const clean = validateSettings(next);
+  await store.set(SETTINGS_KEY, clean);
+  return { settings: clean };
 }
 
 // ------------------------------------------------------------------ sessions
@@ -127,6 +164,8 @@ async function view(address, u, owned) {
     sneakers,
     runs: u.runs,
     emission: emissionView(),
+    settings,
+    boost: boostMultiplier(await heldContracts(address, settings.boosts.map((b) => b.contract)), settings),
   };
 }
 
@@ -179,15 +218,23 @@ async function submitRun(address, { run }) {
     if (start < s.lastEnd) fail(409, `Genesis #${tokenId} was already used during this time.`);
 
     const day = utcDay(end);
-    const factor = emissionFactor(day, startDay);
-    const session = scoreTrack(pts, s, u.energy, factor);
+    const factor = emissionFactor(day, sch);
+    const boost = boostMultiplier(await heldContracts(address, settings.boosts.map((b) => b.contract)), settings);
+    const session = scoreTrack(pts, s, u.energy, factor * boost);
     const voided = isVoided(session);
     const used = voided ? 0 : Math.min(session.used, u.energy);
     let micro = voided || session.used <= 0 ? 0 : Math.floor(session.coins * (used / session.used) * MICRO);
-    // Never credit more than the day's emission across all runners.
+    // Optional per-runner daily max (admin setting), then never more than the day's
+    // emission across all runners.
     let capped = false;
+    if (micro > 0 && settings.perRunnerDailyMax > 0) {
+      const mine = Math.round(settings.perRunnerDailyMax * factor * MICRO);
+      const total = await store.incrBy(`rw:ud:${address}:${day}`, micro);
+      const over = Math.min(micro, Math.max(0, total - mine));
+      if (over > 0) { await store.incrBy(`rw:ud:${address}:${day}`, -over); micro -= over; capped = true; }
+    }
     if (micro > 0) {
-      const budget = Math.round(emissionOn(day, startDay) * MICRO);
+      const budget = Math.round(emissionOn(day, sch) * MICRO);
       const total = await store.incrBy(`rw:budget:${day}`, micro);
       const over = Math.min(micro, Math.max(0, total - budget));
       if (over > 0) { await store.incrBy(`rw:budget:${day}`, -over); micro -= over; capped = true; }
@@ -202,7 +249,7 @@ async function submitRun(address, { run }) {
     const record = {
       id: toHex(keccak(`${address}:${tokenId}:${start}:${end}`)).slice(0, 16),
       start, end, tokenId, coins: micro / MICRO, energy: round2(used), zoneSec: Math.round(session.zoneSec),
-      vehicleSec: Math.round(session.vehicleSec), voided, capped, factor,
+      vehicleSec: Math.round(session.vehicleSec), voided, capped, factor, boost,
     };
     u.runs = [record, ...u.runs].slice(0, 30);
     return { run: record, state: await view(address, u, owned) };
@@ -221,10 +268,10 @@ async function upgrade(address, body, action) {
   return withUser(address, async (u, owned) => {
     if (!owned.includes(tokenId)) fail(403, `This wallet doesn't own Genesis #${tokenId}.`);
     const s = await loadSneaker(tokenId);
-    const factor = emissionFactor(utcDay(), startDay); // costs halve with emission
+    const factor = emissionFactor(utcDay(), sch); // costs halve with emission
     if (action === 'levelup') {
       if (s.level >= MAX_LEVEL) fail(400, 'Already max level');
-      spend(u, levelUpCost(s, factor));
+      spend(u, levelUpCost(s, factor, settings));
       s.level++;
       s.unspent += POINTS_PER_LEVEL[s.rarity];
     } else if (action === 'repair') {
@@ -252,7 +299,7 @@ async function claim(address) {
     const today = utcDay();
     const chain = await claimState(address, today, TOKEN_CONTRACT);
     const doneMicro = Number(chain.claimed / 10n ** 12n);
-    const leftToday = Math.max(0, Math.floor(emissionOn(today, startDay) * MICRO) - Number(chain.claimedToday / 10n ** 12n));
+    const leftToday = Math.max(0, Math.floor(emissionOn(today, sch) * MICRO) - Number(chain.claimedToday / 10n ** 12n));
     const allowed = Math.min(total, doneMicro + leftToday);
     if (allowed <= doneMicro) {
       fail(total > doneMicro ? 429 : 400, total > doneMicro
@@ -278,9 +325,15 @@ export default async function handler(req, res) {
   try {
     const body = req.method === 'POST' ? (typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {}) : { action: req.query?.action || 'status' };
     const action = body.action;
-    if (contractsSet() && (!startDay || TESTING)) startDay = await emissionStartDay(TOKEN_CONTRACT).catch(() => 0);
+    if (contractsSet()) sch = await emissionSchedule(TOKEN_CONTRACT).catch(() => sch);
+    if (store.storeConfigured()) settings = { ...DEFAULT_SETTINGS, ...((await store.get(SETTINGS_KEY).catch(() => null)) || {}) };
     if (action === 'status') {
-      res.status(200).json({ live: isLive(), signer: signerAddress(), store: store.storeConfigured(), token: TOKEN_CONTRACT || null, nft: NFT_CONTRACT || null, chainId: TOKEN_CHAIN.id, emission: startDay ? emissionView() : null });
+      res.status(200).json({ live: isLive(), signer: signerAddress(), store: store.storeConfigured(), token: TOKEN_CONTRACT || null, nft: NFT_CONTRACT || null, chainId: TOKEN_CHAIN.id, emission: sch?.startDay ? emissionView() : null, settings });
+      return;
+    }
+    if (action === 'settings-set') {
+      if (!store.storeConfigured()) fail(503, 'Database not connected yet.');
+      res.status(200).json(await setSettings(body));
       return;
     }
     if (req.method !== 'POST') fail(405, 'POST only');

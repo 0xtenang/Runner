@@ -72,7 +72,7 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 
 - **4% trading tax, fixed forever.** It applies to buys and sells through registered exchange pools: 2% goes to the protocol wallet and 2% to holders. Wallet-to-wallet transfers and run-reward claims are untaxed. Pools are registered with `addPair` after liquidity is added; only real RUNNER pools are accepted, and they can't be removed.
 - **Holder rewards.** Each UTC day's 2% is shared by every wallet that held at least **300,000 RUNNER for that whole day**, in proportion to its lowest balance that day. It can be claimed (`claimHolderRewards`, also on the Earn tab) for **7 days**. After that, `sweepExpired` sends what's left to the protocol wallet; anyone can call it. Exchange pools and the contract get no share; dev and team wallets do.
-- **Run-reward emission (halving), fixed in the contract.** It's 10,000,000 RUNNER a day from launch day (`startEmission`, once), halving every 30 days (10M → 5M → 2.5M …) and never dropping below 100,000 a day:
+- **Run-reward emission (halving).** The launch schedule is 10,000,000 RUNNER a day from launch day (`startEmission`, once), halving every 30 days (10M → 5M → 2.5M …) and never dropping below 100,000 a day. The dev wallet can set a new schedule (`setEmissionSchedule`: daily amount, halving period, floor). It starts the next UTC day and can never exceed 20,000,000 a day. With the launch schedule:
 
   | Period | Emission |
   |---|---|
@@ -95,7 +95,9 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 - it's under 72 hours old;
 - its speeds are possible on foot.
 
-Level-ups and repairs are paid from the server balance. Levels run 0–30. A level-up costs 3,000 × (next level)² RUNNER and gives 1 point (Common, Uncommon) or 2 points (Rare, Epic). Level-up and repair costs halve with emission. **Claim** asks the server to sign, then the wallet sends `claim()` to the token, paying a tiny ETH gas fee.
+Level-ups and repairs are paid from the server balance. Levels run 0–30. By default a level-up costs 1,100 × (next level)^1.5 RUNNER (about a month to level 30 for a Common) and gives 1 point (Common, Uncommon) or 2 points (Rare, Epic). Level-up and repair costs follow emission.
+
+**Game settings** (dev wallet, `/admin.html?c=token` → *Controls after launch*, applied immediately): the level-price base and curve, an optional per-runner daily max, and **NFT boosts**. Any future NFT collection can be listed with a boost %, e.g. Season 2 holders earn +10%, up to +100% in total. **Claim** asks the server to sign, then the wallet sends `claim()` to the token, paying a tiny ETH gas fee.
 
 Setup, once both contracts are deployed:
 
@@ -106,4 +108,4 @@ Setup, once both contracts are deployed:
 
 Until all three are done, the app keeps working in local mode. What the server can't fully stop is GPS-spoofing apps on a phone. Per-wallet energy limits earning to 30 minutes a day per energy (1 sneaker: 30 min, 30+ sneakers: 5 h), and the token's daily emission bounds the total.
 
-Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, level costs, the daily budget and partial claims (42 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.
+Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending, claims, halving rates, halving costs, the energy table, level costs, game settings, NFT boosts, the per-runner cap, schedule changes, the daily budget and partial claims (52 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.

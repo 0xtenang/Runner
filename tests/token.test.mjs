@@ -4,7 +4,8 @@
 // Run: cd tests && npm install && node token.test.mjs
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { compile, readContract, iface, chain, u, errSel, word, addrWord, keccakHex, toHex } from './evm.mjs';
-import { emissionOn as jsEmissionOn } from '../js/rules.js';
+import { emissionOn as jsEmissionOn, launchSchedule } from '../js/rules.js';
+import { decodeSchedule } from '../api/_lib/chain.js';
 
 const E18 = 10n ** 18n;
 const DAY = 86400;
@@ -63,7 +64,7 @@ async function setup() {
   ok('owner + protocol wallet = dev', u(await view('owner')) === BigInt(DEV) && u(await view('protocolWallet')) === BigInt(DEV));
   ok('tax constants 2% + 2%', u(await view('PROTOCOL_TAX_BPS')) === 200n && u(await view('HOLDER_TAX_BPS')) === 200n);
   ok('min holding 300,000', u(await view('MIN_HOLDING')) === 300_000n * E18);
-  ok('every state-changing function is accounted for (none change tax, mint, or take pooled funds)', JSON.stringify(T.writes) === JSON.stringify(['addPair', 'approve', 'burn', 'burnFrom', 'claim', 'claimHolderRewards', 'release', 'releaseEarly', 'setClaimsPaused', 'setProtocolWallet', 'setSigner', 'startEmission', 'sweepExpired', 'transfer', 'transferFrom', 'transferOwnership']), T.writes.join(' '));
+  ok('every state-changing function is accounted for (none change tax, mint, or take pooled funds)', JSON.stringify(T.writes) === JSON.stringify(['addPair', 'approve', 'burn', 'burnFrom', 'claim', 'claimHolderRewards', 'release', 'releaseEarly', 'setClaimsPaused', 'setEmissionSchedule', 'setProtocolWallet', 'setSigner', 'startEmission', 'sweepExpired', 'transfer', 'transferFrom', 'transferOwnership']), T.writes.join(' '));
   ok('contract excluded from holder rewards', u(await view('excludedFromHolderRewards', tok)) === 1n);
   ok('eligible supply = dev + team (200M)', u(await view('eligibleSupply')) === 200_000_000n * E18);
   ok('zero team rejected', reverts(await c.send(DEPLOYER, null, T.ctor(DEV, DEV, ZERO)), 'ZeroAddress'));
@@ -127,7 +128,7 @@ async function setup() {
   ok('halves on day 30 and 60', await em(start + 30) === 5_000_000n && await em(start + 60) === 2_500_000n);
   ok('floor 100k after the 7th halving', await em(start + 180) === 156_250n && await em(start + 210) === 100_000n && await em(start + 100_000) === 100_000n);
   let mirror = true;
-  for (let d = start - 3; d < start + 400; d++) if (Number(await em(d)) !== Math.floor(jsEmissionOn(d, start))) mirror = false;
+  for (let d = start - 3; d < start + 400; d++) if (Number(await em(d)) !== Math.floor(jsEmissionOn(d, launchSchedule(start)))) mirror = false;
   ok('app/server schedule (js/rules.js) matches the contract for 400 days', mirror);
   const today0 = await view('emissionToday');
   await call(DEV, 'setSigner', ZERO);
@@ -169,6 +170,43 @@ async function setup() {
   await buy(pair, W(2), 1_000_000n * E18);
   const held = u(await view('holderRewardsHeld'));
   ok('holder tax and locks kept apart from the run pool', held === 20_000n * E18 && u(await view('rewardsRemaining')) === await bal(tok) - held - u(await view('totalLocked')));
+}
+
+// =================================================================== emission controls
+{
+  const { c, call, view } = await setup();
+  const M = 10n ** 18n;
+  const em = async (d) => u(await view('emissionOn', d)) / M;
+  const sched = async () => { const r = await view('emissionSchedule'); return [0, 1, 2, 3, 4, 5, 6, 7].map((i) => u(r, i)); };
+  ok('only owner sets the schedule', reverts(await call(W(1), 'setEmissionSchedule', 5_000_000n * M, 30, 100_000n * M), 'NotOwner'));
+  ok('above 20M/day rejected', reverts(await call(DEV, 'setEmissionSchedule', 20_000_001n * M, 30, 0), 'BadSchedule'));
+  ok('floor above daily amount rejected', reverts(await call(DEV, 'setEmissionSchedule', 1_000n * M, 30, 2_000n * M), 'BadSchedule'));
+  ok('halving under 7 or over 3650 days rejected', reverts(await call(DEV, 'setEmissionSchedule', 1_000n * M, 6, 0), 'BadSchedule') && reverts(await call(DEV, 'setEmissionSchedule', 1_000n * M, 3651, 0), 'BadSchedule'));
+  ok('before launch: replaces the launch schedule', (await call(DEV, 'setEmissionSchedule', 8_000_000n * M, 14, 50_000n * M)).ok);
+  await call(DEV, 'startEmission');
+  const d0 = Number(u(await view('emissionStartDay')));
+  ok('launch uses the replaced schedule (8M, halving every 14 days)', await em(d0) === 8_000_000n && await em(d0 + 14) === 4_000_000n);
+  c.addTime(20 * DAY);                      // day 20: 4M under the current schedule
+  const d20 = d0 + 20;
+  ok('mid-run: today follows the current schedule', await em(d20) === 4_000_000n);
+  await call(DEV, 'setEmissionSchedule', 20_000_000n * M, 30, 200_000n * M);
+  ok('a new schedule never changes today', await em(d20) === 4_000_000n);
+  ok('it starts tomorrow with a fresh halving clock', await em(d20 + 1) === 20_000_000n && await em(d20 + 30) === 20_000_000n && await em(d20 + 31) === 10_000_000n);
+  const sc = await sched();
+  ok('emissionSchedule() shows current and pending', sc[0] === 8_000_000n * M && sc[2] === 14n && sc[4] === 20_000_000n * M && sc[7] === BigInt(d20 + 1));
+  await call(DEV, 'setEmissionSchedule', 2_000_000n * M, 60, 0);
+  ok('setting again the same day replaces the pending one', await em(d20 + 1) === 2_000_000n && await em(d20) === 4_000_000n);
+  c.addTime(5 * DAY);                        // day 25: pending (2M, 60 days) is in force since day 21
+  ok('pending schedule in force on its day', await em(d20 + 5) === 2_000_000n && await em(d20 + 61) === 1_000_000n);
+  await call(DEV, 'setEmissionSchedule', 3_000_000n * M, 7, 100_000n * M);
+  const sc2 = await sched();
+  ok('a later change promotes the old pending one to current', sc2[0] === 2_000_000n * M && sc2[3] === BigInt(d20 + 1) && sc2[4] === 3_000_000n * M && sc2[7] === BigInt(d20 + 6));
+  ok('zero emission allowed (acts like a pause from tomorrow)', (await call(DEV, 'setEmissionSchedule', 0, 30, 0)).ok && await em(d20 + 6) === 0n);
+  // JS mirror against the on-chain schedule
+  const js = decodeSchedule(await view('emissionSchedule'), d0); // the server's decoder
+  let same = true;
+  for (let d = d20 + 5; d < d20 + 300; d++) if (Number(await em(d)) !== Math.floor(jsEmissionOn(d, js))) same = false;
+  ok('server decoder + js/rules.js mirror a changed on-chain schedule', same && js.next?.dailyStart === 0 && js.current.dailyStart === 2_000_000);
 }
 
 // =================================================================== 7-day locks

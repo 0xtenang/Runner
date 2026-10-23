@@ -20,8 +20,9 @@ pragma solidity 0.8.24;
 ///         balance at the end of the day} and a running total of eligible balances, so
 ///         nothing ever loops over holders. Run rewards: the RUNNER server signs an EIP-712
 ///         message "account has earned `totalEarned` in total"; claim() pays the difference
-///         to what was already claimed, limited by the fixed emission schedule (10M/day,
-///         halving every 30 days, floor 100k/day) counted from startEmission(). The owner can never take
+///         to what was already claimed, limited by the emission schedule (launch: 10M/day,
+///         halving every 30 days, floor 100k/day; the owner can change it from the next day,
+///         never above 20M/day). The owner can never take
 ///         tokens out of the run-reward pool or the holder-reward bucket, and cannot change
 ///         the tax.
 contract RunnerToken {
@@ -38,11 +39,13 @@ contract RunnerToken {
     uint256 public constant HOLDER_TAX_BPS = 200;     // 2%
     uint256 public constant MIN_HOLDING = 300_000 ether;
     uint256 public constant CLAIM_WINDOW_DAYS = 7;
-    /// Run-reward emission schedule, fixed forever: 10,000,000 RUNNER/day when emission
-    /// starts, halving every 30 days, never below 100,000/day (until the pool is empty).
-    uint256 public constant EMISSION_START = 10_000_000 ether;
-    uint256 public constant HALVING_DAYS = 30;
-    uint256 public constant EMISSION_FLOOR = 100_000 ether;
+    /// Run-reward emission: starts at 10,000,000 RUNNER/day, halving every 30 days, never
+    /// below 100,000/day. The owner can set a new schedule, which starts the next UTC day,
+    /// but never above MAX_DAILY_EMISSION — so even a stolen owner key can move at most
+    /// 2.5% of the pool per day.
+    uint256 public constant MAX_DAILY_EMISSION = 20_000_000 ether;
+    uint256 public constant MIN_HALVING_DAYS = 7;
+    uint256 public constant MAX_HALVING_DAYS = 3650;
     /// Run-reward payout choice: take it now and 20% is burned, or lock it 7 days for 100%.
     uint256 public constant INSTANT_BURN_BPS = 2_000;
     uint256 public constant LOCK_PERIOD = 7 days;
@@ -66,6 +69,13 @@ contract RunnerToken {
         uint64 unlockAt;
     }
 
+    struct Schedule {
+        uint128 dailyStart;   // RUNNER/day on fromDay
+        uint128 floor;        // never below this
+        uint32 halvingDays;   // halves every this many days
+        uint32 fromDay;       // UTC day the schedule (and its halving clock) begins
+    }
+
     struct Day {
         uint256 shares;      // sum of eligible lowest balances for the day
         uint128 rewards;     // holder tax collected during the day
@@ -79,6 +89,8 @@ contract RunnerToken {
     address public signer;
     bool public claimsPaused;
     uint256 public emissionStartDay;     // 0 = emission not started yet
+    Schedule private _schedule = Schedule(uint128(10_000_000 ether), uint128(100_000 ether), 30, 0);
+    Schedule private _nextSchedule;      // fromDay = 0 → none pending
     uint256 public totalClaimed;
     uint256 public totalLocked;          // locked run rewards inside this contract
     uint256 public totalBurnedInstant;   // burned by instant claims / early releases
@@ -117,6 +129,7 @@ contract RunnerToken {
     event SignerChanged(address indexed signer);
     event ClaimsPausedChanged(bool paused);
     event EmissionStarted(uint256 day);
+    event EmissionScheduleSet(uint256 dailyStart, uint256 halvingDays, uint256 floor, uint256 fromDay);
 
     error NotOwner();
     error ZeroAddress();
@@ -136,6 +149,7 @@ contract RunnerToken {
     error NotAPool();
     error EmissionNotStarted();
     error AlreadyStarted();
+    error BadSchedule();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -368,12 +382,19 @@ contract RunnerToken {
     }
 
     /// @notice Most RUNNER the run-reward pool can pay out on `day` (0 before emission starts).
+    ///         Exact for today and later days; earlier days follow the current schedule.
     function emissionOn(uint256 day) public view returns (uint256) {
-        uint256 start = emissionStartDay;
-        if (start == 0 || day < start) return 0;
-        uint256 halvings = (day - start) / HALVING_DAYS;
-        uint256 amount = halvings >= 64 ? 0 : EMISSION_START >> halvings;
-        return amount > EMISSION_FLOOR ? amount : EMISSION_FLOOR;
+        if (emissionStartDay == 0 || day < emissionStartDay) return 0;
+        Schedule memory sch = _nextSchedule.fromDay != 0 && day >= _nextSchedule.fromDay ? _nextSchedule : _schedule;
+        if (day < sch.fromDay) return 0;
+        uint256 halvings = (day - sch.fromDay) / sch.halvingDays;
+        uint256 amount = halvings >= 128 ? 0 : uint256(sch.dailyStart) >> halvings;
+        return amount > sch.floor ? amount : sch.floor;
+    }
+
+    /// @notice The schedule in force and the one waiting to start (fromDay 0 = none).
+    function emissionSchedule() external view returns (Schedule memory current, Schedule memory next) {
+        return (_schedule, _nextSchedule);
     }
 
     /// @notice Today's run-reward emission and how much of it is still unclaimed.
@@ -422,12 +443,29 @@ contract RunnerToken {
         emit ClaimsPausedChanged(paused_);
     }
 
-    /// @notice Start the run-reward emission schedule today. Can only happen once.
+    /// @notice Start the run-reward emission today with the current schedule. Only once.
     function startEmission() external onlyOwner {
         if (emissionStartDay != 0) revert AlreadyStarted();
         uint256 today = _today();
         emissionStartDay = today;
+        _schedule.fromDay = uint32(today);
         emit EmissionStarted(today);
+    }
+
+    /// @notice Set a new emission schedule: `dailyStart` RUNNER/day, halving every
+    ///         `halvingDays`, never below `floor`. Before emission starts it replaces the
+    ///         launch schedule; after, it begins (with a fresh halving clock) the next UTC day.
+    function setEmissionSchedule(uint256 dailyStart, uint256 halvingDays, uint256 floor) external onlyOwner {
+        if (dailyStart > MAX_DAILY_EMISSION || floor > dailyStart || halvingDays < MIN_HALVING_DAYS || halvingDays > MAX_HALVING_DAYS) revert BadSchedule();
+        if (emissionStartDay == 0) {
+            _schedule = Schedule(uint128(dailyStart), uint128(floor), uint32(halvingDays), 0);
+            emit EmissionScheduleSet(dailyStart, halvingDays, floor, 0);
+            return;
+        }
+        uint256 today = _today();
+        if (_nextSchedule.fromDay != 0 && today >= _nextSchedule.fromDay) _schedule = _nextSchedule; // promote
+        _nextSchedule = Schedule(uint128(dailyStart), uint128(floor), uint32(halvingDays), uint32(today + 1));
+        emit EmissionScheduleSet(dailyStart, halvingDays, floor, today + 1);
     }
 
     function transferOwnership(address newOwner) external onlyOwner {

@@ -8,16 +8,17 @@
 //   Earning  — RUNNER/minute = 112.5 × Efficiency × emission factor, only while
 //              your GPS pace is inside the sneaker's zone. +10% with a live
 //              Bluetooth HR sensor.
-//   Emission — mirrors RunnerToken: 10M RUNNER/day from the start day, halving every
-//              30 days, never below 100k/day. The emission factor (1, ½, ¼ … down to
-//              1%) scales every runner's earn rate on the same dates.
+//   Emission — mirrors RunnerToken: launch schedule 10M RUNNER/day, halving every
+//              30 days, never below 100k/day (the dev wallet can change it on-chain).
+//              The emission factor (today's emission ÷ 10M) scales every earn rate.
+//   Boosts   — holding NFTs from boost collections (admin settings) multiplies earnings.
 //   Durability drops per energy spent (less with high Resilience); below 50 it
 //              cuts Efficiency. Repair it with RUNNER. Repair and level-up costs
 //              follow the emission factor, so they halve together with earnings.
-//   Levels   — 0–30. Level-ups cost 3,000 × (next level)² RUNNER (× emission factor)
-//              and grant attribute points (Common 1, Uncommon 1, Rare 2, Epic 2) that
-//              the player assigns to Efficiency or Resilience. Quadratic costs keep a
-//              few maxed sneakers from taking the whole daily emission.
+//   Levels   — 0–30. Level-ups cost base × (next level)^exp RUNNER × emission factor
+//              (defaults 1,100 and 1.5: about a month to level 30 for a Common) and grant
+//              attribute points (Common 1, Uncommon 1, Rare 2, Epic 2) that the player
+//              assigns to Efficiency or Resilience. Base and exponent are admin settings.
 
 import { traitsFor } from './collection.js';
 import { haversine } from './stats.js';
@@ -56,7 +57,6 @@ export function maxEnergy(sneakerCount) {
 
 export const ATTRS = ['efficiency', 'resilience'];
 export const POINTS_PER_LEVEL = { common: 1, uncommon: 1, rare: 2, epic: 2 };
-export const LEVEL_COST_BASE = 3000;
 
 /** Effective attributes: base + allocated level-up points (+ optional staged points). */
 export function attrs(s, staged = null) {
@@ -66,34 +66,62 @@ export function attrs(s, staged = null) {
 }
 
 // ---------------------------------------------------------------- emission (halving)
-// Same numbers as RunnerToken.sol (EMISSION_START, HALVING_DAYS, EMISSION_FLOOR).
-export const EMISSION_START = 10_000_000;
-export const HALVING_DAYS = 30;
-export const EMISSION_FLOOR = 100_000;
-/** Earn-rate scale: ~330 daily runners (30 min each) use the launch-day emission. */
+// Mirrors RunnerToken.emissionOn. A schedule is
+//   { startDay, current: { dailyStart, floor, halvingDays, fromDay }, next: {...} | null }
+// in whole RUNNER and UTC day numbers; the server reads it from the token contract.
+export const LAUNCH_SCHEDULE = { dailyStart: 10_000_000, floor: 100_000, halvingDays: 30 };
+/** Earn-rate factor 1 = 10M RUNNER/day of emission. */
+export const REFERENCE_EMISSION = 10_000_000;
+/** Earn-rate scale: ~330 daily runners (30 min each) use a 10M-RUNNER day. */
 export const EARN_SCALE = 750;
 
-/** RUNNER the pool may pay out on UTC day `day` (0 before the start day). */
-export function emissionOn(day, startDay) {
-  if (!startDay || day < startDay) return 0;
-  const halvings = Math.floor((day - startDay) / HALVING_DAYS);
-  return Math.max(EMISSION_START / 2 ** halvings, EMISSION_FLOOR);
+/** The launch schedule started on `startDay` (what startEmission() sets up). */
+export const launchSchedule = (startDay) => (startDay ? { startDay, current: { ...LAUNCH_SCHEDULE, fromDay: startDay }, next: null } : null);
+const activeSchedule = (day, sch) => (sch.next?.fromDay && day >= sch.next.fromDay ? sch.next : sch.current);
+
+/** RUNNER the pool may pay out on UTC day `day` (0 before emission starts). */
+export function emissionOn(day, sch) {
+  if (!sch?.startDay || day < sch.startDay) return 0;
+  const s = activeSchedule(day, sch);
+  if (day < s.fromDay) return 0;
+  const halvings = Math.floor((day - s.fromDay) / s.halvingDays);
+  return Math.max(s.dailyStart / 2 ** halvings, s.floor);
 }
-/** 1 at launch, ½ after 30 days, ¼ after 60 … never below 1%. */
-export const emissionFactor = (day, startDay) => (startDay ? emissionOn(Math.max(day, startDay), startDay) / EMISSION_START : 1);
+/** Earn-rate multiplier for `day`: today's emission ÷ 10M (1 when there's no schedule yet). */
+export const emissionFactor = (day, sch) => (sch?.startDay ? emissionOn(Math.max(day, sch.startDay), sch) / REFERENCE_EMISSION : 1);
 export const utcDay = (t = Date.now()) => Math.floor(t / 864e5);
-/** Next halving date (ms) or null once the floor is reached. */
-export function nextHalving(day, startDay) {
-  if (!startDay || emissionOn(day, startDay) <= EMISSION_FLOOR) return null;
-  const n = Math.floor((day - startDay) / HALVING_DAYS) + 1;
-  return (startDay + n * HALVING_DAYS) * 864e5;
+/** Next halving date (ms) under the active schedule, or null at the floor. */
+export function nextHalving(day, sch) {
+  if (!sch?.startDay) return null;
+  const s = activeSchedule(day, sch);
+  if (emissionOn(day, sch) <= s.floor) return null;
+  const n = Math.floor((day - s.fromDay) / s.halvingDays) + 1;
+  return (s.fromDay + n * s.halvingDays) * 864e5;
+}
+
+// ---------------------------------------------------------------- game settings
+// Tunable by the dev wallet from /admin.html (stored by the rewards server). The app
+// shows whatever the server reports; these defaults apply in local mode.
+export const DEFAULT_SETTINGS = {
+  levelCostBase: 1100,      // level-up cost = base × (next level)^exp × emission factor
+  levelCostExp: 1.5,        // ≈ a month for a Common to reach level 30
+  perRunnerDailyMax: 0,     // most RUNNER one runner can earn per day at a 10M day (0 = no limit)
+  boosts: [],               // [{ contract, label, boostBps }] — holding any NFT from `contract` adds boostBps to earnings
+};
+export const MAX_TOTAL_BOOST_BPS = 10_000; // boosts add up to +100% at most
+
+/** Earnings multiplier from NFT boosts the wallet holds (contracts it holds ⊆ settings.boosts). */
+export function boostMultiplier(heldContracts, settings = DEFAULT_SETTINGS) {
+  const held = new Set((heldContracts || []).map((a) => a.toLowerCase()));
+  const bps = (settings.boosts || []).filter((b) => held.has(b.contract.toLowerCase())).reduce((t, b) => t + b.boostBps, 0);
+  return 1 + Math.min(bps, MAX_TOTAL_BOOST_BPS) / 10_000;
 }
 
 export const earnPerMinute = (s, factor = 1) => 0.15 * EARN_SCALE * factor * attrs(s).efficiency * SNEAKER_TYPES[s.type].mult;
 export const earnPerEnergy = (s, factor = 1) => earnPerMinute(s, factor) * MINUTES_PER_ENERGY;
 // Costs scale with the emission factor (whole RUNNER, never below 1) so they stay in
 // proportion to what a sneaker earns after each halving.
-export const levelUpCost = (s, factor = 1) => Math.max(1, Math.round(LEVEL_COST_BASE * (s.level + 1) ** 2 * factor));
+export const levelUpCost = (s, factor = 1, settings = DEFAULT_SETTINGS) => Math.max(1, Math.round(settings.levelCostBase * (s.level + 1) ** settings.levelCostExp * factor));
 export const repairCost = (s, factor = 1) => (s.durability >= 100 ? 0 : Math.max(1, Math.ceil((100 - s.durability) * 0.1 * EARN_SCALE * factor * (1 + s.level * 0.1))));
 // ~5.4 per energy for a typical Common: 100 → 50 in about 9 days of one energy a day.
 export const durabilityLossPerEnergy = (s) => Math.max(1, 6 - attrs(s).resilience * 0.1);
