@@ -181,4 +181,16 @@ export async function claimRewards(onStatus = () => {}) {
   return { hash, amount: Number(BigInt(c.totalEarned) - already) / 1e18 };
 }
 
+// ------------------------------------------------------------------ holder rewards (2% of trades)
+export const MIN_HOLDING = 300_000;
+
+/** Holder rewards `address` can claim now (whole tokens), or null if the token isn't live. */
+export async function holderClaimable(address = auth.state.address) {
+  if (!isAddr(TOKEN_CONTRACT) || !address) return null;
+  return Number(await tokenCall(`0x7a8afcc2${addrWord(address)}`)) / 1e18;
+}
+
+/** Sends claimHolderRewards() from the wallet. Resolves with the tx hash. */
+export const claimHolderRewards = () => auth.sendTx({ to: TOKEN_CONTRACT, data: '0x1979f81e', chainId: TOKEN_CHAIN.id });
+
 export const tokenExplorerTx = (hash) => `${TOKEN_CHAIN.blockExplorers.default.url}/tx/${hash}`;

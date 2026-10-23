@@ -67,6 +67,17 @@
       <button class="btn primary pill" id="b-setsigner" disabled>Set server address on the token</button>
       <div id="setsigner" class="small"></div>
     </section>
+
+    <section class="card step" id="launch" hidden>
+      <h3><i>5</i>After adding liquidity</h3>
+      <p class="muted small" style="margin:0">Add liquidity on the exchange first (that transfer is untaxed), then register the pool right away — from then on buys and sells through it pay the 4% tax and the pool gets no holder rewards. Pools can't be removed. Use a Uniswap-V2-style pool: fee-on-transfer tokens don't work in V3-style pools.</p>
+      <input id="pair-addr" class="input mono" placeholder="Pool (pair) contract address 0x…" autocomplete="off" spellcheck="false">
+      <button class="btn primary pill" id="b-addpair">Register pool (dev wallet)</button>
+      <div id="addpair" class="small"></div>
+      <p class="muted small" style="margin:8px 0 0">Holder rewards not claimed within 7 days go to the protocol wallet when anyone sweeps them:</p>
+      <button class="btn pill" id="b-sweep">Sweep expired holder rewards</button>
+      <div id="sweep" class="small"></div>
+    </section>
   </main>
   <div id="toast-host"></div>
   <script type="module" src="js/admin.js"></script>

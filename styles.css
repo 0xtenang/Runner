@@ -342,6 +342,7 @@ body.immersive .topbar, body.immersive .tabbar { display: none; }
 .coin-ico circle { fill: var(--coin); }
 .coin-ico path { fill: none; stroke: #1b1405; stroke-width: 1.8; }
 .wallet { display: grid; gap: 16px; }
+.holder-rewards { display: grid; gap: 6px; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
 .wallet-amt { font-size: 34px; font-weight: 900; letter-spacing: -0.02em; display: flex; align-items: baseline; gap: 8px; }
 .wallet-amt small { font-size: 14px; color: var(--muted); font-weight: 700; }
 .energy-num { font-variant-numeric: tabular-nums; }

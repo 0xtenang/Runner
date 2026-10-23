@@ -39,7 +39,7 @@ const CONTRACTS = {
     file: 'RunnerToken.sol', contract: 'RunnerToken',
     chain: TOKEN_CHAIN, configured: TOKEN_CONTRACT, fingerprint: TOKEN_CREATION_CODE_KECCAK,
     minBalance: 5n * 10n ** 14n, goodBalance: 10n ** 15n,
-    about: `The ERC-20 token, fixed supply of 1,000,000,000 RUNNER: 800M run-reward pool (locked in the contract, paid only through verified claims), 100M liquidity to the dev wallet <span class="mono">${shortAddress(DEV_WALLET)}</span>, 100M team to <span class="mono">${shortAddress(TEAM_WALLET)}</span>. The dev wallet becomes owner. No more tokens can ever be created.`,
+    about: `The ERC-20 token, fixed supply of 1,000,000,000 RUNNER: 800M run-reward pool (locked in the contract, paid only through verified claims), 100M liquidity to the dev wallet <span class="mono">${shortAddress(DEV_WALLET)}</span>, 100M team to <span class="mono">${shortAddress(TEAM_WALLET)}</span>. 4% tax on buys/sells (2% protocol, 2% to holders of 300k+), fixed forever. The dev wallet becomes owner. No more tokens can ever be created. <a href="https://github.com/0xtenang/Runner/blob/main/AUDIT.md" target="_blank" rel="noopener">Read the audit report first.</a>`,
     roles: `Owner + 100M liquidity: dev wallet ${DEV_WALLET}\n100M team: ${TEAM_WALLET}\n800M run rewards: locked in the contract`,
     next: 'send this to Claude to connect the app and the claim server',
     /** constructor(owner, liquidityWallet, teamWallet) */
@@ -94,6 +94,7 @@ function render() {
     : '';
   bytecode = null;
   $('#server').hidden = kind !== 'token';
+  $('#launch').hidden = kind !== 'token' || !TOKEN_CONTRACT;
   if (kind === 'token') refreshServer();
   refreshWho();
 }
@@ -233,36 +234,55 @@ $('#b-genkey').onclick = async () => {
   $('#b-copykey').onclick = () => navigator.clipboard.writeText(hex(key));
 };
 
+/** Sends a transaction from the dev wallet: a browser wallet (MetaMask) if present, else Privy. */
+async function sendAsDev(to, data, chainId = TOKEN_CHAIN.id) {
+  const injected = window.ethereum;
+  if (injected) {
+    const [from] = await injected.request({ method: 'eth_requestAccounts' });
+    if (from.toLowerCase() !== DEV_WALLET.toLowerCase()) throw new Error(`Switch your browser wallet to the dev wallet ${DEV_WALLET} (it's on ${from}).`);
+    await injected.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] });
+    return injected.request({ method: 'eth_sendTransaction', params: [{ from, to, data }] });
+  }
+  if (!auth.signedIn || auth.state.address.toLowerCase() !== DEV_WALLET.toLowerCase()) {
+    throw new Error(`Only the dev wallet ${DEV_WALLET} can do this. Open this page in a browser with that wallet installed, or use Blockscout → the token → Write contract.`);
+  }
+  return auth.sendTx({ to, data, chainId });
+}
+
+async function runTx(button, out, makeTx, done) {
+  button.disabled = true;
+  try {
+    const hash = await makeTx();
+    out.textContent = 'Sent — waiting for the network…';
+    const r = await waitForReceipt(hash);
+    if (r.status !== '0x1') throw new Error('The transaction failed on-chain.');
+    out.innerHTML = `<span class="ok">${done}</span>`;
+  } catch (e) {
+    const m = String(e?.message || e);
+    out.innerHTML = `<span class="bad">${/reject|denied|cancel/i.test(m) ? 'Cancelled.' : esc(m.slice(0, 300))}</span>`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 $('#b-setsigner').onclick = async () => {
   const signer = serverStatus?.signer;
   if (!signer) return;
-  const data = `0x6c19e783${encAddress(signer)}`; // setSigner(address)
-  $('#b-setsigner').disabled = true;
-  try {
-    let hash;
-    const injected = window.ethereum;
-    if (injected) {
-      // A browser wallet (e.g. MetaMask) holding the dev wallet.
-      const [from] = await injected.request({ method: 'eth_requestAccounts' });
-      if (from.toLowerCase() !== DEV_WALLET.toLowerCase()) throw new Error(`Switch your browser wallet to the dev wallet ${DEV_WALLET} (it's on ${from}).`);
-      await injected.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${TOKEN_CHAIN.id.toString(16)}` }] });
-      hash = await injected.request({ method: 'eth_sendTransaction', params: [{ from, to: TOKEN_CONTRACT, data }] });
-    } else {
-      if (!auth.signedIn || auth.state.address.toLowerCase() !== DEV_WALLET.toLowerCase()) {
-        throw new Error(`Only the dev wallet ${DEV_WALLET} can do this. Open this page in a browser with that wallet installed, or use Blockscout → the token → Write contract → setSigner(${signer}).`);
-      }
-      hash = await auth.sendTx({ to: TOKEN_CONTRACT, data, chainId: TOKEN_CHAIN.id });
-    }
-    $('#setsigner').textContent = 'Sent — waiting for the network…';
-    const r = await waitForReceipt(hash);
-    if (r.status !== '0x1') throw new Error('The transaction failed on-chain.');
-    $('#setsigner').innerHTML = '<span class="ok">✓ Server address set — claims are on.</span>';
-    refreshServer();
-  } catch (e) {
-    const m = String(e?.message || e);
-    $('#setsigner').innerHTML = `<span class="bad">${/reject|denied|cancel/i.test(m) ? 'Cancelled.' : esc(m.slice(0, 300))}</span>`;
-    $('#b-setsigner').disabled = false;
-  }
+  await runTx($('#b-setsigner'), $('#setsigner'), () => sendAsDev(TOKEN_CONTRACT, `0x6c19e783${encAddress(signer)}`), '✓ Server address set — claims are on.'); // setSigner(address)
+  refreshServer();
+};
+
+$('#b-addpair').onclick = async () => {
+  const pair = $('#pair-addr').value.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(pair)) { $('#addpair').innerHTML = '<span class="bad">Paste the pool contract address (0x… 40 hex characters).</span>'; return; }
+  if (!confirm(`Register ${pair} as a RUNNER exchange pool?\n\nTrades through it will pay the 4% tax. This can't be undone.`)) return;
+  await runTx($('#b-addpair'), $('#addpair'), () => sendAsDev(TOKEN_CONTRACT, `0xc2b7bbb6${encAddress(pair)}`), '✓ Pool registered — trades through it are now taxed.'); // addPair(address)
+};
+
+$('#b-sweep').onclick = async () => {
+  // Anyone may sweep; use whichever wallet is available.
+  const data = `0x98bc402d${word(60)}`; // sweepExpired(60 days)
+  await runTx($('#b-sweep'), $('#sweep'), () => (window.ethereum ? sendAsDev(TOKEN_CONTRACT, data) : auth.sendTx({ to: TOKEN_CONTRACT, data, chainId: TOKEN_CHAIN.id })), '✓ Expired holder rewards sent to the protocol wallet.');
 };
 
 render();

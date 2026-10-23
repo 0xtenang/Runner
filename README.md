@@ -57,12 +57,12 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 - **5% royalty**: ERC-2981 plus ERC-721C transfer-validator support (`setTransferValidator`), which marketplaces use to enforce creator earnings.
 - **OpenSea**: `contractURI()` → `/nft/collection.json` (name, images, website, fee). OpenSea gives the contract `owner()` edit rights, so the dev wallet can sign in to OpenSea and add socials, website and banner. After a mainnet launch, turn on enforced creator earnings in OpenSea Studio → Creator earnings. The required OpenSea contracts only exist on mainnet, not on testnet.
 - **Metadata**: `/nft/:id` (JSON) and `/nft/image/:id` (SVG) are served by `api/nft.js` and `api/nft-image.js` from the same trait and art code as the app. The owner can change them with `setBaseURI` and `setContractURI`.
-- Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0xe399c46155224fdfa7b6df6c0b53b2e7e1e17068171417f57b2187b72a31dc18`.
+- Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0x1c55e9cf65a7def63fa7bc19d49e3b89330b967c964fdba4e63d83a13c00b446`.
 - Deploy (mainnet): open `/admin.html`, sign in with any wallet holding a little ETH, compile (the page checks the fingerprint) and deploy. Then set `NFT_CONTRACT` in `js/config.js`.
 
 ## RUNNER token contract
 
-`contracts/RunnerToken.sol` — ERC-20 on Robinhood Chain mainnet, fixed supply of **1,000,000,000 RUNNER**, all created at deployment. There is no mint function, and burning is the only way the supply changes.
+`contracts/RunnerToken.sol` — ERC-20 on Robinhood Chain mainnet, fixed supply of **1,000,000,000 RUNNER**, all created at deployment. There is no mint function, and burning is the only way the supply changes. **Not deployed yet. Read [AUDIT.md](AUDIT.md) first.**
 
 | Share | Amount | Goes to |
 |---|---|---|
@@ -70,11 +70,11 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 | Liquidity | 100,000,000 (10%) | Dev wallet `0x0f397E46e4e810313dBC782CDb0236347157f1B4` |
 | Team | 100,000,000 (10%) | `0x0f4FE718eb8492533E600b30F3287E2f04087332` |
 
-- **Claims**: the RUNNER server checks a runner's runs and signs an EIP-712 message saying "this account has earned X in total". `claim()` pays X minus what was already claimed. Anyone can submit it, but the tokens always go to the runner. Signatures expire, can't be replayed and can't be reused for another account.
-- **Safety**: a daily cap on total claims (1,000,000 RUNNER by default) limits the damage if the server key leaks. The dev wallet (owner) can rotate the server key (`setSigner`), pause claims and change the cap. The owner can **never** take tokens out of the reward pool.
-- Claims stay off until the dev wallet sets the server's signing address.
-- Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0x02f9af3bd2c5da6178afe5912a49543b78a4f962274f1a0297e45a59ae64cbab`.
-- Deploy: `/admin.html?c=token`, sign in with any wallet holding a little mainnet ETH, compile, deploy. Then set `TOKEN_CONTRACT` in `js/config.js`.
+- **4% trading tax, fixed forever.** It applies to buys and sells through registered exchange pools: 2% goes to the protocol wallet and 2% to holders. Wallet-to-wallet transfers and run-reward claims are untaxed. Pools are registered with `addPair` after liquidity is added; only real RUNNER pools are accepted, and they can't be removed.
+- **Holder rewards.** Each UTC day's 2% is shared by every wallet that held at least **300,000 RUNNER for that whole day**, in proportion to its lowest balance that day. It can be claimed (`claimHolderRewards`, also on the Earn tab) for **7 days**. After that, `sweepExpired` sends what's left to the protocol wallet; anyone can call it. Exchange pools and the contract get no share; dev and team wallets do.
+- **Run-reward claims.** The RUNNER server signs "this account has earned X in total", and `claim()` pays X minus what was already claimed. A daily cap applies: 1,000,000 by default, and it can never go above 2,000,000. The owner can rotate the server key or pause claims, but can **never** take tokens from the reward pool or the holder rewards.
+- Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0x56b86374daef492b5034060bd22303acd9474669b2686c54cf5166a38f3c973a`.
+- Deploy: `/admin.html?c=token` → compile → deploy. Then set `TOKEN_CONTRACT` in `js/config.js`, add liquidity, and register the pool immediately (admin page, step 5).
 
 ## Rewards server (claims)
 
@@ -96,4 +96,4 @@ Setup, once both contracts are deployed:
 
 Until all three are done, the app keeps working in local mode. What the server can't fully stop is GPS-spoofing apps on a phone. Per-wallet energy limits each sneaker to a few minutes of earning a day, and the token's daily claim cap bounds the total.
 
-Tests: `node tests/rewards-server.test.mjs .` covers sessions, scoring, anti-cheat, spending and claims (27 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.
+Tests (`tests/`, see [AUDIT.md](AUDIT.md)): `node rewards-server.test.mjs ..` covers sessions, scoring, anti-cheat, spending and claims (27 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.

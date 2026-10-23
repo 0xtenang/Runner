@@ -224,12 +224,14 @@ contract RunnerGenesis {
     }
 
     function transferFrom(address from, address to, uint256 tokenId) public {
+        // Royalty-enforcement hook first: every check below reads state after it, so even a
+        // validator that calls back into this contract can't make a stale check pass.
+        address validator = _transferValidator;
+        if (validator != address(0)) ITransferValidator(validator).validateTransfer(msg.sender, from, to, tokenId);
         address o = ownerOf(tokenId);
         if (o != from) revert NotAuthorized();
         if (msg.sender != o && _tokenApprovals[tokenId] != msg.sender && !_operatorApprovals[o][msg.sender]) revert NotAuthorized();
         if (to == address(0)) revert ZeroAddress();
-        address validator = _transferValidator;
-        if (validator != address(0)) ITransferValidator(validator).validateTransfer(msg.sender, from, to, tokenId);
         _transfer(from, to, tokenId);
     }
 

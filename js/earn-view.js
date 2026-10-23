@@ -5,7 +5,7 @@ import { auth, shortAddress, explorerUrl, CHAIN_NAME } from './auth.js';
 import { COLLECTION, MODELS, EDITIONS, traitsFor, collectionStats, rarityOf, priceOf, PRICE_ETH } from './collection.js';
 import { getBalance, getEthUsd, toUsd, getTransfers, estimateFee, parseEth, formatEth, isAddress, txUrl } from './wallet.js';
 import { nftLive, ownedTokens, mintedStatus, totalMinted, salesPaused, mintData, nativeBalance, mintFeeEstimate, waitForReceipt, nftExplorerTx } from './nft.js';
-import { NFT_CHAIN, NFT_CONTRACT } from './config.js';
+import { NFT_CHAIN, NFT_CONTRACT, TOKEN_CONTRACT } from './config.js';
 import {
   game, COIN, SNEAKER_TYPES, RARITIES, MAX_LEVEL, MINUTES_PER_ENERGY, ATTRS, POINTS_PER_LEVEL,
   attrs, earnPerEnergy, levelUpCost, repairCost, durabilityLossPerEnergy,
@@ -19,7 +19,7 @@ const ATTR_HINT = { efficiency: `more ${COIN} per run`, resilience: 'less wear' 
 // Sneaker illustrations live in sneaker-art.js (four lines + editions).
 export { sneakerSvg } from './sneaker-art.js';
 import { sneakerSvg } from './sneaker-art.js';
-import { rewardsActive, rewardsConnected, connectRewards, syncRewards, checkRewardsStatus, upgrade, claimRewards, tokenBalance, claimedOnChain, tokenExplorerTx } from './rewards.js';
+import { rewardsActive, rewardsConnected, connectRewards, syncRewards, checkRewardsStatus, upgrade, claimRewards, tokenBalance, claimedOnChain, tokenExplorerTx, holderClaimable, claimHolderRewards, MIN_HOLDING } from './rewards.js';
 
 const coinIcon = '<svg class="coin-ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9"/><path d="M10 5v10M7.5 7.5h4a2 2 0 0 1 0 4h-3"/></svg>';
 export const coinTag = (n, sign = false) => `<span class="coin-amt">${coinIcon}${sign && n > 0 ? '+' : ''}${fmtCoins(n)}</span>`;
@@ -526,24 +526,35 @@ let claimInfo = null; // { wallet, claimed } read from the token contract
 
 function rewardsCard(st) {
   if (!rewardsActive()) {
-    return `<span class="muted small">Earned by running. Spend it on level-ups and repairs. Claiming ${COIN} to your wallet opens when the token launches.</span>`;
+    return `<span class="muted small">Earned by running. Spend it on level-ups and repairs. Claiming ${COIN} to your wallet opens when the token launches.</span>${holderRewardsBlock()}`;
   }
   if (!rewardsConnected()) {
     return `<span class="muted small">Connect to the RUNNER server so your runs earn real ${COIN} you can claim to your wallet. Your wallet signs once — it's free.</span>
-      <button class="btn primary pill sm" data-act="rw-connect">Connect rewards</button>`;
+      <button class="btn primary pill sm" data-act="rw-connect">Connect rewards</button>${holderRewardsBlock()}`;
   }
   const srv = st.server || { earned: 0, spent: 0 };
   const claimable = claimInfo?.address === auth.state.address ? Math.max(0, srv.earned - srv.spent - claimInfo.claimed) : null;
   return `<span class="muted small">Verified by the RUNNER server. Spend it on level-ups and repairs, or claim it to your wallet as real ${COIN} tokens.</span>
     <span class="small">In your wallet: <b>${claimInfo ? `${fmtCoins(claimInfo.wallet)} ${COIN}` : '…'}</b></span>
     <button class="btn primary pill sm" data-act="rw-claim" ${claimable ? '' : 'disabled'}>${claimable ? `Claim ${fmtCoins(claimable)} ${COIN} to wallet` : 'Nothing to claim yet'}</button>
-    <span class="muted small" id="rw-status" role="status"></span>`;
+    <span class="muted small" id="rw-status" role="status"></span>
+    ${holderRewardsBlock()}`;
+}
+
+function holderRewardsBlock() {
+  if (claimInfo?.holder == null || claimInfo.address !== auth.state.address) return '';
+  const h = claimInfo.holder;
+  return `<div class="holder-rewards">
+      <span class="lbl">Holder rewards</span>
+      <span class="muted small">Hold at least ${MIN_HOLDING.toLocaleString()} ${COIN} for a whole day (UTC) to share 2% of that day's trading volume. Each day's reward can be claimed for 7 days.</span>
+      <button class="btn pill sm" data-act="holder-claim" ${h > 0 ? '' : 'disabled'}>${h > 0 ? `Claim ${fmtCoins(h)} ${COIN} holder rewards` : 'No holder rewards to claim'}</button>
+    </div>`;
 }
 
 async function loadClaimInfo(onDone) {
   try {
-    const [wallet, claimed] = await Promise.all([tokenBalance(), claimedOnChain()]);
-    claimInfo = { wallet, claimed, address: auth.state.address };
+    const [wallet, claimed, holder] = await Promise.all([tokenBalance(), claimedOnChain(), holderClaimable()]);
+    claimInfo = { wallet, claimed, holder, address: auth.state.address };
     onDone();
   } catch { /* chain unreachable: keep showing "…" */ }
 }
@@ -674,7 +685,7 @@ export function renderEarn(view, { toast, onCleanup }) {
         <p class="muted small" style="text-align:center">${rewardsActive() ? `Every run is checked by the RUNNER server before it earns. Only runs recorded live with GPS count.` : `${COIN} is an in-app token with no cash value yet. Only runs recorded live with GPS earn.`}</p>
       </section>`;
     window.scrollTo(0, y); // redraws shouldn't jump the page
-    if (rewardsConnected() && claimInfo?.address !== auth.state.address) { claimInfo = null; loadClaimInfo(draw); }
+    if (auth.signedIn && TOKEN_CONTRACT && claimInfo?.address !== auth.state.address) { claimInfo = null; loadClaimInfo(draw); }
     if (nftLive() && view.querySelector('#minted-count')) {
       totalMinted().then((n) => { const el = view.querySelector('#minted-count'); if (el) el.textContent = `${nf(n)} / ${nf(COLLECTION.supply)} minted`; }).catch(() => {});
     }
@@ -720,6 +731,18 @@ export function renderEarn(view, { toast, onCleanup }) {
             say('');
             throw /reject|denied|cancel/i.test(String(err.message)) ? new Error('Claim cancelled — you can claim any time.') : err;
           } finally { b.disabled = false; }
+          break;
+        }
+        case 'holder-claim': {
+          b.disabled = true;
+          try {
+            const hash = await claimHolderRewards();
+            toast('Claim sent — waiting for the network…');
+            await waitForReceipt(hash);
+            toast('Holder rewards claimed');
+          } catch (err) {
+            throw /reject|denied|cancel/i.test(String(err.message)) ? new Error('Cancelled.') : err;
+          } finally { claimInfo = null; draw(); }
           break;
         }
         case 'level': {

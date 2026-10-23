@@ -1,6 +1,7 @@
 .DS_Store
 .claude/
-share-qr.html
 .scratch/
 node_modules/
+share-qr.html
+tests/node_modules
 www/
