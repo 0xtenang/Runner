@@ -2,6 +2,7 @@
 // boxes, marketplace, history.
 import { units, fmtPace } from './stats.js';
 import { auth, shortAddress, explorerUrl, CHAIN_NAME } from './auth.js';
+import { COLLECTION, MODELS, EDITIONS, traitsFor, collectionStats } from './collection.js';
 import { getBalance, getEthUsd, toUsd, getTransfers, estimateFee, parseEth, formatEth, isAddress, txUrl } from './wallet.js';
 import {
   game, COIN, SNEAKER_TYPES, RARITIES, MAX_LEVEL, MINUTES_PER_ENERGY, ATTRS, POINTS_PER_LEVEL, MINT_LEVEL, MAX_MINTS,
@@ -14,96 +15,9 @@ export const fmtCoins = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString
 const ATTR_LABEL = { efficiency: 'Efficiency', luck: 'Luck', resilience: 'Resilience' };
 const ATTR_HINT = { efficiency: 'more coins', luck: 'more boxes', resilience: 'less wear' };
 
-// ---------------------------------------------------------------- sneaker art
-// Original RUNNER sneaker design (no real brand's marks or silhouettes):
-// thick rocker foam midsole, engineered-mesh upper, padded collar, heel tab
-// and the RUNNER "bolt" side mark. Class sets the silhouette, rarity adds
-// effects, and the serial picks the colourway so every sneaker looks unique.
-const ART_STYLE = {
-  walker:  { stack: 10, plate: false, lugs: false },  // Recovery: max cushion
-  jogger:  { stack: 4, plate: false, lugs: false },   // Daily: balanced trainer
-  runner:  { stack: 12, plate: true, lugs: false },   // Tempo: tall stack + carbon plate
-  trainer: { stack: 5, plate: false, lugs: true },    // Hybrid: grippy lugs
-};
-let artSeq = 0; // unique gradient ids when many sneakers share a page
-
-export function sneakerSvg(s, cls = 'sneaker-art') {
-  const id = `sn${++artSeq}`;
-  const st = ART_STYLE[s.type] || ART_STYLE.jogger;
-  const rar = s.rarity || 'common';
-  const fancy = rar !== 'common';
-  const shiny = rar === 'rare' || rar === 'epic';
-  const seed = Number(s.serial) || Math.round(s.hue * 7.3) || 1;
-  const h = s.hue, h2 = (h + 140 + (seed % 80)) % 360;
-
-  const upper = `hsl(${h} 72% 52%)`, upper2 = `hsl(${(h + 32) % 360} 82% 60%)`;
-  const dark = `hsl(${h} 55% 22%)`, light = `hsl(${h} 85% 84%)`;
-  const midTone = seed % 3; // 0 white foam, 1 contrast foam, 2 tonal foam
-  const mid = midTone === 0 ? '#f7f7f3' : midTone === 1 ? `hsl(${h2} 88% 62%)` : `hsl(${h} 75% 88%)`;
-  const mid2 = shiny ? `hsl(${h2} 92% 55%)` : midTone === 0 ? '#deded7' : midTone === 1 ? `hsl(${h2} 80% 50%)` : `hsl(${h} 60% 74%)`;
-  const mark = midTone === 1 ? '#ffffff' : `hsl(${h2} 92% 58%)`;
-  const lace = seed % 2 ? '#ffffff' : dark;
-  const plate = rar === 'epic' ? '#f5c518' : '#1a1a1a';
-
-  // Stack height: full at the heel, tapering towards the toe (heel-to-toe drop).
-  const S = st.stack;
-  const off = (x) => S * (1 - 0.6 * x / 240);
-  const o = (x, y) => `${x} ${(y - off(x)).toFixed(1)}`;
-  const pts = (list) => list.map(([x, y], i) => `${i ? 'L' : 'M'}${o(x, y)}`).join('') + 'Z';
-
-  const topEdge = `C${o(200, 76)} ${o(120, 68)} ${o(50, 61)}C${o(30, 59)} ${o(18, 58)} ${o(10, 58)}`;
-  const midPath = `M${o(10, 58)}C${o(4, 70)} 4 92 16 100C50 106 140 107 190 102C212 99 228 90 238 78C240 74 236 72 ${o(230, 73)}${topEdge}Z`;
-  const upperPath = `M${o(12, 60)}C${o(8, 44)} ${o(10, 30)} ${o(18, 22)}C${o(22, 16)} ${o(32, 14)} ${o(38, 18)}C${o(48, 26)} ${o(60, 30)} ${o(74, 28)}C${o(84, 26)} ${o(90, 18)} ${o(96, 12)}C${o(100, 7)} ${o(110, 8)} ${o(112, 14)}C${o(120, 30)} ${o(150, 44)} ${o(186, 54)}C${o(212, 60)} ${o(232, 66)} ${o(230, 73)}${topEdge}Z`;
-  const outsole = 'M16 100C50 106 140 107 190 102C212 99 228 90 238 78L240 82C232 95 214 104 190 106.5C140 112 50 111 14 104Z';
-  const laces = Array.from({ length: 5 }, (_, i) => {
-    const x = 116 + i * 13.5, y = 24 + i * 6.4;
-    return `M${o(x, y)}L${o(x - 12, y + 8)}`;
-  }).join('');
-  const lugs = st.lugs ? Array.from({ length: 11 }, (_, i) => {
-    const x = 26 + i * 17, y = 103 + 6 * (1 - ((x - 110) / 100) ** 2);
-    return `<rect x="${x}" y="${y.toFixed(1)}" width="9" height="4.5" rx="1.5"/>`;
-  }).join('') : '';
-  const line = (pairs) => pairs.map(([x, y], i) => `${i === 0 ? 'M' : i % 3 === 1 ? 'C' : ''}${x} ${(y - off(x) * 0.5).toFixed(1)}`).join(' ');
-  const sparkles = rar === 'epic' ? [[26, 10, 1], [216, 28, 0.8], [196, 8, 0.6]].map(([x, y, k]) =>
-    `<path class="sparkle" transform="translate(${x} ${y}) scale(${k})" d="M0-7L1.8-1.8L7 0L1.8 1.8L0 7L-1.8 1.8L-7 0L-1.8-1.8Z"/>`).join('') : '';
-
-  return `<svg class="${cls} rarity-${rar}" viewBox="0 0 244 120" aria-hidden="true">
-    <defs>
-      <linearGradient id="${id}u" x1="0" x2="1" y1="0" y2="0.4"><stop offset="0" stop-color="${upper}"/><stop offset="1" stop-color="${fancy ? upper2 : upper}"/></linearGradient>
-      <linearGradient id="${id}d" x1="0" x2="0" y1="0" y2="1"><stop offset=".45" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".22"/></linearGradient>
-      <linearGradient id="${id}m" x1="0" x2="0" y1="0" y2="1"><stop offset=".1" stop-color="${mid}"/><stop offset="1" stop-color="${mid2}"/></linearGradient>
-      <linearGradient id="${id}s" x1="0" x2="1" y1="0" y2="0" gradientTransform="rotate(28)">
-        <stop offset=".25" stop-color="#fff" stop-opacity="0"/><stop offset=".42" stop-color="#fff" stop-opacity=".55"/>
-        <stop offset=".5" stop-color="#b9f6ff" stop-opacity=".25"/><stop offset=".62" stop-color="#fff" stop-opacity="0"/>
-      </linearGradient>
-      <pattern id="${id}k" width="5" height="5" patternUnits="userSpaceOnUse"><circle cx="2.5" cy="2.5" r=".9" fill="#fff" opacity=".22"/></pattern>
-      <filter id="${id}g" x="-20%" y="-60%" width="140%" height="220%"><feGaussianBlur stdDeviation="5"/></filter>
-    </defs>
-    <ellipse cx="124" cy="111" rx="108" ry="5" fill="#000" opacity=".16"/>
-    ${rar === 'epic' ? `<path d="${midPath}" fill="${mid2}" filter="url(#${id}g)" opacity=".9"/>` : ''}
-    <path d="${upperPath}" fill="url(#${id}u)"/>
-    <path d="${upperPath}" fill="url(#${id}k)"/>
-    <path d="${upperPath}" fill="url(#${id}d)"/>
-    <path d="M${o(12, 60)}C${o(8, 44)} ${o(10, 30)} ${o(18, 22)}C${o(22, 16)} ${o(32, 14)} ${o(38, 18)}L${o(42, 22)}C${o(36, 36)} ${o(36, 50)} ${o(42, 62)}C${o(28, 61)} ${o(18, 60)} ${o(12, 60)}Z" fill="${dark}" opacity=".55"/>
-    <path d="M${o(180, 53)}C${o(210, 59)} ${o(232, 66)} ${o(230, 73)}C${o(214, 75)} ${o(196, 74)} ${o(176, 71)}C${o(180, 66)} ${o(181, 60)} ${o(180, 53)}Z" fill="${dark}" opacity=".35"/>
-    <path d="M${o(90, 18)}C${o(95, 8)} ${o(104, 4)} ${o(112, 9)}L${o(114, 18)}Z" fill="${light}"/>
-    <path d="M${o(20, 24)}C${o(28, 20)} ${o(34, 20)} ${o(40, 24)}C${o(50, 31)} ${o(62, 34)} ${o(76, 32)}C${o(86, 30)} ${o(92, 22)} ${o(96, 16)}" fill="none" stroke="${dark}" stroke-width="5" stroke-linecap="round"/>
-    <path d="M${o(104, 24)}C${o(122, 38)} ${o(150, 50)} ${o(182, 58)}" fill="none" stroke="${dark}" stroke-width="9" stroke-linecap="round" opacity=".28"/>
-    <path d="${pts([[60, 50], [98, 38], [94, 46], [132, 34], [92, 58], [97, 49]])}" fill="${mark}"/>
-    <path d="${laces}" stroke="${lace}" stroke-width="2.8" stroke-linecap="round"/>
-    <path d="M${o(20, 22)}C${o(15, 12)} ${o(20, 4)} ${o(28, 8)}" fill="none" stroke="${light}" stroke-width="4" stroke-linecap="round"/>
-    <path d="M${o(15, 34)}L${o(14, 48)}" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".75"/>
-    ${shiny ? `<path d="${upperPath}" fill="url(#${id}s)"/>` : ''}
-    <path d="${midPath}" fill="url(#${id}m)"/>
-    <path d="M${(18).toFixed(0)} ${(82 - off(18) * 0.5).toFixed(1)}C26 ${(74 - off(26) * 0.5).toFixed(1)} 66 ${(76 - off(66) * 0.5).toFixed(1)} 98 ${(84 - off(98) * 0.5).toFixed(1)}C68 ${(90 - off(68) * 0.5).toFixed(1)} 30 ${(90 - off(30) * 0.5).toFixed(1)} 18 ${(82 - off(18) * 0.5).toFixed(1)}Z" fill="${shiny ? mark : '#000'}" opacity="${shiny ? 0.85 : 0.09}"/>
-    <path d="${line([[22, 84], [70, 92], [160, 93], [222, 82]])}" fill="none" stroke="#000" stroke-opacity=".1" stroke-width="3" stroke-linecap="round"/>
-    <path d="${line([[20, 92], [70, 99], [160, 99], [226, 86]])}" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="2" stroke-linecap="round"/>
-    ${st.plate ? `<path d="${line([[26, 78], [90, 86], [170, 86], [234, 76]])}" fill="none" stroke="${plate}" stroke-width="3.2" stroke-linecap="round"/>` : ''}
-    <path d="${outsole}" fill="#1d1d1f"/>
-    ${lugs ? `<g fill="#1d1d1f">${lugs}</g>` : ''}
-    ${sparkles}
-  </svg>`;
-}
+// Sneaker illustrations live in sneaker-art.js (four lines + editions).
+export { sneakerSvg } from './sneaker-art.js';
+import { sneakerSvg } from './sneaker-art.js';
 
 const coinIcon = '<svg class="coin-ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9"/><path d="M10 5v10M7.5 7.5h4a2 2 0 0 1 0 4h-3"/></svg>';
 export const coinTag = (n, sign = false) => `<span class="coin-amt">${coinIcon}${sign && n > 0 ? '+' : ''}${fmtCoins(n)}</span>`;
@@ -385,6 +299,109 @@ function openWithdraw(toast) {
   });
 }
 
+const nf = (n) => n.toLocaleString();
+
+/** Line / edition / token chips for a sneaker. */
+function traitRow(s) {
+  const model = MODELS[s.model] || MODELS.stride;
+  const ed = s.edition && s.edition !== 'standard' ? EDITIONS[s.edition] : null;
+  return `<div class="trait-row">
+    <span class="badge neutral">${model.label}</span>
+    ${ed ? `<span class="badge ed-${s.edition}">${ed.label} edition</span>` : ''}
+    <span class="muted small">${s.tokenId ? `Genesis #${s.tokenId} / ${nf(COLLECTION.supply)}` : 'Original sneaker'}</span>
+  </div>`;
+}
+
+function collectionCard(st) {
+  const owned = st.sneakers.filter((x) => x.tokenId).length;
+  const { models, editions } = collectionStats();
+  return `
+    <div class="card collection-card">
+      <div class="row between"><h4 style="margin:0">${COLLECTION.name}</h4><span class="badge neutral">${nf(COLLECTION.supply)} sneakers</span></div>
+      <div class="collection-strip">${[1, 2, 3].map((n) => sneakerSvg({ ...traitsFor([88, 4021, 7777][n - 1]), rarity: 'common' }, 'sneaker-art xs')).join('')}</div>
+      <p class="muted small" style="margin:0">Every sneaker is one of ${nf(COLLECTION.supply)} unique designs across four lines —
+        ${Object.entries(MODELS).map(([k, m]) => `${m.label} (${nf(models[k] || 0)})`).join(', ')} — with rare
+        Neon (${editions.neon || 0}), Ghost (${editions.ghost || 0}) and Gold (${editions.gold || 0}) editions. You own ${owned}.</p>
+      <button class="btn pill" data-act="collection">Explore the collection</button>
+    </div>`;
+}
+
+function openCollection() {
+  const ownedIds = new Set(game.state.sneakers.map((x) => x.tokenId).filter(Boolean));
+  const PER = 12;
+  let page = 0;
+  let filter = 'all'; // all | model key | edition key
+  const matches = () => {
+    if (filter === 'all') return null;
+    const ids = [];
+    for (let i = 1; i <= COLLECTION.supply; i++) {
+      const t = traitsFor(i);
+      if (t.model === filter || t.edition === filter) ids.push(i);
+    }
+    return ids;
+  };
+  let list = null;
+  openSheet(`
+    <h2 class="sheet-title">${COLLECTION.name}</h2>
+    <p class="muted">${nf(COLLECTION.supply)} original sneaker designs. The number decides the look — line, colours, foam, pattern and edition.</p>
+    <div class="chips coll-filters">
+      ${[['all', 'All'], ...Object.entries(MODELS).map(([k, m]) => [k, m.label]), ['neon', 'Neon'], ['ghost', 'Ghost'], ['gold', 'Gold']]
+        .map(([k, l]) => `<button class="chip ${k === 'all' ? 'on' : ''}" data-filter="${k}">${l}</button>`).join('')}
+    </div>
+    <div class="coll-grid" id="coll-grid"></div>
+    <div class="coll-nav">
+      <button class="btn sm" data-nav="prev">← Prev</button>
+      <span class="muted small" id="coll-page"></span>
+      <button class="btn sm" data-nav="next">Next →</button>
+    </div>
+    <div class="coll-jump"><input id="coll-id" inputmode="numeric" placeholder="Find # (1–${COLLECTION.supply})"><button class="btn sm" data-nav="go">Show</button><button class="btn sm" data-nav="random">Random</button></div>
+    <button class="btn pill block" data-close>Close</button>`, (el) => {
+    const grid = el.querySelector('#coll-grid');
+    const total = () => (list ? list.length : COLLECTION.supply);
+    const idAt = (i) => (list ? list[i] : i + 1);
+    const draw = () => {
+      const pages = Math.max(1, Math.ceil(total() / PER));
+      page = Math.min(Math.max(0, page), pages - 1);
+      const ids = Array.from({ length: Math.min(PER, total() - page * PER) }, (_, k) => idAt(page * PER + k));
+      grid.innerHTML = ids.length ? ids.map((id) => {
+        const t = traitsFor(id);
+        return `<div class="coll-tile ${ownedIds.has(id) ? 'owned' : ''}">
+          ${sneakerSvg({ ...t, rarity: 'common' }, 'sneaker-art sm')}
+          <b>#${id}</b>
+          <span class="muted small">${MODELS[t.model].label}${t.edition !== 'standard' ? ` · <span class="ed-text ed-${t.edition}">${EDITIONS[t.edition].label}</span>` : ''}</span>
+          ${ownedIds.has(id) ? '<span class="badge">Owned</span>' : ''}
+        </div>`;
+      }).join('') : '<p class="muted">No sneakers match.</p>';
+      el.querySelector('#coll-page').textContent = `${nf(page * PER + 1)}–${nf(Math.min(total(), (page + 1) * PER))} of ${nf(total())}`;
+    };
+    el.addEventListener('click', (e) => {
+      const f = e.target.closest('[data-filter]');
+      if (f) {
+        filter = f.dataset.filter;
+        el.querySelectorAll('[data-filter]').forEach((c) => c.classList.toggle('on', c === f));
+        list = matches();
+        page = 0;
+        draw();
+        return;
+      }
+      const n = e.target.closest('[data-nav]');
+      if (!n) return;
+      if (n.dataset.nav === 'prev') page--;
+      if (n.dataset.nav === 'next') page++;
+      if (n.dataset.nav === 'random' || n.dataset.nav === 'go') {
+        const want = n.dataset.nav === 'random' ? 1 + Math.floor(Math.random() * COLLECTION.supply) : parseInt(el.querySelector('#coll-id').value, 10);
+        if (!(want >= 1 && want <= COLLECTION.supply)) return;
+        filter = 'all'; list = null;
+        el.querySelectorAll('[data-filter]').forEach((c) => c.classList.toggle('on', c.dataset.filter === 'all'));
+        page = Math.floor((want - 1) / PER);
+        el.querySelector('#coll-id').value = '';
+      }
+      draw();
+    });
+    draw();
+  });
+}
+
 export function renderEarn(view, { toast, onCleanup }) {
   // UI-only state that survives redraws.
   let staged = null;               // { id, efficiency, luck, resilience } points not yet saved
@@ -421,6 +438,7 @@ export function renderEarn(view, { toast, onCleanup }) {
           <h2 class="sneaker-name">${sneakerTitle(s)}</h2>
           <span class="badge neutral">Lv ${s.level}</span>
         </div>
+        ${traitRow(s)}
         ${s.parents ? `<span class="muted small" style="margin-top:-8px">Minted from #${esc(s.parents[0])} × #${esc(s.parents[1])}</span>` : ''}
         <div class="sneaker-facts">
           <div><span class="lbl">Pace zone</span><b>${paceRange(SNEAKER_TYPES[s.type])}</b></div>
@@ -534,6 +552,8 @@ export function renderEarn(view, { toast, onCleanup }) {
 
         ${mintCard(st)}
 
+        ${collectionCard(st)}
+
         <div class="card">
           <h4>Mystery boxes (${st.boxes.length})</h4>
           ${st.boxes.length ? `<div class="boxes">${st.boxes.map((b) => `
@@ -604,6 +624,7 @@ export function renderEarn(view, { toast, onCleanup }) {
         case 'signin': await auth.login(); break;
         case 'refresh-bal': await refreshChain(true); break;
         case 'deposit': openDeposit(toast); break;
+        case 'collection': openCollection(); break;
         case 'withdraw': openWithdraw(toast); break;
         case 'copy-addr':
           await navigator.clipboard.writeText(auth.state.address);

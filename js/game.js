@@ -17,6 +17,7 @@
 // enforced on a server, which is where `settle()` would move.
 
 import { db } from './db.js';
+import { traitsFor, pickTokenId } from './collection.js';
 
 export const COIN = 'EARN';
 export const MINUTES_PER_ENERGY = 5;
@@ -80,14 +81,23 @@ const ownedFields = () => ({
   createdAt: Date.now(),
 });
 
-export function newSneaker(rarity = 'common', type = pick(Object.keys(SNEAKER_TYPES)), extra = {}) {
+/** Look fields copied from a RUNNER Genesis token (see collection.js). */
+export function lookFromToken(tokenId) {
+  const { model, hue, accent, midTone, pattern, laces, edition } = traitsFor(tokenId);
+  return { tokenId, serial: String(tokenId), model, hue, accent, midTone, pattern, laces, edition };
+}
+
+/**
+ * A new sneaker: gameplay stats rolled from its rarity, look taken from an
+ * unused Genesis token. `used` = token ids already taken on this device.
+ */
+export function newSneaker(rarity = 'common', type = pick(Object.keys(SNEAKER_TYPES)), extra = {}, used = []) {
   const [lo, hi] = RARITIES[rarity].range;
   return {
     ...ownedFields(),
-    serial: String(Math.floor(rand(1000, 99999))),
+    ...lookFromToken(pickTokenId(used)),
     type, rarity,
     base: { efficiency: round2(rand(lo, hi)), luck: round2(rand(lo, hi)), resilience: round2(rand(lo, hi)) },
-    hue: Math.floor(rand(0, 360)),
     ...extra,
   };
 }
@@ -109,15 +119,13 @@ export function mintOdds(a, b) {
   return odds;
 }
 
-function rollMint(a, b) {
+function rollMint(a, b, used) {
   let r = Math.random(), rarity = 'common';
   for (const [k, p] of Object.entries(mintOdds(a, b))) { if ((r -= p) < 0) { rarity = k; break; } rarity = k; }
   const t = Math.random();
   const type = t < 0.45 ? a.type : t < 0.9 ? b.type : pick(Object.keys(SNEAKER_TYPES));
-  // Blend the parents' colours along the shorter way round the hue wheel, with a little drift.
-  const d = ((b.hue - a.hue + 540) % 360) - 180;
-  const hue = Math.round((a.hue + d / 2 + rand(-25, 25) + 360) % 360);
-  return newSneaker(rarity, type, { hue, parents: [a.serial, b.serial] });
+  // The child is a new Genesis token, so its look comes from that token.
+  return newSneaker(rarity, type, { parents: [a.serial, b.serial] }, used);
 }
 
 /** Four marketplace listings that rotate daily (same for the whole day). */
@@ -131,7 +139,7 @@ export function dailyListings(day = new Date().toISOString().slice(0, 10)) {
     return {
       id: `${day}-${i}`, rarity, type: types[Math.floor(rnd() * types.length)],
       base: { efficiency: r(), luck: r(), resilience: r() },
-      hue: Math.floor(rnd() * 360), serial: String(10000 + Math.floor(rnd() * 89999)),
+      ...lookFromToken(1 + Math.floor(rnd() * 9999)),
       price: RARITIES[rarity].price,
     };
   });
@@ -223,7 +231,8 @@ class Game extends EventTarget {
   /** Finishes onboarding with the player's chosen free sneaker. */
   async claimStarter(type, hue) {
     if (this.state.onboarded) return this.active;
-    const s = newSneaker('common', type, hue != null ? { hue } : {});
+    // Starters are Stride-line sneakers in the colour picked during onboarding.
+    const s = newSneaker('common', type, { model: 'stride', edition: 'standard', ...(hue != null ? { hue } : {}) }, this.usedTokens());
     this.state.sneakers.push(s);
     this.state.activeId = s.id;
     this.state.energy = this.maxEnergy;
@@ -244,6 +253,11 @@ class Game extends EventTarget {
     const hours = (now - st.energyAt) / 3.6e6;
     if (st.energy < max) st.energy = Math.min(max, st.energy + (hours * max) / 24);
     st.energyAt = now;
+  }
+
+  /** Genesis token ids already taken on this device. */
+  usedTokens() {
+    return this.state.sneakers.map((s) => s.tokenId).filter(Boolean);
   }
 
   get maxEnergy() { return maxEnergy(this.state.sneakers.length); }
@@ -312,7 +326,7 @@ class Game extends EventTarget {
     if (!canMint(a) || !canMint(b)) throw new Error(`Both sneakers need Lv ${MINT_LEVEL}+, under ${MAX_MINTS} mints and 50+ durability`);
     this._spend(mintCost(a, b), 'mint', `Minted from #${a.serial} + #${b.serial}`);
     this._regen(); // bank energy at the old max before the new sneaker raises it
-    const child = rollMint(a, b);
+    const child = rollMint(a, b, this.usedTokens());
     a.mints++; b.mints++;
     this.state.sneakers.push(child);
     this.state.ledger[0].note += ` → ${RARITIES[child.rarity].label} ${SNEAKER_TYPES[child.type].label} #${child.serial}`;
@@ -331,6 +345,7 @@ class Game extends EventTarget {
 
   async buy(listing) {
     if (this.state.bought.includes(listing.id)) throw new Error('Already sold');
+    if (listing.tokenId && this.usedTokens().includes(listing.tokenId)) throw new Error(`You already own Genesis #${listing.tokenId}`);
     this._spend(listing.price, 'buy', `Bought ${RARITIES[listing.rarity].label} ${SNEAKER_TYPES[listing.type].label} #${listing.serial}`);
     this._regen();
     const { price, id, ...rest } = listing;
@@ -350,7 +365,7 @@ class Game extends EventTarget {
     let sneaker = null;
     if (Math.random() < box.quality * 0.03) {
       this._regen();
-      sneaker = newSneaker(box.quality >= 4 ? 'uncommon' : 'common');
+      sneaker = newSneaker(box.quality >= 4 ? 'uncommon' : 'common', undefined, {}, this.usedTokens());
       this.state.sneakers.push(sneaker);
     }
     this._log(coins, 'box', `Opened Lv ${box.quality} mystery box${sneaker ? ` + ${SNEAKER_TYPES[sneaker.type].label} #${sneaker.serial}` : ''}`);

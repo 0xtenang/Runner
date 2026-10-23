@@ -594,3 +594,27 @@ body.no-scroll { overflow: hidden; }
 .keep-open { align-items: center; padding: 10px 14px; }
 .sim-note { display: block; text-align: center; font-size: 13px; font-weight: 700; color: var(--accent-strong); }
 .rec .rec-sheet { gap: 12px; padding-top: 8px; }
+
+/* ---------- Genesis collection ---------- */
+.trait-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: -6px; }
+.badge.ed-neon { background: #1a1a1a; color: #a3ff3a; }
+.badge.ed-ghost { background: #eef3f8; color: #4b6380; }
+.badge.ed-gold { background: linear-gradient(135deg, #f6dc7a, #c8961e); color: #3b2a08; }
+.ed-text.ed-neon { color: #3f7a0c; font-weight: 800; }
+.ed-text.ed-ghost { color: #4b6380; font-weight: 800; }
+.ed-text.ed-gold { color: #b07d10; font-weight: 800; }
+.collection-card { display: grid; gap: 12px; }
+.collection-card .btn { justify-self: start; }
+.collection-strip { display: flex; justify-content: space-around; padding: 6px 0; }
+.collection-strip .sneaker-art.xs { width: 30%; max-width: 120px; }
+.coll-filters { justify-content: flex-start; }
+.coll-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.coll-tile { position: relative; display: grid; justify-items: center; gap: 2px; padding: 10px 8px; border-radius: 14px; background: var(--surface-2); text-align: center; }
+.coll-tile.owned { box-shadow: 0 0 0 2px var(--accent-strong) inset; }
+.coll-tile .badge { position: absolute; top: 8px; right: 8px; }
+.coll-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.coll-jump { display: flex; gap: 8px; }
+.coll-jump input { flex: 1; min-width: 0; font: inherit; padding: 8px 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--surface); color: var(--text); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { border: 1.5px solid var(--line); background: var(--surface); color: var(--text); border-radius: 99px; padding: 6px 14px; font-weight: 700; font-size: 13px; cursor: pointer; }
+.chip.on { background: var(--text); color: var(--surface); border-color: var(--text); }
