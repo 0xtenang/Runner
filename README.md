@@ -51,7 +51,11 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 
 ## RUNNER Genesis NFT contract
 
-`contracts/RunnerGenesis.sol` — 9,999 sneaker NFTs (ERC-721) on Robinhood Chain. Buyers pick a token id and pay its price; payments go straight to the owner's treasury. Rarity (and price) comes from the token id with the same formula the app uses, so app and chain always agree.
+`contracts/RunnerGenesis.sol` — 9,999 sneaker NFTs (ERC-721) on Robinhood Chain. Open sale, no reveal: buyers pick any token id and pay its price (Common 0.005 / Uncommon 0.015 / Rare 0.04 / Epic 0.1 ETH). Rarity and price come from the token id with the same formula the app uses, so app and chain always agree.
 
-- Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0x9d6131b6577e0744614ee3fc30e34c5aedadf43200284436f2b11cdfc93b5bb9`.
-- Deploy: the owner opens `/admin.html`, signs in, compiles (the page checks the fingerprint) and deploys from their Privy wallet. Then set `NFT_CONTRACT` in `js/config.js`.
+- **Dev wallet** `0x0f397E46e4e810313dBC782CDb0236347157f1B4` is set at deployment as owner, treasury (mint payments) and royalty receiver. Whoever sends the deployment gets no control.
+- **5% royalty**: ERC-2981 plus ERC-721C transfer-validator support (`setTransferValidator`), which marketplaces use to enforce creator earnings.
+- **OpenSea**: `contractURI()` → `/nft/collection.json` (name, images, website, fee). OpenSea gives the contract `owner()` edit rights, so the dev wallet can sign in to OpenSea and add socials, website and banner. After a mainnet launch, turn on enforced creator earnings in OpenSea Studio → Creator earnings. The required OpenSea contracts only exist on mainnet, not on testnet.
+- **Metadata**: `/nft/:id` (JSON) and `/nft/image/:id` (SVG) are served by `api/nft.js` and `api/nft-image.js` from the same trait and art code as the app. The owner can change them with `setBaseURI` and `setContractURI`.
+- Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0xe399c46155224fdfa7b6df6c0b53b2e7e1e17068171417f57b2187b72a31dc18`.
+- Deploy: open `/admin.html`, sign in with any wallet that has test ETH, compile (the page checks the fingerprint) and deploy. Then set `NFT_CONTRACT` in `js/config.js`.

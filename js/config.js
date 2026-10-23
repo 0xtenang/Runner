@@ -43,5 +43,10 @@ export const NFT_CHAIN = ROBINHOOD_TESTNET;
 export const NFT_CONTRACT = '';
 // Fingerprint of the audited build (solc 0.8.24, optimizer 200 runs, evm "paris").
 // /admin.html refuses to deploy bytecode that doesn't match.
-export const NFT_CREATION_CODE_KECCAK = '0x9d6131b6577e0744614ee3fc30e34c5aedadf43200284436f2b11cdfc93b5bb9';
+export const NFT_CREATION_CODE_KECCAK = '0xe399c46155224fdfa7b6df6c0b53b2e7e1e17068171417f57b2187b72a31dc18';
 export const NFT_BASE_URI = 'https://runearn.fun/nft/';
+// Collection page for OpenSea (ERC-7572 contractURI): name, images, website, 5% fee.
+export const NFT_CONTRACT_URI = 'https://runearn.fun/nft/collection.json';
+// Project dev wallet: owner of the NFT contract, receives mint payments and the
+// 5% resale royalty. Will also own the RUNNER token.
+export const DEV_WALLET = '0x0f397E46e4e810313dBC782CDb0236347157f1B4';

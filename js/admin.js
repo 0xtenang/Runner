@@ -1,7 +1,7 @@
 // Owner-only page: compile, verify and deploy the RUNNER Genesis contract
 // from the signed-in Privy wallet. Not linked from the app.
 import { auth, shortAddress } from './auth.js';
-import { NFT_CHAIN, NFT_CONTRACT, NFT_CREATION_CODE_KECCAK, NFT_BASE_URI } from './config.js';
+import { NFT_CHAIN, NFT_CONTRACT, NFT_CREATION_CODE_KECCAK, NFT_BASE_URI, NFT_CONTRACT_URI, DEV_WALLET } from './config.js';
 import { nativeBalance, waitForReceipt } from './nft.js';
 import { formatEth } from './wallet.js';
 
@@ -65,20 +65,27 @@ $('#b-compile').onclick = async () => {
 };
 
 // ----- 3. deploy
-function encodeString(s) {
+const word = (n) => BigInt(n).toString(16).padStart(64, '0');
+const encAddress = (a) => a.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+function encStringTail(s) {
   const b = hex(new TextEncoder().encode(s));
-  const pad = (n) => BigInt(n).toString(16).padStart(64, '0');
-  return pad(32) + pad(b.length / 2) + b.padEnd(Math.ceil(b.length / 64) * 64, '0');
+  return word(b.length / 2) + b.padEnd(Math.ceil(b.length / 64) * 64, '0');
+}
+/** constructor(owner, treasury, royaltyReceiver, baseURI, contractURI) — all three roles go to the dev wallet. */
+function constructorArgs() {
+  const base = encStringTail(NFT_BASE_URI);
+  return encAddress(DEV_WALLET) + encAddress(DEV_WALLET) + encAddress(DEV_WALLET)
+    + word(5 * 32) + word(5 * 32 + base.length / 2) + base + encStringTail(NFT_CONTRACT_URI);
 }
 function updateDeploy() {
   $('#b-deploy').disabled = !(auth.signedIn && bytecode && balance >= 10n ** 15n);
 }
 $('#b-deploy').onclick = async () => {
-  if (!confirm(`Deploy RUNNER Genesis to ${NFT_CHAIN.name} from ${shortAddress(auth.state.address)}?\n\nYou'll be the owner, and mint payments go to this wallet.`)) return;
+  if (!confirm(`Deploy RUNNER Genesis to ${NFT_CHAIN.name} from ${shortAddress(auth.state.address)}?\n\nOwner, treasury and 5% royalty receiver: the dev wallet ${DEV_WALLET}. Your signed-in wallet only pays the network fee.`)) return;
   $('#b-deploy').disabled = true;
   $('#deploy').textContent = 'Confirm the transaction in the Privy window…';
   try {
-    const hash = await auth.sendTx({ data: `0x${bytecode}${encodeString(NFT_BASE_URI)}`, chainId: NFT_CHAIN.id });
+    const hash = await auth.sendTx({ data: `0x${bytecode}${constructorArgs()}`, chainId: NFT_CHAIN.id });
     $('#deploy').innerHTML = `Sent — waiting for the network… <span class="mono">${esc(hash)}</span>`;
     const rcpt = await waitForReceipt(hash);
     if (rcpt.status !== '0x1' || !rcpt.contractAddress) throw new Error(`Deployment failed on-chain (tx ${hash}).`);

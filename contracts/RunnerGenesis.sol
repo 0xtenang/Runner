@@ -4,17 +4,32 @@ pragma solidity 0.8.24;
 /**
  * @title  RUNNER Genesis
  * @notice 9,999 sneaker NFTs for the RUNNER run-to-earn app (runearn.fun).
- *         Buyers choose a token id (1–9999) and pay its mint price in ETH.
- *         Each token's rarity — and therefore its price — is derived from its
- *         id with the same formula the app uses (js/collection.js rarityOf):
- *           Common 0.005 ETH · Uncommon 0.015 · Rare 0.04 · Epic 0.1
- *         Mint payments are forwarded straight to the treasury.
  *
- *         Self-contained ERC-721 (+ metadata, + per-owner enumeration) so it
- *         compiles as a single file without external libraries.
+ *  • Open sale, no reveal: buyers choose a token id (1–9999) and pay its price.
+ *    Rarity — and therefore price — is derived from the id with the same
+ *    formula the app uses (js/collection.js rarityOf):
+ *        Common 0.005 ETH · Uncommon 0.015 · Rare 0.04 · Epic 0.1
+ *    Mint payments go straight to the treasury (the dev wallet).
+ *  • 5% creator royalty (ERC-2981) to the royalty receiver (the dev wallet).
+ *  • ERC-721C compatible (ICreatorToken): the owner can attach a transfer
+ *    validator — e.g. OpenSea's StrictAuthorizedTransferSecurityRegistry via
+ *    OpenSea Studio → Creator earnings — so the royalty is ENFORCED on
+ *    OpenSea and other compliant marketplaces.
+ *  • OpenSea collection page: `owner()` (the dev wallet) can manage it, and
+ *    `contractURI()` (ERC-7572) points to the collection metadata
+ *    (description, image, website, socials).
+ *
+ *  Self-contained ERC-721 (+ metadata, + per-owner enumeration) so it
+ *  compiles as a single file without external libraries.
  */
 interface IERC721Receiver {
     function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data) external returns (bytes4);
+}
+
+interface ITransferValidator {
+    // Called with a normal (state-changing) call: some registries record or
+    // consume authorizations while validating.
+    function validateTransfer(address caller, address from, address to, uint256 tokenId) external;
 }
 
 contract RunnerGenesis {
@@ -22,13 +37,18 @@ contract RunnerGenesis {
     string public constant name = "RUNNER Genesis";
     string public constant symbol = "RGEN";
     uint256 public constant MAX_SUPPLY = 9999;
+    /// @notice Creator royalty in basis points (500 = 5%). Fixed for every token.
+    uint96 public constant ROYALTY_BPS = 500;
 
     // ------------------------------------------------------------ storage
     address public owner;
     address payable public treasury;
+    address public royaltyReceiver;
+    address private _transferValidator;
     bool public paused;
     uint256 public totalSupply;
     string private _baseTokenURI;
+    string private _contractURI;
 
     mapping(uint256 => address) private _owners;
     mapping(address => uint256) private _balances;
@@ -43,8 +63,12 @@ contract RunnerGenesis {
     event ApprovalForAll(address indexed holder, address indexed operator, bool approved);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event TreasuryChanged(address indexed treasury);
+    event RoyaltyReceiverChanged(address indexed receiver);
     event PausedChanged(bool paused);
     event BaseURIChanged(string baseURI);
+    event ContractURIUpdated();                                              // ERC-7572
+    event BatchMetadataUpdate(uint256 fromTokenId, uint256 toTokenId);       // ERC-4906
+    event TransferValidatorUpdated(address oldValidator, address newValidator); // ERC-721C
 
     error NotOwner();
     error InvalidToken();
@@ -61,12 +85,27 @@ contract RunnerGenesis {
         _;
     }
 
-    constructor(string memory baseTokenURI) {
-        owner = msg.sender;
-        treasury = payable(msg.sender);
+    /**
+     * @param initialOwner   Gets admin rights and OpenSea collection control (the dev wallet).
+     * @param treasury_      Receives mint payments (the dev wallet).
+     * @param royaltyReceiver_ Receives the 5% royalty (the dev wallet).
+     */
+    constructor(
+        address initialOwner,
+        address payable treasury_,
+        address royaltyReceiver_,
+        string memory baseTokenURI,
+        string memory contractURI_
+    ) {
+        if (initialOwner == address(0) || treasury_ == address(0) || royaltyReceiver_ == address(0)) revert ZeroAddress();
+        owner = initialOwner;
+        treasury = treasury_;
+        royaltyReceiver = royaltyReceiver_;
         _baseTokenURI = baseTokenURI;
-        emit OwnershipTransferred(address(0), msg.sender);
-        emit TreasuryChanged(msg.sender);
+        _contractURI = contractURI_;
+        emit OwnershipTransferred(address(0), initialOwner);
+        emit TreasuryChanged(treasury_);
+        emit RoyaltyReceiverChanged(royaltyReceiver_);
     }
 
     // ------------------------------------------------------------ rarity & price
@@ -93,7 +132,7 @@ contract RunnerGenesis {
     }
 
     // ------------------------------------------------------------ minting
-    /// @notice Mint a specific sneaker by paying exactly its price.
+    /// @notice Buy a specific sneaker by paying exactly its price.
     function mint(uint256 tokenId) external payable {
         if (paused) revert MintingPaused();
         if (msg.value != priceOf(tokenId)) revert WrongPrice(); // also validates the id
@@ -119,6 +158,38 @@ contract RunnerGenesis {
         return _ownedTokens[holder];
     }
 
+    // ------------------------------------------------------------ royalties (ERC-2981)
+    function royaltyInfo(uint256, uint256 salePrice) external view returns (address receiver, uint256 royaltyAmount) {
+        return (royaltyReceiver, (salePrice * ROYALTY_BPS) / 10000);
+    }
+
+    // ------------------------------------------------------------ ERC-721C (ICreatorToken)
+    function getTransferValidator() external view returns (address) {
+        return _transferValidator;
+    }
+
+    /// @return functionSignature validateTransfer(address,address,address,uint256)
+    function getTransferValidationFunction() external pure returns (bytes4 functionSignature, bool isViewFunction) {
+        return (ITransferValidator.validateTransfer.selector, false);
+    }
+
+    /// @notice Attach (or remove with address(0)) a transfer validator to enforce royalties.
+    function setTransferValidator(address validator) external onlyOwner {
+        emit TransferValidatorUpdated(_transferValidator, validator);
+        _transferValidator = validator;
+    }
+
+    // ------------------------------------------------------------ metadata
+    function tokenURI(uint256 tokenId) external view returns (string memory) {
+        ownerOf(tokenId);
+        return string.concat(_baseTokenURI, _toString(tokenId));
+    }
+
+    /// @notice Collection-level metadata for marketplaces (ERC-7572 / OpenSea).
+    function contractURI() external view returns (string memory) {
+        return _contractURI;
+    }
+
     // ------------------------------------------------------------ ERC-721
     function balanceOf(address holder) external view returns (uint256) {
         if (holder == address(0)) revert ZeroAddress();
@@ -129,11 +200,6 @@ contract RunnerGenesis {
         address o = _owners[tokenId];
         if (o == address(0)) revert InvalidToken();
         return o;
-    }
-
-    function tokenURI(uint256 tokenId) external view returns (string memory) {
-        ownerOf(tokenId);
-        return string.concat(_baseTokenURI, _toString(tokenId));
     }
 
     function approve(address to, uint256 tokenId) external {
@@ -162,6 +228,8 @@ contract RunnerGenesis {
         if (o != from) revert NotAuthorized();
         if (msg.sender != o && _tokenApprovals[tokenId] != msg.sender && !_operatorApprovals[o][msg.sender]) revert NotAuthorized();
         if (to == address(0)) revert ZeroAddress();
+        address validator = _transferValidator;
+        if (validator != address(0)) ITransferValidator(validator).validateTransfer(msg.sender, from, to, tokenId);
         _transfer(from, to, tokenId);
     }
 
@@ -183,7 +251,10 @@ contract RunnerGenesis {
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
         return interfaceId == 0x01ffc9a7  // ERC-165
             || interfaceId == 0x80ac58cd  // ERC-721
-            || interfaceId == 0x5b5e139f; // ERC-721 Metadata
+            || interfaceId == 0x5b5e139f  // ERC-721 Metadata
+            || interfaceId == 0x2a55205a  // ERC-2981 royalties
+            || interfaceId == 0x49064906  // ERC-4906 metadata updates
+            || interfaceId == 0xad0d7f6c; // ICreatorToken (ERC-721C)
     }
 
     // ------------------------------------------------------------ admin
@@ -191,6 +262,12 @@ contract RunnerGenesis {
         if (newTreasury == address(0)) revert ZeroAddress();
         treasury = newTreasury;
         emit TreasuryChanged(newTreasury);
+    }
+
+    function setRoyaltyReceiver(address newReceiver) external onlyOwner {
+        if (newReceiver == address(0)) revert ZeroAddress();
+        royaltyReceiver = newReceiver;
+        emit RoyaltyReceiverChanged(newReceiver);
     }
 
     function setPaused(bool value) external onlyOwner {
@@ -201,12 +278,24 @@ contract RunnerGenesis {
     function setBaseURI(string calldata baseTokenURI) external onlyOwner {
         _baseTokenURI = baseTokenURI;
         emit BaseURIChanged(baseTokenURI);
+        emit BatchMetadataUpdate(1, MAX_SUPPLY);
+    }
+
+    function setContractURI(string calldata contractURI_) external onlyOwner {
+        _contractURI = contractURI_;
+        emit ContractURIUpdated();
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
         emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
+    }
+
+    /// @notice Recover ETH sent to the contract by mistake (mint payments never stay here).
+    function withdraw() external onlyOwner {
+        (bool ok, ) = treasury.call{value: address(this).balance}("");
+        if (!ok) revert PaymentFailed();
     }
 
     // ------------------------------------------------------------ internals
