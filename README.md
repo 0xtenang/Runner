@@ -59,3 +59,19 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 - **Metadata**: `/nft/:id` (JSON) and `/nft/image/:id` (SVG) are served by `api/nft.js` and `api/nft-image.js` from the same trait and art code as the app. The owner can change them with `setBaseURI` and `setContractURI`.
 - Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0xe399c46155224fdfa7b6df6c0b53b2e7e1e17068171417f57b2187b72a31dc18`.
 - Deploy: open `/admin.html`, sign in with any wallet that has test ETH, compile (the page checks the fingerprint) and deploy. Then set `NFT_CONTRACT` in `js/config.js`.
+
+## RUNNER token contract
+
+`contracts/RunnerToken.sol` — ERC-20 on Robinhood Chain mainnet, fixed supply of **1,000,000,000 RUNNER**, all created at deployment. There is no mint function, and burning is the only way the supply changes.
+
+| Share | Amount | Goes to |
+|---|---|---|
+| Run rewards | 800,000,000 (80%) | Locked in the contract, paid out only by `claim()` |
+| Liquidity | 100,000,000 (10%) | Dev wallet `0x0f397E46e4e810313dBC782CDb0236347157f1B4` |
+| Team | 100,000,000 (10%) | `0x0f4FE718eb8492533E600b30F3287E2f04087332` |
+
+- **Claims**: the RUNNER server checks a runner's runs and signs an EIP-712 message saying "this account has earned X in total". `claim()` pays X minus what was already claimed. Anyone can submit it, but the tokens always go to the runner. Signatures expire, can't be replayed and can't be reused for another account.
+- **Safety**: a daily cap on total claims (1,000,000 RUNNER by default) limits the damage if the server key leaks. The dev wallet (owner) can rotate the server key (`setSigner`), pause claims and change the cap. The owner can **never** take tokens out of the reward pool.
+- Claims stay off until the dev wallet sets the server's signing address.
+- Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0x02f9af3bd2c5da6178afe5912a49543b78a4f962274f1a0297e45a59ae64cbab`.
+- Deploy: `/admin.html?c=token`, sign in with any wallet holding a little mainnet ETH, compile, deploy. Then set `TOKEN_CONTRACT` in `js/config.js`.

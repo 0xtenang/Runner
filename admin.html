@@ -17,16 +17,22 @@
     .mono { font: 600 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
     .ok { color: var(--good); font-weight: 700; }
     .bad { color: var(--bad); font-weight: 700; }
+    #pick { justify-self: start; }
     .result { background: var(--accent-soft); border-radius: 14px; padding: 14px; display: grid; gap: 8px; }
   </style>
 </head>
 <body>
   <main class="admin">
-    <h1>RUNNER Admin · NFT contract</h1>
-    <p class="muted" style="margin:0">Deploys the <b>RUNNER Genesis</b> sneaker NFT contract to <b id="net"></b>. The dev wallet <span class="mono">0x0f39…f1B4</span> becomes its owner, treasury (mint payments) and 5% royalty receiver — and can edit the collection on OpenSea. Any funded wallet can send the deployment; it gets no control.</p>
+    <h1>RUNNER Admin · Contracts</h1>
+    <div class="seg" id="pick" role="tablist" aria-label="Contract">
+      <button data-c="nft">Sneaker NFT</button>
+      <button data-c="token">RUNNER token</button>
+    </div>
+    <p class="muted" style="margin:0" id="about"></p>
+    <p class="small" style="margin:0">Network: <b id="net"></b></p>
 
     <section class="card step">
-      <h3><i>1</i>Sign in with a wallet that has test ETH</h3>
+      <h3><i>1</i><span id="s1">Sign in</span></h3>
       <div id="who" class="muted small">Not signed in.</div>
       <button class="btn primary pill" id="b-signin">Sign in</button>
       <div id="bal" class="small"></div>
@@ -34,15 +40,15 @@
 
     <section class="card step">
       <h3><i>2</i>Compile &amp; check the contract</h3>
-      <p class="muted small" style="margin:0">Compiles <span class="mono">contracts/RunnerGenesis.sol</span> with Solidity 0.8.24 and checks it matches the tested build exactly.</p>
+      <p class="muted small" style="margin:0">Compiles <span class="mono" id="src"></span> with Solidity 0.8.24 and checks it matches the tested build exactly.</p>
       <button class="btn pill" id="b-compile">Compile &amp; check</button>
       <div id="compile" class="small"></div>
     </section>
 
     <section class="card step">
       <h3><i>3</i>Deploy</h3>
-      <p class="muted small" style="margin:0">Costs a small network fee in test ETH. Get free test ETH from the Robinhood Chain Testnet faucet first (it may need a VPN in Indonesia).</p>
-      <button class="btn primary pill" id="b-deploy" disabled>Deploy RUNNER Genesis</button>
+      <p class="muted small" style="margin:0" id="fee"></p>
+      <button class="btn primary pill" id="b-deploy" disabled>Deploy</button>
       <div id="deploy" class="small"></div>
     </section>
   </main>

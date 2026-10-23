@@ -48,5 +48,13 @@ export const NFT_BASE_URI = 'https://runearn.fun/nft/';
 // Collection page for OpenSea (ERC-7572 contractURI): name, images, website, 5% fee.
 export const NFT_CONTRACT_URI = 'https://runearn.fun/nft/collection.json';
 // Project dev wallet: owner of the NFT contract, receives mint payments and the
-// 5% resale royalty. Will also own the RUNNER token.
+// 5% resale royalty. Also owns the RUNNER token and receives its liquidity share.
 export const DEV_WALLET = '0x0f397E46e4e810313dBC782CDb0236347157f1B4';
+
+// RUNNER token (contracts/RunnerToken.sol) — ERC-20, fixed 1,000,000,000 supply:
+// 80% run-reward pool (inside the contract, paid only via server-verified claims),
+// 10% liquidity → DEV_WALLET, 10% team → TEAM_WALLET. Owner = DEV_WALLET.
+export const TOKEN_CHAIN = ROBINHOOD_CHAIN;
+export const TOKEN_CONTRACT = '';
+export const TEAM_WALLET = '0x0f4FE718eb8492533E600b30F3287E2f04087332';
+export const TOKEN_CREATION_CODE_KECCAK = '0x02f9af3bd2c5da6178afe5912a49543b78a4f962274f1a0297e45a59ae64cbab';
