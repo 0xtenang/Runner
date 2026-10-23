@@ -41,6 +41,49 @@ npm run sync
 
 This copies the web files into both apps. Then rebuild in Xcode / Android Studio.
 
+## Build and run
+
+```bash
+npm run sync          # copy web files into both apps
+```
+
+**Android** (emulator or APK):
+
+```bash
+cd android && JAVA_HOME=~/.local/jdk21 ./gradlew assembleDebug
+```
+
+The APK lands in `android/app/build/outputs/apk/debug/app-debug.apk`. Gradle 8.11 needs Java 21; Android Studio's bundled Java 25 is too new.
+Test emulator: `~/Library/Android/sdk/emulator/emulator -avd runner_pixel`.
+
+**iOS:** `npm run ios` opens Xcode. Pick a simulator and press ▶. (Requires Xcode from the App Store.)
+
+### Testing background GPS on the emulator
+
+Start a run, then feed a route with `adb emu geo fix <lon> <lat>` once a second and lock the screen (`adb shell input keyevent 26`).
+Result on Android 15 (fresh install, screen asleep the whole time): **1.199 km route → 1.20 km recorded**, with the "RUNNER is recording your run" notification showing.
+
+Gotcha that this caught: on Android the plugin can't start its foreground service if the watcher is created while the location prompt is still open, and GPS then stops when the screen locks. `js/geo.js` replaces the first watcher once its first fix arrives.
+
+## Install on your phone
+
+### Android (no Play Store needed)
+1. Copy `app-debug.apk` to the phone (Google Drive, email, or a USB cable), or download it from a link.
+2. Tap the file. Android asks to allow installs from that app (Files/Chrome): tap **Settings → Allow from this source**, then go back and tap **Install**.
+3. Open RUNNER. Allow **notifications** and **location → While using the app**.
+4. To update later, install the new APK over the old one. Your runs stay.
+
+### iPhone (TestFlight)
+You need the Apple Developer account ($99/year) for this.
+1. Join at developer.apple.com/programs with your Apple ID. Choose **Organization** if you want the wallet on the App Store later (see policy notes). Approval can take a day or two.
+2. In Xcode: **Settings → Accounts → +**, then sign in with that Apple ID.
+3. Open the project (`npm run ios`), select the **App** target → **Signing & Capabilities** → choose your Team. Xcode creates the certificate.
+4. At appstoreconnect.apple.com: **Apps → + → New App**, with bundle ID `fun.runearn.app` and name RUNNER.
+5. In Xcode: choose **Any iOS Device**, then **Product → Archive**. When it's done: **Distribute App → App Store Connect → Upload**.
+6. In App Store Connect → your app → **TestFlight**: once the build has "processed" (about 15 minutes), add yourself under **Internal Testing**.
+7. On your iPhone, install **TestFlight** from the App Store and open the invite email. Tap **Install**.
+8. Open RUNNER. Allow location **While Using the App**. When asked later, choose **Change to Always Allow** so runs keep recording when locked.
+
 ## App Store and Google Play: risks for the earn + wallet features
 
 Summary: running, EARN points, sneakers and mystery boxes are fine **as long as
