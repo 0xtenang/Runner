@@ -216,6 +216,15 @@ class Auth extends EventTarget {
     return provider.request({ method: 'eth_sendTransaction', params: [tx] });
   }
 
+  /** personal_sign a text message with the embedded wallet (Privy asks the user first). */
+  async signMessage(message) {
+    const w = this._wallet;
+    if (!w) throw new Error('Wallet not ready yet — try again in a moment.');
+    const provider = await w.getEthereumProvider();
+    const hexMsg = `0x${Array.from(new TextEncoder().encode(message), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+    return provider.request({ method: 'personal_sign', params: [hexMsg, w.address] });
+  }
+
   async exportWallet() {
     if (!this._api || !this.state.address) throw new Error('Sign in first');
     await this._api.exportWallet({ address: this.state.address });

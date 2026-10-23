@@ -58,7 +58,7 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 - **OpenSea**: `contractURI()` → `/nft/collection.json` (name, images, website, fee). OpenSea gives the contract `owner()` edit rights, so the dev wallet can sign in to OpenSea and add socials, website and banner. After a mainnet launch, turn on enforced creator earnings in OpenSea Studio → Creator earnings. The required OpenSea contracts only exist on mainnet, not on testnet.
 - **Metadata**: `/nft/:id` (JSON) and `/nft/image/:id` (SVG) are served by `api/nft.js` and `api/nft-image.js` from the same trait and art code as the app. The owner can change them with `setBaseURI` and `setContractURI`.
 - Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0xe399c46155224fdfa7b6df6c0b53b2e7e1e17068171417f57b2187b72a31dc18`.
-- Deploy: open `/admin.html`, sign in with any wallet that has test ETH, compile (the page checks the fingerprint) and deploy. Then set `NFT_CONTRACT` in `js/config.js`.
+- Deploy (mainnet): open `/admin.html`, sign in with any wallet holding a little ETH, compile (the page checks the fingerprint) and deploy. Then set `NFT_CONTRACT` in `js/config.js`.
 
 ## RUNNER token contract
 
@@ -75,3 +75,25 @@ Then open http://localhost:5190. `samples/` contains example FIT / GPX / TCX / Z
 - Claims stay off until the dev wallet sets the server's signing address.
 - Build: Solidity 0.8.24, optimizer 200 runs, EVM `paris` — creation-code keccak `0x02f9af3bd2c5da6178afe5912a49543b78a4f962274f1a0297e45a59ae64cbab`.
 - Deploy: `/admin.html?c=token`, sign in with any wallet holding a little mainnet ETH, compile, deploy. Then set `TOKEN_CONTRACT` in `js/config.js`.
+
+## Rewards server (claims)
+
+`api/rewards.js` (Vercel function) is the source of truth for anything worth real RUNNER. The app uploads every finished run's GPS track. The server re-scores it with the same rules the app uses (`js/rules.js`) and checks the following before crediting it:
+
+- the wallet owns the sneaker on-chain;
+- energy is available;
+- the run doesn't overlap an earlier one, for this wallet or for this sneaker;
+- it's under 72 hours old;
+- its speeds are possible on foot.
+
+Level-ups and repairs are paid from the server balance. **Claim** asks the server to sign, then the wallet sends `claim()` to the token, paying a tiny ETH gas fee.
+
+Setup, once both contracts are deployed:
+
+1. `/admin.html?c=token` → *Claim server* → **Generate key** (in your browser). Add it in Vercel → Settings → Environment Variables as `SIGNER_PRIVATE_KEY`.
+2. Vercel → Storage → connect **Upstash for Redis** to the project, which adds the `KV_REST_API_URL` and `KV_REST_API_TOKEN` variables. Redeploy.
+3. Back on the admin page, the dev wallet presses **Set server address on the token** (or calls `setSigner` on Blockscout).
+
+Until all three are done, the app keeps working in local mode. What the server can't fully stop is GPS-spoofing apps on a phone. Per-wallet energy limits each sneaker to a few minutes of earning a day, and the token's daily claim cap bounds the total.
+
+Tests: `node tests/rewards-server.test.mjs .` covers sessions, scoring, anti-cheat, spending and claims (27 checks). A server-signed claim was also verified against `RunnerToken` in a local EVM.

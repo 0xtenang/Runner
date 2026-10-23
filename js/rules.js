@@ -1,0 +1,163 @@
+// RUNNER earning rules — pure functions shared by the app (live display) and the
+// rewards server (api/rewards.js), which re-scores every uploaded run with this
+// exact code before paying real RUNNER. Keep this file free of browser APIs.
+//
+//   Class    — sets the pace zone you earn in.
+//   Energy   — every 5 minutes of earning costs 1 energy. Max energy grows with
+//              the number of sneakers you own and refills fully every 24 h.
+//   Earning  — RUNNER/minute = 0.15 × Efficiency, only while your GPS pace is
+//              inside the sneaker's zone. +10% with a live Bluetooth HR sensor.
+//   Durability drops per energy spent (less with high Resilience); below 50 it
+//              cuts Efficiency. Repair it with RUNNER.
+//   Levels   — level-ups cost RUNNER and grant attribute points (4/6/8/10 by
+//              rarity) that the player assigns to Efficiency or Resilience.
+
+import { traitsFor } from './collection.js';
+import { haversine } from './stats.js';
+
+export const COIN = 'RUNNER';
+export const MINUTES_PER_ENERGY = 5;
+export const VEHICLE_KMH = 25;   // faster than this = probably in a vehicle
+export const HR_BONUS = 1.1;
+export const MAX_LEVEL = 30;
+
+export const SNEAKER_TYPES = {
+  // Keys stay stable for saved data; labels are what players see.
+  walker:  { label: 'Recovery Runner', short: 'Recovery', min: 1, max: 6,  mult: 1 },
+  jogger:  { label: 'Daily Runner',    short: 'Daily',    min: 4, max: 10, mult: 1 },
+  runner:  { label: 'Tempo Runner',    short: 'Tempo',    min: 8, max: 20, mult: 1 },
+  trainer: { label: 'Hybrid Runner',   short: 'Hybrid',   min: 1, max: 20, mult: 0.85 }, // any pace, earns a bit less
+};
+
+export const RARITIES = {
+  common: { label: 'Common' },
+  uncommon: { label: 'Uncommon' },
+  rare: { label: 'Rare' },
+  epic: { label: 'Epic' },
+};
+
+export const round2 = (x) => Math.round(x * 100) / 100;
+
+// ---------------------------------------------------------------- rules
+export function maxEnergy(sneakerCount) {
+  if (sneakerCount >= 30) return 20;
+  if (sneakerCount >= 15) return 12;
+  if (sneakerCount >= 9) return 9;
+  if (sneakerCount >= 3) return 4;
+  return 2;
+}
+
+export const ATTRS = ['efficiency', 'resilience'];
+export const POINTS_PER_LEVEL = { common: 4, uncommon: 6, rare: 8, epic: 10 };
+
+/** Effective attributes: base + allocated level-up points (+ optional staged points). */
+export function attrs(s, staged = null) {
+  const wear = s.durability >= 50 ? 1 : Math.max(0.2, s.durability / 50);
+  const v = (k) => s.base[k] + (s.points?.[k] || 0) + (staged?.[k] || 0);
+  return { efficiency: v('efficiency') * wear, resilience: v('resilience') };
+}
+
+export const earnPerMinute = (s) => 0.15 * attrs(s).efficiency * SNEAKER_TYPES[s.type].mult;
+export const earnPerEnergy = (s) => earnPerMinute(s) * MINUTES_PER_ENERGY;
+export const levelUpCost = (s) => 10 * (s.level + 1);
+export const repairCost = (s) => Math.ceil((100 - s.durability) * 0.1 * (1 + s.level * 0.1));
+export const durabilityLossPerEnergy = (s) => Math.max(0.5, 3 - attrs(s).resilience * 0.05);
+
+/** A playable sneaker for Genesis token `tokenId` (fresh progress). */
+export function sneakerFromToken(tokenId) {
+  const t = traitsFor(tokenId);
+  return {
+    id: `nft-${tokenId}`, tokenId, serial: String(tokenId),
+    model: t.model, hue: t.hue, accent: t.accent, midTone: t.midTone, pattern: t.pattern, laces: t.laces, edition: t.edition,
+    type: t.type, rarity: t.rarity, base: t.base,
+    level: 0, durability: 100, points: { efficiency: 0, resilience: 0 }, unspent: 0,
+    createdAt: Date.now(),
+  };
+}
+
+// ---------------------------------------------------------------- live session
+/** Tracks earning during one recording, second by second. */
+export class EarnSession {
+  constructor(sneaker, energyAvailable) {
+    this.sneaker = sneaker ? structuredClone(sneaker) : null;
+    this.energyStart = energyAvailable;
+    this.used = 0;
+    this.coins = 0;
+    this.zoneSec = 0;
+    this.offSec = 0;
+    this.vehicleSec = 0;
+    this.hrSec = 0;
+    this.status = sneaker ? 'waiting' : 'nosneaker';
+  }
+
+  get energyLeft() { return Math.max(0, this.energyStart - this.used); }
+
+  /** Called once per second while recording. speed in m/s (null = no fix yet). */
+  tick(speed, hasHr, dt = 1) {
+    const s = this.sneaker;
+    if (!s) return (this.status = 'nosneaker');
+    if (speed == null) return (this.status = 'waiting');
+    const kmh = speed * 3.6;
+    if (kmh > VEHICLE_KMH) { this.vehicleSec += dt; return (this.status = 'vehicle'); }
+    if (this.energyLeft <= 0) return (this.status = 'noenergy');
+    const t = SNEAKER_TYPES[s.type];
+    if (kmh < t.min) { this.offSec += dt; return (this.status = 'slow'); }
+    if (kmh > t.max) { this.offSec += dt; return (this.status = 'fast'); }
+    const e = Math.min(this.energyLeft, dt / (MINUTES_PER_ENERGY * 60));
+    const frac = e / (dt / (MINUTES_PER_ENERGY * 60));
+    this.used += e;
+    this.coins += (earnPerMinute(s) * dt * frac / 60) * (hasHr ? HR_BONUS : 1);
+    this.zoneSec += dt * frac;
+    if (hasHr) this.hrSec += dt * frac;
+    return (this.status = 'earning');
+  }
+
+  toJSON() {
+    const { sneaker, energyStart, used, coins, zoneSec, offSec, vehicleSec, hrSec } = this;
+    return { sneakerId: sneaker?.id, energyStart, used, coins, zoneSec, offSec, vehicleSec, hrSec };
+  }
+}
+
+// ---------------------------------------------------------------- energy + track scoring
+/** Energy after refilling from `energyAt` to `now` (full refill takes 24 h). */
+export function regenEnergy(energy, energyAt, max, now = Date.now()) {
+  const hours = Math.max(0, now - energyAt) / 3.6e6;
+  return energy < max ? Math.min(max, energy + (hours * max) / 24) : energy;
+}
+
+const TRAIL_MS = 20000;      // same window as Recorder.currentSpeed
+const GAP_MAX_S = 120;       // longer gaps between fixes don't earn
+const TELEPORT_MS = 15;      // a single jump faster than this (54 km/h) is a vehicle/teleport
+
+/**
+ * Replays a recorded GPS track ({t, lat, lon, hr?, b?} points, b = resumed after
+ * pause) through EarnSession, the same way the app does live. The server uses
+ * this to decide what a run really earned.
+ */
+export function scoreTrack(points, sneaker, energyAvailable) {
+  const session = new EarnSession(sneaker, energyAvailable);
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i], prev = points[i - 1];
+    if (p.b) continue;                                   // pause: no time counted
+    const dt = (p.t - prev.t) / 1000;
+    if (!(dt > 0)) continue;
+    const seg = haversine(prev.lat, prev.lon, p.lat, p.lon) / dt;
+    if (dt > GAP_MAX_S) { session.tick(0, false, dt); continue; }
+    let d = 0, j = i;
+    while (j > 0 && !points[j].b && p.t - points[j - 1].t <= TRAIL_MS) {
+      d += haversine(points[j - 1].lat, points[j - 1].lon, points[j].lat, points[j].lon);
+      j--;
+    }
+    const span = (p.t - points[j].t) / 1000;
+    let speed = span > 0 && j < i ? d / span : seg;
+    if (seg > TELEPORT_MS) speed = Math.max(speed, seg);
+    session.tick(speed, !!p.hr, dt);
+  }
+  return session;
+}
+
+/** Mostly vehicle speeds → the run earns nothing (same rule as the app). */
+export const isVoided = (session) => {
+  const total = session.zoneSec + session.offSec + session.vehicleSec;
+  return session.vehicleSec > total * 0.5;
+};

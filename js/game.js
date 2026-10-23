@@ -1,126 +1,17 @@
-// RUNNER run-to-earn engine.
+// RUNNER run-to-earn state: sneakers owned on-chain, energy, progress and the
+// RUNNER balance. Earning rules live in rules.js (shared with the server).
 //
-//   Sneakers — RUNNER Genesis NFTs on Robinhood Chain. You need at least one
-//              to earn; owning is read from the chain (see nft.js). A token's
-//              number fixes its class, rarity, starting stats and look.
-//   Class    — sets the pace zone you earn in.
-//   Energy   — every 5 minutes of earning costs 1 energy. Max energy grows with
-//              the number of sneakers you own and refills fully every 24 h.
-//   Earning  — RUNNER/minute = 0.15 × Efficiency, only while your GPS pace is
-//              inside the sneaker's zone. +10% with a live Bluetooth HR sensor.
-//   Durability drops per energy spent (less with high Resilience); below 50 it
-//              cuts Efficiency. Repair it with RUNNER.
-//   Levels   — level-ups cost RUNNER and grant attribute points (4/6/8/10 by
-//              rarity) that the player assigns to Efficiency or Resilience.
-//
-// Progress (levels, points, durability, balance) is local (IndexedDB) for now.
-// Real-value rewards would need settle() enforced on a server.
+// Without the rewards server (local mode) everything is kept on this device in
+// IndexedDB. With it (rewards.js), the server is the source of truth: runs are
+// re-scored there and balance, energy and sneaker progress come back from it.
 
 import { db } from './db.js';
-import { traitsFor } from './collection.js';
+import {
+  COIN, SNEAKER_TYPES, RARITIES, maxEnergy, ATTRS, POINTS_PER_LEVEL, MAX_LEVEL,
+  levelUpCost, repairCost, durabilityLossPerEnergy, sneakerFromToken, round2, isVoided,
+} from './rules.js';
 
-export const COIN = 'RUNNER';
-export const MINUTES_PER_ENERGY = 5;
-export const VEHICLE_KMH = 25;   // faster than this = probably in a vehicle
-export const HR_BONUS = 1.1;
-export const MAX_LEVEL = 30;
-
-export const SNEAKER_TYPES = {
-  // Keys stay stable for saved data; labels are what players see.
-  walker:  { label: 'Recovery Runner', short: 'Recovery', min: 1, max: 6,  mult: 1 },
-  jogger:  { label: 'Daily Runner',    short: 'Daily',    min: 4, max: 10, mult: 1 },
-  runner:  { label: 'Tempo Runner',    short: 'Tempo',    min: 8, max: 20, mult: 1 },
-  trainer: { label: 'Hybrid Runner',   short: 'Hybrid',   min: 1, max: 20, mult: 0.85 }, // any pace, earns a bit less
-};
-
-export const RARITIES = {
-  common: { label: 'Common' },
-  uncommon: { label: 'Uncommon' },
-  rare: { label: 'Rare' },
-  epic: { label: 'Epic' },
-};
-
-const round2 = (x) => Math.round(x * 100) / 100;
-
-// ---------------------------------------------------------------- rules
-export function maxEnergy(sneakerCount) {
-  if (sneakerCount >= 30) return 20;
-  if (sneakerCount >= 15) return 12;
-  if (sneakerCount >= 9) return 9;
-  if (sneakerCount >= 3) return 4;
-  return 2;
-}
-
-export const ATTRS = ['efficiency', 'resilience'];
-export const POINTS_PER_LEVEL = { common: 4, uncommon: 6, rare: 8, epic: 10 };
-
-/** Effective attributes: base + allocated level-up points (+ optional staged points). */
-export function attrs(s, staged = null) {
-  const wear = s.durability >= 50 ? 1 : Math.max(0.2, s.durability / 50);
-  const v = (k) => s.base[k] + (s.points?.[k] || 0) + (staged?.[k] || 0);
-  return { efficiency: v('efficiency') * wear, resilience: v('resilience') };
-}
-
-export const earnPerMinute = (s) => 0.15 * attrs(s).efficiency * SNEAKER_TYPES[s.type].mult;
-export const earnPerEnergy = (s) => earnPerMinute(s) * MINUTES_PER_ENERGY;
-export const levelUpCost = (s) => 10 * (s.level + 1);
-export const repairCost = (s) => Math.ceil((100 - s.durability) * 0.1 * (1 + s.level * 0.1));
-export const durabilityLossPerEnergy = (s) => Math.max(0.5, 3 - attrs(s).resilience * 0.05);
-
-/** A playable sneaker for Genesis token `tokenId` (fresh progress). */
-export function sneakerFromToken(tokenId) {
-  const t = traitsFor(tokenId);
-  return {
-    id: `nft-${tokenId}`, tokenId, serial: String(tokenId),
-    model: t.model, hue: t.hue, accent: t.accent, midTone: t.midTone, pattern: t.pattern, laces: t.laces, edition: t.edition,
-    type: t.type, rarity: t.rarity, base: t.base,
-    level: 0, durability: 100, points: { efficiency: 0, resilience: 0 }, unspent: 0,
-    createdAt: Date.now(),
-  };
-}
-
-// ---------------------------------------------------------------- live session
-/** Tracks earning during one recording, second by second. */
-export class EarnSession {
-  constructor(sneaker, energyAvailable) {
-    this.sneaker = sneaker ? structuredClone(sneaker) : null;
-    this.energyStart = energyAvailable;
-    this.used = 0;
-    this.coins = 0;
-    this.zoneSec = 0;
-    this.offSec = 0;
-    this.vehicleSec = 0;
-    this.hrSec = 0;
-    this.status = sneaker ? 'waiting' : 'nosneaker';
-  }
-
-  get energyLeft() { return Math.max(0, this.energyStart - this.used); }
-
-  /** Called once per second while recording. speed in m/s (null = no fix yet). */
-  tick(speed, hasHr, dt = 1) {
-    const s = this.sneaker;
-    if (!s) return (this.status = 'nosneaker');
-    if (speed == null) return (this.status = 'waiting');
-    const kmh = speed * 3.6;
-    if (kmh > VEHICLE_KMH) { this.vehicleSec += dt; return (this.status = 'vehicle'); }
-    if (this.energyLeft <= 0) return (this.status = 'noenergy');
-    const t = SNEAKER_TYPES[s.type];
-    if (kmh < t.min) { this.offSec += dt; return (this.status = 'slow'); }
-    if (kmh > t.max) { this.offSec += dt; return (this.status = 'fast'); }
-    const e = Math.min(this.energyLeft, dt / (MINUTES_PER_ENERGY * 60));
-    const frac = e / (dt / (MINUTES_PER_ENERGY * 60));
-    this.used += e;
-    this.coins += (earnPerMinute(s) * dt * frac / 60) * (hasHr ? HR_BONUS : 1);
-    this.zoneSec += dt * frac;
-    if (hasHr) this.hrSec += dt * frac;
-    return (this.status = 'earning');
-  }
-
-  toJSON() {
-    const { sneaker, energyStart, used, coins, zoneSec, offSec, vehicleSec, hrSec } = this;
-    return { sneakerId: sneaker?.id, energyStart, used, coins, zoneSec, offSec, vehicleSec, hrSec };
-  }
-}
+export * from './rules.js';
 
 // ---------------------------------------------------------------- persistent state
 function freshState() {
@@ -295,8 +186,7 @@ class Game extends EventTarget {
     if (!s || session.used <= 0) return result;
 
     // Anti-cheat: mostly vehicle speeds → no reward.
-    const total = session.zoneSec + session.offSec + session.vehicleSec;
-    if (session.vehicleSec > total * 0.5) {
+    if (isVoided(session)) {
       result.voided = true;
       return result;
     }
@@ -311,6 +201,40 @@ class Game extends EventTarget {
     this._log(coins, 'run', `Run with ${result.sneakerLabel}`, { activityId });
     await this.save();
     return result;
+  }
+
+  // ---------------------------------------------------------------- rewards server
+  /** Takes balance, energy and sneaker progress from the rewards server's view. */
+  async applyServer(view) {
+    if (!view) return;
+    const st = this.state;
+    st.coins = view.balance;
+    st.energy = view.energy;
+    st.energyAt = Date.now();
+    st.server = { earned: view.earned, spent: view.spent, withdrawn: view.withdrawn, at: Date.now() };
+    for (const s of st.sneakers) {
+      const p = view.sneakers?.[s.tokenId];
+      if (p) Object.assign(s, { level: p.level, durability: p.durability, points: { ...p.points }, unspent: p.unspent });
+    }
+    await this.save();
+  }
+
+  /** Runs that couldn't be uploaded yet (offline); retried by rewards.syncRewards. */
+  async queuePending(run) {
+    (this.state.pendingRuns ??= []).push(run);
+    await this.save();
+  }
+
+  async dropPending(run) {
+    this.state.pendingRuns = (this.state.pendingRuns || []).filter((r) => r !== run && r.points?.[0]?.t !== run.points?.[0]?.t);
+    await this.save();
+  }
+
+  logServerRun(run, activityId) {
+    if (!run) return;
+    const s = this.state.sneakers.find((x) => x.tokenId === run.tokenId);
+    this._log(run.coins, 'run', run.voided ? 'Run not counted — vehicle speeds' : `Verified run with ${s ? `${SNEAKER_TYPES[s.type].label} #${s.serial}` : `#${run.tokenId}`}`, activityId ? { activityId } : {});
+    this.save();
   }
 
   async reset() { this.state = freshState(); await this.save(); }

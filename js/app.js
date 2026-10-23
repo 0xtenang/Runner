@@ -9,6 +9,7 @@ import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange, addressAvatar, sy
 import { PRICE_ETH } from './collection.js';
 import { auth, shortAddress, explorerUrl } from './auth.js';
 import { runOnboarding } from './onboarding.js';
+import { settleRun, syncRewards } from './rewards.js';
 
 // RUNNER is run-only: every activity is a run, recorded or imported.
 
@@ -679,6 +680,14 @@ function renderRecord() {
   renderSheet();
 }
 
+/** Toast text after saving a run, including what the rewards server decided. */
+function earnToast(e, saved) {
+  if (e?.pending) return `${saved} · reward will be checked when you're back online`;
+  if (e?.rejected) return `${saved} · no reward: ${e.rejected}`;
+  if (e?.voided) return `${saved} · not counted (vehicle speeds)`;
+  return e?.coins > 0 ? `${saved} · +${fmtCoins(e.coins)} ${COIN}${e.server ? ' (verified)' : ''}` : saved;
+}
+
 async function finishRecording() {
   if (rec.points.length < 2) {
     if (confirm('Not enough GPS data was recorded to save this run. Discard it?')) {
@@ -695,14 +704,11 @@ async function finishRecording() {
   const { act, points } = buildActivity({ startTime: out.startedAt, points: out.points }, 'gps');
   act.movingTime = Math.min(act.movingTime || out.activeSeconds, out.activeSeconds) || out.activeSeconds;
   if (gapSec > 0) act.gapSec = gapSec;
-  if (session) act.earn = await game.settle(session, act.id);
+  if (session) act.earn = await settleRun(session, act.id, out.points);
   await db.saveActivity(act, points);
   await db.kvDel('inprogress').catch(() => {});
   rec.stopGps();
-  const e = act.earn;
-  toast(e?.coins > 0
-    ? `Run saved · +${fmtCoins(e.coins)} ${COIN}`
-    : 'Run saved', 3500);
+  toast(earnToast(act.earn, 'Run saved'), 4500);
   location.hash = `#/activity/${act.id}`;
 }
 
@@ -1194,9 +1200,9 @@ async function recoverUnfinished() {
     if (snap.points.length < 2) return;
     if (!confirm(`Found an unfinished run from ${fmtDate(snap.startedAt)}. Save it?`)) return;
     const { act, points } = buildActivity({ startTime: snap.startedAt, points: snap.points }, 'gps');
-    if (snap.earn) act.earn = await game.settle(snap.earn, act.id);
+    if (snap.earn) act.earn = await settleRun(snap.earn, act.id, snap.points);
     await db.saveActivity(act, points);
-    toast(act.earn?.coins > 0 ? `Recovered run · +${fmtCoins(act.earn.coins)} ${COIN}` : 'Recovered unfinished run');
+    toast(earnToast(act.earn, 'Recovered run'));
   } catch (e) { console.warn(e); }
 }
 
@@ -1227,7 +1233,7 @@ async function syncWallet() {
         toast(`Wallet ready · ${shortAddress(s.address)}`);
       }
     }
-    syncOwnedSneakers().catch(() => {}); // read which sneaker NFTs this wallet owns
+    syncOwnedSneakers().then(() => syncRewards()).catch(() => {}); // sneakers on-chain, then verified balance
     return;
   }
   resolvingConflict = true;

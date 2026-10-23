@@ -93,6 +93,8 @@ function render() {
     ? `<span class="bad">A ${esc(c.title)} contract is already configured in the app: <span class="mono">${esc(c.configured)}</span>. Deploying again creates a second, separate contract.</span>`
     : '';
   bytecode = null;
+  $('#server').hidden = kind !== 'token';
+  if (kind === 'token') refreshServer();
   refreshWho();
 }
 
@@ -187,6 +189,79 @@ $('#b-deploy').onclick = async () => {
     const m = String(e?.message || e);
     $('#deploy').innerHTML = `<span class="bad">${/reject|denied|cancel/i.test(m) ? 'Cancelled — nothing was deployed.' : esc(m.slice(0, 200))}</span>`;
     updateDeploy();
+  }
+};
+
+// ----- 4. claim server (token only)
+let serverStatus = null;
+let onChainSigner = null;
+async function refreshServer() {
+  try {
+    serverStatus = await (await fetch('/api/rewards?action=status', { cache: 'no-store' })).json();
+  } catch { serverStatus = null; }
+  onChainSigner = null;
+  if (TOKEN_CONTRACT) {
+    const r = await rpc('eth_call', [{ to: TOKEN_CONTRACT, data: '0x238ac933' }, 'latest']).catch(() => null); // signer()
+    if (r) onChainSigner = `0x${r.slice(-40)}`;
+  }
+  const s = serverStatus;
+  const row = (good, text) => `<div>${good ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'} ${text}</div>`;
+  $('#srv-status').innerHTML = !s ? '<span class="bad">Couldn\'t reach /api/rewards.</span>' : [
+    row(Boolean(TOKEN_CONTRACT), TOKEN_CONTRACT ? `Token configured: <span class="mono">${esc(TOKEN_CONTRACT)}</span>` : 'Token address not set in the app yet (deploy, then send it to Claude)'),
+    row(Boolean(s.nft), s.nft ? 'Sneaker NFT configured' : 'Sneaker NFT address not set in the app yet'),
+    row(Boolean(s.signer), s.signer ? `Server key set — address <span class="mono">${esc(s.signer)}</span>` : 'Server key missing (step a)'),
+    row(s.store, s.store ? 'Database connected' : 'Database missing (step b)'),
+    row(Boolean(s.signer && onChainSigner && onChainSigner.toLowerCase() === s.signer.toLowerCase()), onChainSigner && BigInt(onChainSigner) ? `Token's server address: <span class="mono">${esc(onChainSigner)}</span>` : 'Server address not authorized on the token yet (step c)'),
+    s.live ? '<div class="ok">Rewards server is live.</div>' : '',
+  ].join('');
+  $('#b-setsigner').disabled = !(TOKEN_CONTRACT && s?.signer && (!onChainSigner || onChainSigner.toLowerCase() !== s.signer.toLowerCase()));
+}
+
+$('#b-genkey').onclick = async () => {
+  const secp = await import('https://esm.sh/@noble/secp256k1@2.1.0');
+  const { keccak_256 } = await import('https://esm.sh/@noble/hashes@1.4.0/sha3');
+  const key = secp.utils.randomPrivateKey();
+  const address = `0x${hex(keccak_256(secp.getPublicKey(key, false).slice(1)).slice(12))}`;
+  $('#genkey').innerHTML = `
+    <div class="result">
+      <span><b>SIGNER_PRIVATE_KEY</b> (secret — paste into Vercel):</span>
+      <span class="mono">${hex(key)}</span>
+      <button class="btn pill" id="b-copykey">Copy key</button>
+      <span>Server address (public): <span class="mono">${address}</span></span>
+      <span class="muted small">Closing this page forgets the key. If it's lost, generate a new one and set it again.</span>
+    </div>`;
+  $('#b-copykey').onclick = () => navigator.clipboard.writeText(hex(key));
+};
+
+$('#b-setsigner').onclick = async () => {
+  const signer = serverStatus?.signer;
+  if (!signer) return;
+  const data = `0x6c19e783${encAddress(signer)}`; // setSigner(address)
+  $('#b-setsigner').disabled = true;
+  try {
+    let hash;
+    const injected = window.ethereum;
+    if (injected) {
+      // A browser wallet (e.g. MetaMask) holding the dev wallet.
+      const [from] = await injected.request({ method: 'eth_requestAccounts' });
+      if (from.toLowerCase() !== DEV_WALLET.toLowerCase()) throw new Error(`Switch your browser wallet to the dev wallet ${DEV_WALLET} (it's on ${from}).`);
+      await injected.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${TOKEN_CHAIN.id.toString(16)}` }] });
+      hash = await injected.request({ method: 'eth_sendTransaction', params: [{ from, to: TOKEN_CONTRACT, data }] });
+    } else {
+      if (!auth.signedIn || auth.state.address.toLowerCase() !== DEV_WALLET.toLowerCase()) {
+        throw new Error(`Only the dev wallet ${DEV_WALLET} can do this. Open this page in a browser with that wallet installed, or use Blockscout → the token → Write contract → setSigner(${signer}).`);
+      }
+      hash = await auth.sendTx({ to: TOKEN_CONTRACT, data, chainId: TOKEN_CHAIN.id });
+    }
+    $('#setsigner').textContent = 'Sent — waiting for the network…';
+    const r = await waitForReceipt(hash);
+    if (r.status !== '0x1') throw new Error('The transaction failed on-chain.');
+    $('#setsigner').innerHTML = '<span class="ok">✓ Server address set — claims are on.</span>';
+    refreshServer();
+  } catch (e) {
+    const m = String(e?.message || e);
+    $('#setsigner').innerHTML = `<span class="bad">${/reject|denied|cancel/i.test(m) ? 'Cancelled.' : esc(m.slice(0, 300))}</span>`;
+    $('#b-setsigner').disabled = false;
   }
 };
 

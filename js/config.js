@@ -37,9 +37,10 @@ export const ROBINHOOD_TESTNET = {
 };
 
 // RUNNER Genesis sneaker NFTs (contracts/RunnerGenesis.sol).
-// Launching on testnet first. After deploying from /admin.html, paste the
-// contract address here. Empty address = shop shows "sales open soon".
-export const NFT_CHAIN = ROBINHOOD_TESTNET;
+// Mainnet, same network as the RUNNER token (test NFTs must never earn real
+// RUNNER). After deploying from /admin.html, paste the contract address here.
+// Empty address = shop shows "sales open soon".
+export const NFT_CHAIN = ROBINHOOD_CHAIN;
 export const NFT_CONTRACT = '';
 // Fingerprint of the audited build (solc 0.8.24, optimizer 200 runs, evm "paris").
 // /admin.html refuses to deploy bytecode that doesn't match.

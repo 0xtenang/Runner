@@ -19,6 +19,7 @@ const ATTR_HINT = { efficiency: `more ${COIN} per run`, resilience: 'less wear' 
 // Sneaker illustrations live in sneaker-art.js (four lines + editions).
 export { sneakerSvg } from './sneaker-art.js';
 import { sneakerSvg } from './sneaker-art.js';
+import { rewardsActive, rewardsConnected, connectRewards, syncRewards, checkRewardsStatus, upgrade, claimRewards, tokenBalance, claimedOnChain, tokenExplorerTx } from './rewards.js';
 
 const coinIcon = '<svg class="coin-ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9"/><path d="M10 5v10M7.5 7.5h4a2 2 0 0 1 0 4h-3"/></svg>';
 export const coinTag = (n, sign = false) => `<span class="coin-amt">${coinIcon}${sign && n > 0 ? '+' : ''}${fmtCoins(n)}</span>`;
@@ -520,6 +521,33 @@ function openSneakerDetail(id, toast, onBought) {
 }
 
 // ---------------------------------------------------------------- render
+// ---------------------------------------------------------------- rewards (real RUNNER)
+let claimInfo = null; // { wallet, claimed } read from the token contract
+
+function rewardsCard(st) {
+  if (!rewardsActive()) {
+    return `<span class="muted small">Earned by running. Spend it on level-ups and repairs. Claiming ${COIN} to your wallet opens when the token launches.</span>`;
+  }
+  if (!rewardsConnected()) {
+    return `<span class="muted small">Connect to the RUNNER server so your runs earn real ${COIN} you can claim to your wallet. Your wallet signs once — it's free.</span>
+      <button class="btn primary pill sm" data-act="rw-connect">Connect rewards</button>`;
+  }
+  const srv = st.server || { earned: 0, spent: 0 };
+  const claimable = claimInfo?.address === auth.state.address ? Math.max(0, srv.earned - srv.spent - claimInfo.claimed) : null;
+  return `<span class="muted small">Verified by the RUNNER server. Spend it on level-ups and repairs, or claim it to your wallet as real ${COIN} tokens.</span>
+    <span class="small">In your wallet: <b>${claimInfo ? `${fmtCoins(claimInfo.wallet)} ${COIN}` : '…'}</b></span>
+    <button class="btn primary pill sm" data-act="rw-claim" ${claimable ? '' : 'disabled'}>${claimable ? `Claim ${fmtCoins(claimable)} ${COIN} to wallet` : 'Nothing to claim yet'}</button>
+    <span class="muted small" id="rw-status" role="status"></span>`;
+}
+
+async function loadClaimInfo(onDone) {
+  try {
+    const [wallet, claimed] = await Promise.all([tokenBalance(), claimedOnChain()]);
+    claimInfo = { wallet, claimed, address: auth.state.address };
+    onDone();
+  } catch { /* chain unreachable: keep showing "…" */ }
+}
+
 export function renderEarn(view, { toast, onCleanup }) {
   // UI-only state that survives redraws.
   let staged = null; // { id, efficiency, resilience } points not yet saved
@@ -604,7 +632,7 @@ export function renderEarn(view, { toast, onCleanup }) {
           <div>
             <span class="lbl">${COIN} balance</span>
             <div class="wallet-amt">${coinTag(st.coins)} <small>${COIN}</small></div>
-            <span class="muted small">Earned by running. Spend it on level-ups and repairs. Withdrawing ${COIN} isn't available yet.</span>
+            ${rewardsCard(st)}
           </div>
           ${s ? `<div>
             <div class="row between"><span class="lbl">Energy</span><b class="energy-num">⚡ ${energy.toFixed(1)} / ${max}</b></div>
@@ -643,9 +671,10 @@ export function renderEarn(view, { toast, onCleanup }) {
           </div>
         </div>
 
-        <p class="muted small" style="text-align:center">${COIN} is an in-app token with no cash value yet. Only runs recorded live with GPS earn.</p>
+        <p class="muted small" style="text-align:center">${rewardsActive() ? `Every run is checked by the RUNNER server before it earns. Only runs recorded live with GPS count.` : `${COIN} is an in-app token with no cash value yet. Only runs recorded live with GPS earn.`}</p>
       </section>`;
     window.scrollTo(0, y); // redraws shouldn't jump the page
+    if (rewardsConnected() && claimInfo?.address !== auth.state.address) { claimInfo = null; loadClaimInfo(draw); }
     if (nftLive() && view.querySelector('#minted-count')) {
       totalMinted().then((n) => { const el = view.querySelector('#minted-count'); if (el) el.textContent = `${nf(n)} / ${nf(COLLECTION.supply)} minted`; }).catch(() => {});
     }
@@ -670,13 +699,36 @@ export function renderEarn(view, { toast, onCleanup }) {
           if (confirm('Your private key gives full control of this wallet. Never share it with anyone. Continue?')) await auth.exportWallet();
           break;
         case 'select': staged = null; await game.select(id); toast('Sneaker equipped'); break;
+        case 'rw-connect':
+          b.disabled = true;
+          await connectRewards();
+          toast('Connected — your runs now earn real RUNNER');
+          break;
+        case 'rw-claim': {
+          b.disabled = true;
+          const status = view.querySelector('#rw-status');
+          const say = (t) => { if (status) status.textContent = t; };
+          try {
+            const { hash, amount } = await claimRewards(say);
+            say('Sent — waiting for the network…');
+            await waitForReceipt(hash);
+            say('');
+            showReveal({ kicker: 'Claimed', title: `${fmtCoins(amount)} ${COIN} is in your wallet`, coins: amount, note: `<a href="${tokenExplorerTx(hash)}" target="_blank" rel="noopener">View transaction</a>` });
+            claimInfo = null;
+            draw();
+          } catch (err) {
+            say('');
+            throw /reject|denied|cancel/i.test(String(err.message)) ? new Error('Claim cancelled — you can claim any time.') : err;
+          } finally { b.disabled = false; }
+          break;
+        }
         case 'level': {
-          await game.levelUp(id);
+          await upgrade('levelup', id);
           const s = game.sneaker(id);
           toast(`Lv ${s.level}! +${POINTS_PER_LEVEL[s.rarity]} attribute points to assign`);
           break;
         }
-        case 'repair': await game.repair(id); toast('Sneaker repaired'); break;
+        case 'repair': await upgrade('repair', id); toast('Sneaker repaired'); break;
         case 'pt': {
           const s = game.active;
           staged = stagedFor(s);
@@ -690,7 +742,7 @@ export function renderEarn(view, { toast, onCleanup }) {
         case 'pt-save': {
           const add = staged;
           staged = null;
-          await game.allocate(add.id, add);
+          await upgrade('allocate', add.id, add);
           toast('Points assigned');
           break;
         }
@@ -702,6 +754,6 @@ export function renderEarn(view, { toast, onCleanup }) {
   game.addEventListener('change', draw);
   auth.addEventListener('change', draw);
   onCleanup(() => { game.removeEventListener('change', draw); auth.removeEventListener('change', draw); view.onclick = null; });
-  syncOwnedSneakers().catch(() => {});
+  syncOwnedSneakers().then(() => checkRewardsStatus()).then(() => { draw(); return syncRewards(); }).catch(() => {});
   draw();
 }
