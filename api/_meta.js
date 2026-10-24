@@ -2,7 +2,7 @@
 // Uses the same trait + art code as the app, so marketplaces show exactly
 // what players see in RUNNER.
 import { COLLECTION, MODELS, EDITIONS, traitsFor, PRICE_ETH } from '../js/collection.js';
-import { sneakerSvg } from '../js/sneaker-art.js';
+import { sneakerSvg, colorwayName } from '../js/sneaker-art.js';
 import { wordmark, textPath, PALETTE } from '../brand/art.js';
 
 export const SITE = 'https://runearn.fun';
@@ -36,6 +36,7 @@ export function tokenMetadata(id) {
       { trait_type: 'Line', value: MODELS[t.model].label },
       { trait_type: 'Edition', value: EDITIONS[t.edition].label },
       { trait_type: 'Upper', value: t.pattern[0].toUpperCase() + t.pattern.slice(1) },
+      { trait_type: 'Colorway', value: colorwayName(t) },
       { trait_type: 'Laces', value: t.laces === 'light' ? 'Light' : 'Dark' },
       { trait_type: 'Efficiency', value: t.base.efficiency, display_type: 'number' },
       { trait_type: 'Resilience', value: t.base.resilience, display_type: 'number' },
@@ -50,7 +51,7 @@ const STUDIO = {
   standard: ['#fafaf8', '#dcdcd6', '#141414', '#6b6b6b'],
   ghost: ['#ffffff', '#e3e8ee', '#1d2633', '#6b7a8c'],
   gold: ['#fff9ea', '#e8d5a6', '#2b1f06', '#80662c'],
-  neon: ['#26262b', '#060607', '#f4f4f5', '#a1a1aa'],
+  neon: ['#4a4a52', '#1c1c20', '#f4f4f5', '#b4b4bc'],
 };
 
 /** Square 1000×1000 card for marketplaces: studio shot, Anton type, rarity pill. */
@@ -61,7 +62,7 @@ export function tokenImage(id) {
   const wm = wordmark({ size: 46, fill: ink, tagline: false, id: 'cwm' });
   const rar = RARITY[t.rarity].toUpperCase();
   const pillW = 64 + rar.length * 19;
-  const facts = [CLASS[t.type].label, MODELS[t.model].label, t.edition !== 'standard' ? `${EDITIONS[t.edition].label} edition` : null].filter(Boolean).join('  ·  ');
+  const facts = [colorwayName(t), CLASS[t.type].label, MODELS[t.model].label].join('  ·  '); // editions are named by their colourway
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
   <style>.sparkle{fill:#f5c518}</style>
   <defs><radialGradient id="bg" cx=".5" cy=".46" r=".75"><stop offset="0" stop-color="${c0}"/><stop offset="1" stop-color="${c1}"/></radialGradient></defs>

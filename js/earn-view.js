@@ -18,7 +18,7 @@ const ATTR_HINT = { efficiency: `more ${COIN} per run`, resilience: 'less wear' 
 
 // Sneaker illustrations live in sneaker-art.js (four lines + editions).
 export { sneakerSvg } from './sneaker-art.js';
-import { sneakerSvg } from './sneaker-art.js';
+import { sneakerSvg, colorwayName } from './sneaker-art.js';
 import { rewardsActive, rewardsConnected, connectRewards, syncRewards, checkRewardsStatus, upgrade, claimRewards, tokenBalance, claimedOnChain, tokenExplorerTx, holderClaimable, claimHolderRewards, MIN_HOLDING, lockInfo, releaseRewards, releaseEarly, INSTANT_BURN, LOCK_DAYS } from './rewards.js';
 
 const coinIcon = '<svg class="coin-ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9"/><path d="M10 5v10M7.5 7.5h4a2 2 0 0 1 0 4h-3"/></svg>';
@@ -402,6 +402,7 @@ function traitRow(s) {
   const ed = s.edition && s.edition !== 'standard' ? EDITIONS[s.edition] : null;
   return `<div class="trait-row">
     <span class="badge neutral">${model.label}</span>
+    <span class="badge neutral">${colorwayName(s)}</span>
     ${ed ? `<span class="badge ed-${s.edition}">${ed.label} edition</span>` : ''}
     <span class="muted small">Genesis #${s.tokenId} / ${nf(COLLECTION.supply)}</span>
   </div>`;
