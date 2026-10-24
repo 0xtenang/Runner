@@ -4,10 +4,10 @@
 // signature parts are used (e.g. no hollow tube or cloud-pod soles, no side
 // stripes, no swoosh or wings).
 //
-// Drawn like a designer's colourway sheet rather than a 3D render: flat
-// material colours, panel construction lines and stitching, a real curated
-// colourway with a name, and only the shading a studio photo would show (a
-// soft shadow under the collar and where the upper meets the sole).
+// Drawn like a studio product photo of a real running shoe: real proportions
+// (flared heel tab, deep collar dip, toe spring), engineered knit whose speckle
+// fades from the collar, a padded collar, soft top-left light, smooth bevelled
+// foam with the RUNNER speed cut, and a curated, named colourway.
 //
 // A sneaker's look comes from its fields: model, hue, accent, midTone,
 // pattern, laces, edition (set from its token in collection.js). Class
@@ -104,86 +104,168 @@ function material(id, kind, P) {
   const lo = dark ? '#ffffff' : '#000000';
   switch (kind) {
     case 'knit':
-      return `<pattern id="${id}k" width="3" height="2.4" patternUnits="userSpaceOnUse"><path d="M0 1.2Q.75 0 1.5 1.2T3 1.2" fill="none" stroke="${lo}" stroke-opacity="${dark ? 0.16 : 0.1}" stroke-width=".55"/></pattern>`;
+      return `<pattern id="${id}k" width="2.4" height="2" patternUnits="userSpaceOnUse"><path d="M0 1Q.6 0 1.2 1T2.4 1" fill="none" stroke="${lo}" stroke-opacity="${dark ? 0.14 : 0.09}" stroke-width=".45"/></pattern>`;
     case 'speckle':
-      return `<pattern id="${id}k" width="7" height="7" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="2" r=".45" fill="${lo}" opacity=".2"/><circle cx="5" cy="1" r=".35" fill="${lo}" opacity=".16"/><circle cx="4" cy="5.2" r=".5" fill="${lo}" opacity=".14"/><circle cx="6.4" cy="4" r=".3" fill="${lo}" opacity=".18"/></pattern>`;
+      return `<pattern id="${id}k" width="6" height="6" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="2" r=".4" fill="${lo}" opacity=".22"/><circle cx="4.6" cy="1" r=".3" fill="${lo}" opacity=".16"/><circle cx="3.6" cy="4.6" r=".45" fill="${lo}" opacity=".15"/><circle cx="5.6" cy="3.6" r=".28" fill="${lo}" opacity=".2"/></pattern>`;
     case 'plain':
       return `<pattern id="${id}k" width="4" height="4" patternUnits="userSpaceOnUse"/>`;
-    default: // engineered mesh: small offset holes
-      return `<pattern id="${id}k" width="2.6" height="2.2" patternUnits="userSpaceOnUse"><ellipse cx=".8" cy=".7" rx=".42" ry=".3" fill="${lo}" opacity="${dark ? 0.14 : 0.1}"/><ellipse cx="2.1" cy="1.8" rx=".42" ry=".3" fill="${lo}" opacity="${dark ? 0.14 : 0.1}"/></pattern>`;
+    default: // engineered mesh
+      return `<pattern id="${id}k" width="2" height="1.8" patternUnits="userSpaceOnUse"><ellipse cx=".6" cy=".55" rx=".32" ry=".24" fill="${lo}" opacity="${dark ? 0.16 : 0.1}"/><ellipse cx="1.6" cy="1.45" rx=".32" ry=".24" fill="${lo}" opacity="${dark ? 0.16 : 0.1}"/></pattern>`;
   }
 }
 
 function defs(id, P, pattern) {
   return `<defs>
-    <linearGradient id="${id}u" x1="1" y1="0" x2="0" y2="0"><stop offset=".15" stop-color="${P.upper}"/><stop offset="1" stop-color="${P.knitFade ? P.fade : P.upper}"/></linearGradient>
-    <linearGradient id="${id}sh" x1="0" y1="0" x2="0" y2="1"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".14"/></linearGradient>
-    <linearGradient id="${id}m" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset=".25" stop-color="#fff" stop-opacity="0"/><stop offset=".8" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".12"/></linearGradient>
-    <linearGradient id="${id}p" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffd9f1" stop-opacity="0"/><stop offset=".3" stop-color="#ffd9f1" stop-opacity=".45"/><stop offset=".55" stop-color="#c9f2ff" stop-opacity=".45"/><stop offset=".8" stop-color="#fff3c4" stop-opacity=".4"/><stop offset="1" stop-color="#fff3c4" stop-opacity="0"/></linearGradient>
+    <linearGradient id="${id}u" x1="1" y1="0" x2="0" y2="0"><stop offset=".1" stop-color="${P.knitFade ? P.fade : P.upper}"/><stop offset=".55" stop-color="${P.upper}"/></linearGradient>
+    <linearGradient id="${id}sh" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".1"/><stop offset=".35" stop-color="#fff" stop-opacity="0"/><stop offset=".72" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".2"/></linearGradient>
+    <linearGradient id="${id}toe" gradientUnits="userSpaceOnUse" x1="196" y1="0" x2="242" y2="0"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".16"/></linearGradient>
+    <linearGradient id="${id}m" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset=".22" stop-color="#fff" stop-opacity="0"/><stop offset=".62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".2"/></linearGradient>
+    <linearGradient id="${id}p" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffd9f1" stop-opacity="0"/><stop offset=".3" stop-color="#ffd9f1" stop-opacity=".5"/><stop offset=".55" stop-color="#c9f2ff" stop-opacity=".5"/><stop offset=".8" stop-color="#fff3c4" stop-opacity=".45"/><stop offset="1" stop-color="#fff3c4" stop-opacity="0"/></linearGradient>
+    <linearGradient id="${id}kg" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="78"><stop offset="0" stop-color="#fff"/><stop offset=".55" stop-color="#fff" stop-opacity=".35"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <mask id="${id}km" maskUnits="userSpaceOnUse" x="0" y="0" width="244" height="120"><rect width="244" height="120" fill="url(#${id}kg)"/></mask>
+    <pattern id="${id}dot" width="1.7" height="1.5" patternUnits="userSpaceOnUse"><circle cx=".45" cy=".4" r=".38" fill="${P.collar}"/><circle cx="1.3" cy="1.15" r=".3" fill="${P.collar}"/></pattern>
     ${material(id, pattern, P)}
     <filter id="${id}b1" x="-20%" y="-300%" width="140%" height="700%"><feGaussianBlur stdDeviation="1"/></filter>
+    <filter id="${id}b2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="1.6"/></filter>
     <filter id="${id}b3" x="-30%" y="-300%" width="160%" height="700%"><feGaussianBlur stdDeviation="2.6"/></filter>
     <filter id="${id}g" x="-20%" y="-60%" width="140%" height="220%"><feGaussianBlur stdDeviation="5"/></filter>
   </defs>`;
 }
 
-const sparkles = (P) => (P.sparkle ? [[26, 10, 1], [216, 28, 0.8], [196, 8, 0.6]].map(([x, y, k]) =>
+const sparkles = (P) => (P.sparkle ? [[26, 6, 1], [216, 26, 0.8], [196, 6, 0.6]].map(([x, y, k]) =>
   `<path class="sparkle" transform="translate(${x} ${y}) scale(${k})" d="${SPARKLE}"/>`).join('') : '');
 
 /** Soft studio shadow under the shoe. */
-const groundShadow = (id, y = 108.5) => `
-    <ellipse cx="124" cy="${y}" rx="108" ry="4.5" fill="#000" opacity=".13" filter="url(#${id}b3)"/>
-    <ellipse cx="122" cy="${y - 1}" rx="94" ry="1.6" fill="#000" opacity=".26" filter="url(#${id}b1)"/>`;
+const groundShadow = (id, y = 110.5) => `
+    <ellipse cx="124" cy="${y}" rx="110" ry="4.2" fill="#000" opacity=".14" filter="url(#${id}b3)"/>
+    <ellipse cx="122" cy="${y - 0.8}" rx="98" ry="1.5" fill="#000" opacity=".3" filter="url(#${id}b1)"/>`;
 
-/** A panel: flat material colour and a construction line in a darker tone. */
-const panel = (d, fill, line, extra = '') => `<path d="${d}" fill="${fill}" stroke="${line}" stroke-width=".6" stroke-linejoin="round" ${extra}/>`;
-const stitch = (d, colour, extra = '') => `<path d="${d}" fill="none" stroke="${colour}" stroke-width=".5" stroke-dasharray="1.3 1.1" stroke-linecap="round" ${extra}/>`;
 const pts = (o, list) => list.map(([x, y], i) => `${i ? 'L' : 'M'}${o(x, y)}`).join('') + 'Z';
 const boltAt = (o, x0, y0, k) => pts(o, BOLT.map(([x, y]) => [x0 + x * k, y0 + y * k]));
 const xy = (o, x, y) => o(x, y).split(' ').map(Number);
+/** Tiny printed type (heel labels, foam emboss): short bars that read as lettering at this size. */
+const microText = (x, y, n, colour, op = 0.6, h = 0.9) => {
+  let cx = x, out = '';
+  for (let i = 0; i < n; i++) { const w = [1.4, 0.9, 1.7, 1.1, 0.7, 1.5][i % 6]; out += `<rect x="${f1(cx)}" y="${f1(y)}" width="${w}" height="${h}" rx=".2"/>`; cx += w + (i % 5 === 4 ? 1.6 : 0.5); }
+  return `<g fill="${colour}" opacity="${op}">${out}</g>`;
+};
 
-/** Laces seen from the side: cord crossings over the throat with eyelets. */
-function laces(P, list, w = 2.2) {
-  const d = list.map(([a, b, c, e]) => `M${f1(a)} ${f1(b)}L${f1(c)} ${f1(e)}`).join('');
-  const eyes = list.map(([a, b]) => `<circle cx="${f1(a)}" cy="${f1(b)}" r="1.5" fill="${P.overLine}"/><circle cx="${f1(a)}" cy="${f1(b)}" r=".7" fill="#000" opacity=".5"/>`).join('');
-  return `${eyes}<path d="${d}" stroke="${mixHex(P.lace, '#000000', 0.35)}" stroke-width="${w + 0.7}" stroke-linecap="round"/>
-    <path d="${d}" stroke="${P.lace}" stroke-width="${w}" stroke-linecap="round"/>`;
-}
-
-// Stack-aware geometry shared by the running lines (heel left, toe right, ground at 108).
+// Shoe geometry: heel left, toe right, ground at y = 110. Proportions follow a real
+// running shoe photographed side-on: height about 0.42 of length, a flared heel tab, a deep
+// collar dip, a raised tongue and toe spring. `S` raises the foam (more at the heel).
 function frame(S) {
-  const off = (x) => 0.55 * S * (1 - 0.65 * x / 240);
+  const off = (x) => S * (1 - 0.55 * x / 240);
   const o = (x, y) => `${x} ${f1(y - off(x))}`;
-  const seam = `C${o(190, 81.5)} ${o(120, 79.5)} ${o(60, 76.5)}C${o(40, 76)} ${o(24, 75.5)} ${o(10, 76)}`;
-  const seamPath = `M${o(233, 82)}${seam}`;
-  // Foam: toe spring at the front, a bevelled heel at the back.
-  const mid = `M${o(10, 76)}C${o(7, 83)} 8 93 15 98C18 102 24 104 32 104L176 104C202 103 222 96 236 86C238.5 84.5 237 82.5 ${o(233, 82)}${seam}Z`;
-  const outsole = 'M15 98C18 102 24 104 32 104L176 104C202 103 222 96 236 86L238.5 88.5C224 101 204 107.6 177 108L31 108C21 108 15.5 104.5 13.6 100Z';
-  return { off, o, seam, seamPath, mid, outsole };
+  const seam = `C${o(190, 88)} ${o(120, 85)} ${o(60, 82)}C${o(40, 81)} ${o(24, 80)} ${o(12, 80)}`;
+  const seamPath = `M${o(232, 89)}${seam}`;
+  const seamY = (x) => 80 + Math.max(0, x - 12) * (8.5 / 220) - off(x);
+  const mid = `M${o(12, 80)}C${o(5, 86)} 6 100 14 104C17 106.6 22 107 30 107L180 107C205 106.6 224 101 237 91C240 89 238.5 87.5 ${o(232, 89)}${seam}Z`;
+  const outsole = 'M14 104C17 106.6 22 107 30 107L180 107C205 106.6 224 101 237 91L239.2 93.6C226 104.6 205 110 180 110L30 110C20 110 14.4 107.6 12.8 105Z';
+  return { off, o, seam, seamPath, seamY, mid, outsole };
 }
 
-function soleDetails(id, s, P, F, wave, trail = false) {
-  const { mid, outsole, seamPath, off } = F;
-  const y = (x, base, k) => f1(base - off(x) * k);
-  const sculpt = wave
-    ? `M18 ${y(18, 92, 0.4)}C40 ${y(40, 84, 0.4)} 58 ${y(58, 98, 0.4)} 82 ${y(82, 92, 0.4)}S118 ${y(118, 84, 0.4)} 142 ${y(142, 92, 0.4)}S186 ${y(186, 92, 0.4)} 222 ${y(222, 84, 0.4)}`
-    : `M20 ${y(20, 90, 0.5)}C70 ${y(70, 97, 0.5)} 160 ${y(160, 97, 0.5)} 224 ${y(224, 85, 0.5)}`;
+/** Foam: smooth, slightly bulging, bevelled top edge, a concave sweep, the RUNNER speed cut. */
+function foam(id, s, P, F, opts = {}) {
+  const { mid, outsole, seamPath, seamY } = F;
+  const cutY = (x) => (seamY(x) + 107) / 2 + 0.8;
+  const x0 = 34, x1 = opts.longCut ? 196 : 150;
+  const top = [], bot = [];
+  for (let x = x0; x <= x1; x += 4) {
+    const t = (x - x0) / (x1 - x0), w = 1.9 * Math.sin(Math.PI * Math.min(1, t * 1.15)) + 0.2;
+    top.push(`${x} ${f1(cutY(x) - w)}`); bot.unshift(`${x} ${f1(cutY(x) + w * 0.8)}`);
+  }
+  const cut = `M${top.join('L')}L${bot.join('L')}Z`;
+  const groove = luminance(P.accent) > 0.85 || P.accent === P.mid ? mixHex(P.mid, '#000000', 0.45) : P.accent; // the speed cut shows the accent colour
+  const sweep = `M16 ${f1(cutY(16) + 7)}C60 ${f1(cutY(60) + 9)} 150 ${f1(cutY(150) + 9)} 226 ${f1(cutY(226) + 2)}`;
   return `
     <clipPath id="${id}cm"><path d="${mid}"/></clipPath>
-    ${panel(mid, P.mid, P.midLine)}
+    <path d="${mid}" fill="${P.mid}"/>
     <g clip-path="url(#${id}cm)">
-      <path d="${mid}" fill="url(#${id}m)"/>
       ${P.pearl ? `<path d="${mid}" fill="url(#${id}p)"/>` : ''}
-      <path d="${sculpt}" fill="none" stroke="${P.midLine}" stroke-width="1.1" stroke-linecap="round"/>
-      <path d="${sculpt}" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width=".8" transform="translate(0 1.1)" stroke-linecap="round"/>
-      ${s.type === 'runner' ? `<path d="M30 ${y(30, 80, 0.6)}C90 ${y(90, 86, 0.6)} 170 ${y(170, 86, 0.6)} 228 ${y(228, 78, 0.6)}" fill="none" stroke="${P.plate}" stroke-width="2.4" stroke-linecap="round"/>` : ''}
-      <path d="${seamPath}" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="1.2"/>
-      <rect x="22" y="${y(22, 97, 0.3)}" width="14" height="1.6" rx=".8" fill="${P.midLine}" opacity=".7"/>
+      <path d="${sweep}" fill="none" stroke="#000" stroke-opacity=".07" stroke-width="7" filter="url(#${id}b2)"/>
+      <path d="${mid}" fill="url(#${id}m)"/>
+      ${s.type === 'runner' ? `<path d="M30 ${f1(cutY(30) - 5)}C90 ${f1(cutY(90) - 3.5)} 170 ${f1(cutY(170) - 3.5)} 230 ${f1(cutY(230) - 5.5)}" fill="none" stroke="${P.plate}" stroke-width="1.8" stroke-linecap="round" opacity=".9"/>` : ''}
+      <path d="${cut}" fill="${groove}"/>
+      <path d="M${top.join('L')}" fill="none" stroke="#000" stroke-opacity=".25" stroke-width=".8"/>
+      <path d="M${bot.slice().reverse().join('L')}" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width=".7"/>
+      <path d="${seamPath}" fill="none" stroke="#fff" stroke-opacity=".85" stroke-width="1.1"/>
+      <path d="${seamPath}" fill="none" stroke="#000" stroke-opacity=".14" stroke-width="2.4" transform="translate(0 2.2)" filter="url(#${id}b1)"/>
+      ${microText(40, seamY(40) + 4.2, 9, mixHex(P.mid, '#000000', 0.25), 0.45, 0.8)}
     </g>
-    ${panel(outsole, P.outsole, mixHex(P.outsole, '#000000', 0.4))}
-    ${trail ? trailLugs(P) : ''}
-    ${!trail && s.type === 'trainer' ? `<g fill="${P.outsole}">${Array.from({ length: 12 }, (_, i) => `<rect x="${28 + i * 16}" y="${f1(106.6 - (i > 9 ? (i - 9) * 1.6 : 0))}" width="8" height="3" rx="1"/>`).join('')}</g>` : ''}
-    <path d="M32 104L176 104C202 103 222 96 236 86" fill="none" stroke="#fff" stroke-opacity=".14" stroke-width=".7" transform="translate(0 1.2)"/>`;
+    <path d="${outsole}" fill="${P.sole2 || P.outsole}"/>
+    <path d="M30 107L180 107C205 106.6 224 101 237 91" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width=".7" transform="translate(0 1.1)"/>`;
+}
+
+/** The tongue showing above the eyestay along the throat, so the laces cross over it. */
+function throatBand(o, edge, x0, x1) {
+  const up = [], dn = [];
+  for (let x = x0; x <= x1; x += 4) { up.push(o(x, edge(x) - 3.4)); dn.unshift(o(x, edge(x) + 3)); }
+  return `M${up.join('L')}L${dn.join('L')}Z`;
+}
+
+/** Laces crossing over the top of the eyestay, with eyelets and a lace-lock tag. */
+function laceRow(id, P, o, edge, xs, opts = {}) {
+  const lace = P.lace, laceShade = mixHex(P.lace, '#000000', 0.38);
+  const segs = xs.map((x) => { const [ax, ay] = xy(o, x, edge(x) + 4.2); const [bx, by] = xy(o, x + 8, edge(x + 8) - 1.4); return [ax, ay, bx, by]; });
+  const d = segs.map(([a, b, c, e]) => `M${f1(a)} ${f1(b)}L${f1(c)} ${f1(e)}`).join('');
+  const eyes = segs.map(([a, b]) => `<circle cx="${f1(a)}" cy="${f1(b)}" r="1.45" fill="${mixHex(P.collar, '#000000', 0.25)}"/><circle cx="${f1(a)}" cy="${f1(b)}" r=".75" fill="#000" opacity=".55"/>`).join('');
+  const [lx, ly] = segs[segs.length - 1];
+  return `${eyes}
+    <path d="${d}" stroke="#000" stroke-opacity=".3" stroke-width="2.9" stroke-linecap="round" transform="translate(.5 .8)" filter="url(#${id}b1)"/>
+    <path d="${d}" stroke="${laceShade}" stroke-width="2.7" stroke-linecap="round"/>
+    <path d="${d}" stroke="${lace}" stroke-width="2" stroke-linecap="round"/>
+    ${opts.noTag ? '' : `<rect x="${f1(lx + 2.2)}" y="${f1(ly + 0.6)}" width="2.4" height="4.4" rx="1" fill="${P.accent}" transform="rotate(28 ${f1(lx + 3.4)} ${f1(ly + 2.8)})"/>`}`;
+}
+
+// ---------------------------------------------------------------- the running lines
+// One shared last (the foot shape); each line changes the foam, panels and finish.
+function drawRunner(id, s, P, opt) {
+  const S = Math.max(opt.minStack || 0, STACK[s.type] ?? 4) + (opt.extra || 0);
+  const F = frame(S);
+  const { o, seam, seamPath } = F;
+  const upper = `M${o(12, 80)}C${o(6, 62)} ${o(7, 40)} ${o(13, 29)}C${o(16, 22)} ${o(22, 18)} ${o(30, 18.5)}C${o(39, 19.5)} ${o(46, 30)} ${o(55, 35)}C${o(64, 40)} ${o(73, 35)} ${o(79, 26)}C${o(81, 20)} ${o(84, 13.5)} ${o(90, 11.5)}C${o(96, 9.5)} ${o(102, 11.5)} ${o(104, 17)}C${o(116, 32)} ${o(140, 46)} ${o(170, 57)}C${o(196, 66)} ${o(222, 72)} ${o(236, 79)}C${o(240, 83)} ${o(238.5, 88)} ${o(232, 89)}${seam}Z`;
+  const edge = (x) => (x < 104 ? 17 : x < 170 ? 17 + (x - 104) * (40 / 66) : 57 + (x - 170) * 0.3);
+  const collar = `M${o(12, 33)}C${o(16, 24)} ${o(22, 19.5)} ${o(30, 20)}C${o(39, 21)} ${o(46, 31.5)} ${o(55, 36.5)}C${o(64, 41.5)} ${o(73, 36.5)} ${o(80, 27)}`;
+  const eyestay = `M${o(90, 15.5)}C${o(113, 31)} ${o(139, 45.5)} ${o(171, 58.5)}`;
+  const heelPanel = `M${o(0, 50)}L${o(28, 55)}C${o(32, 66)} ${o(36, 77)} ${o(41, 92)}L${o(0, 92)}Z`;
+  const tongue = `M${o(77, 30)}C${o(80, 21)} ${o(84, 13.5)} ${o(90, 11.5)}C${o(96, 9.5)} ${o(102, 11.5)} ${o(104, 17)}C${o(107, 22)} ${o(107, 28)} ${o(104, 33)}Z`;
+  const throat = throatBand(o, edge, 100, 168);
+  const [hx, hy] = xy(o, 4, 60);
+  const rubber = mixHex(P.outsole, P.overlay, 0.25);
+  const trail = opt.trail;
+  return `
+    ${groundShadow(id)}
+    ${P.glow ? `<path d="${F.mid}" fill="${P.accent}" filter="url(#${id}g)" opacity=".7"/>` : ''}
+    <path d="M${o(13, 31)}C${o(9, 21)} ${o(13, 13)} ${o(21, 14)}L${o(25, 20)}C${o(20, 19)} ${o(18, 24)} ${o(19, 30)}Z" fill="${P.overlay}"/>
+    <path d="${throat}" fill="${P.tongue}"/>
+    <path d="${throat}" fill="url(#${id}sh)"/>
+    <clipPath id="${id}cu"><path d="${upper}"/></clipPath>
+    <path d="${upper}" fill="url(#${id}u)"/>
+    <g clip-path="url(#${id}cu)">
+      <path d="${upper}" fill="url(#${id}k)"/>
+      ${opt.speckle !== false ? `<rect width="244" height="120" fill="url(#${id}dot)" mask="url(#${id}km)" opacity=".75"/>` : ''}
+      ${opt.toeCap ? `<path d="M${o(196, 94)}C${o(205, 77)} ${o(224, 72)} ${o(242, 79)}L${o(244, 96)}Z" fill="${P.overlay}" opacity=".75"/>` : ''}
+      ${trail ? `<path d="M${o(174, 94)}C${o(189, 77)} ${o(216, 71.5)} ${o(244, 77)}L${o(246, 98)}Z" fill="${rubber}"/><path d="M${o(191, 83)}L${o(193, 91)}M${o(202, 80)}L${o(204, 89)}M${o(213, 78)}L${o(215, 87)}M${o(224, 77.5)}L${o(226, 86)}" stroke="#fff" stroke-opacity=".14" stroke-width="1.3" stroke-linecap="round"/><path d="M${o(0, 84)}C${o(10, 75)} ${o(32, 74.5)} ${o(48, 76)}C${o(56, 77)} ${o(61, 79.5)} ${o(64, 83)}L${o(64, 96)}L${o(0, 96)}Z" fill="${rubber}"/>` : ''}
+      <path d="${heelPanel}" fill="${P.overlay}"/>
+      <g transform="rotate(10 ${hx} ${hy})">${microText(hx + 3, hy, 8, P.mark, 0.75)}${microText(hx + 3, hy + 2.4, 5, P.mark, 0.45, 0.6)}</g>
+      <path d="${eyestay}" fill="none" stroke="${P.collar}" stroke-width="12" stroke-linecap="round"/>
+      <path d="${eyestay}" fill="none" stroke="#000" stroke-opacity=".18" stroke-width="1.6" transform="translate(0 6.4)" filter="url(#${id}b1)"/>
+      <path d="${tongue}" fill="${P.tongue}"/>
+      <path d="${collar}" fill="none" stroke="${P.collar}" stroke-width="10" stroke-linecap="round"/>
+      <path d="${collar}" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="1" transform="translate(0 -1.6)"/>
+      <path d="${collar}" fill="none" stroke="#000" stroke-opacity=".25" stroke-width="2.4" transform="translate(0 5.4)" filter="url(#${id}b1)"/>
+      <path d="M${o(112, 29)}C${o(136, 43)} ${o(168, 55)} ${o(210, 67)}" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="3" filter="url(#${id}b1)"/>
+      <path d="M${o(10, 44)}C${o(9, 56)} ${o(10, 66)} ${o(13, 74)}" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="1.6" filter="url(#${id}b1)"/>
+      <path d="${upper}" fill="url(#${id}toe)"/>
+      <path d="${seamPath}" fill="none" stroke="#000" stroke-opacity=".3" stroke-width="4.5" filter="url(#${id}b3)"/>
+      <path d="${upper}" fill="url(#${id}sh)"/>
+    </g>
+    <rect x="${f1(xy(o, 85, 15)[0])}" y="${f1(xy(o, 85, 15)[1])}" width="7" height="3.2" rx="1" fill="${P.overlay}" transform="rotate(-20 ${f1(xy(o, 88, 16)[0])} ${f1(xy(o, 88, 16)[1])})"/>
+    <path d="${boltAt(o, 60, 53, 0.66)}" fill="#000" opacity=".22" transform="translate(.5 .7)" filter="url(#${id}b1)"/>
+    <path d="${boltAt(o, 60, 53, 0.66)}" fill="${P.mark}"/>
+    ${laceRow(id, P, o, edge, [101, 113, 125, 137, 149])}
+    ${foam(id, s, P, F, opt)}
+    ${trail ? trailLugs(P) : ''}`;
 }
 
 /** Deep multi-directional lugs under a trail outsole (they follow the toe spring). */
@@ -191,100 +273,50 @@ function trailLugs(P) {
   const lug = mixHex(P.outsole, '#000000', 0.15);
   const out = [];
   for (let x = 22; x <= 200; x += 13) {
-    const yb = x < 176 ? 108 : 108 - (x - 176) * 0.42;      // ground line, rising at the toe
-    const lean = x < 120 ? -1.2 : 1.2;                       // heel lugs face back, forefoot lugs forward
-    out.push(`<path d="M${x} ${f1(yb - 0.5)}L${f1(x + 8)} ${f1(yb - 0.5)}L${f1(x + 7 + lean)} ${f1(yb + 3.4)}L${f1(x + 1 + lean)} ${f1(yb + 3.4)}Z"/>`);
+    const yb = x < 180 ? 110 : 110 - (x - 180) * 0.4;
+    const lean = x < 120 ? -1.2 : 1.2;
+    out.push(`<path d="M${x} ${f1(yb - 0.5)}L${f1(x + 8)} ${f1(yb - 0.5)}L${f1(x + 7 + lean)} ${f1(yb + 3.2)}L${f1(x + 1 + lean)} ${f1(yb + 3.2)}Z"/>`);
   }
   return `<g fill="${lug}">${out.join('')}</g>`;
 }
 
-// ---------------------------------------------------------------- Stride
-// Everyday runner: engineered mesh, heel counter, toe mudguard, eyestay, lace
-// cage straps, padded collar and pull tab. The bolt sits on the quarter panel.
-function drawStride(id, s, P, wave = false, minStack = 0, trail = false) {
-  const S = Math.max(minStack, STACK[s.type] ?? 4);
-  const F = frame(S);
-  const { o, seam, seamPath } = F;
-  const upper = `M${o(10, 76)}C${o(5, 60)} ${o(8, 42)} ${o(16, 32)}C${o(20, 27.5)} ${o(28, 25.5)} ${o(34, 28.5)}C${o(44, 34.5)} ${o(56, 40.5)} ${o(68, 39.5)}C${o(80, 38.5)} ${o(90, 28)} ${o(98, 20.5)}C${o(102, 16)} ${o(110, 16)} ${o(113, 20.5)}C${o(128, 36)} ${o(160, 50)} ${o(196, 60)}C${o(222, 67)} ${o(238, 74)} ${o(233, 82)}${seam}Z`;
-  const collar = `M${o(14, 35)}C${o(19, 28.5)} ${o(28, 26)} ${o(34, 29)}C${o(44, 35)} ${o(56, 41)} ${o(68, 40)}C${o(80, 39)} ${o(90, 28.5)} ${o(97, 21.5)}`;
-  const heel = `M${o(2, 82)}L${o(2, 33)}C${o(20, 34)} ${o(34, 40)} ${o(43, 50)}C${o(49, 57)} ${o(51, 66)} ${o(49, 82)}Z`;
-  const mudguard = `M${o(150, 90)}C${o(168, 74)} ${o(200, 69)} ${o(242, 74)}L${o(244, 94)}L${o(150, 94)}Z`;
-  const eyestay = `M${o(101, 22.5)}C${o(124, 39)} ${o(156, 51)} ${o(192, 61)}`;
-  const laceList = Array.from({ length: 5 }, (_, i) => { const x = 116 + i * 14, y = 28 + i * 6.3; return [...xy(o, x, y), ...xy(o, x - 11, y + 7.5)]; });
-  const [tx, ty] = xy(o, 9, 52);
-  const rubber = mixHex(P.outsole, P.overlay, 0.25);
-  // Trail: a rubber toe bumper and heel band instead of the mesh mudguard.
-  const bumper = `M${o(170, 93)}C${o(186, 71)} ${o(216, 65)} ${o(244, 70)}L${o(246, 96)}L${o(170, 96)}Z`;
-  const heelRand = `M${o(0, 80)}C${o(10, 70)} ${o(32, 69.5)} ${o(48, 71)}C${o(56, 72)} ${o(61, 74.5)} ${o(64, 78)}L${o(64, 92)}L${o(0, 92)}Z`;
-  return `
-    ${groundShadow(id, trail ? 111.5 : 108.5)}
-    ${P.glow ? `<path d="${F.mid}" fill="${P.accent}" filter="url(#${id}g)" opacity=".75"/>` : ''}
-    <clipPath id="${id}cu"><path d="${upper}"/></clipPath>
-    ${panel(`M${o(14, 33)}C${o(10, 22)} ${o(14, 15)} ${o(22, 16.5)}L${o(26, 23)}C${o(21, 21.5)} ${o(19, 26)} ${o(20, 32)}Z`, P.overlay, P.overLine)}
-    ${panel(`M${o(93, 25)}C${o(96, 14)} ${o(103, 10.5)} ${o(111, 12.5)}C${o(116, 14)} ${o(117, 19)} ${o(115, 24)}Z`, P.tongue, mixHex(P.tongue, '#000000', 0.3))}
-    <path d="${upper}" fill="url(#${id}u)"/>
-    <g clip-path="url(#${id}cu)">
-      <path d="${upper}" fill="url(#${id}k)"/>
-      ${trail ? '' : panel(mudguard, P.overlay, P.overLine)}
-      ${trail ? '' : stitch(`M${o(154, 87)}C${o(171, 72.5)} ${o(200, 67.5)} ${o(240, 72.5)}`, P.overStitch)}
-      ${panel(heel, P.overlay, P.overLine)}
-      ${trail ? panel(bumper, rubber, mixHex(rubber, '#000000', 0.35)) + `<path d="M${o(192, 78)}L${o(194, 88)}M${o(203, 74.5)}L${o(205, 86)}M${o(214, 72.5)}L${o(216, 84)}M${o(225, 72)}L${o(227, 83)}" stroke="#fff" stroke-opacity=".14" stroke-width="1.4" stroke-linecap="round"/>` + panel(heelRand, rubber, mixHex(rubber, '#000000', 0.35)) : ''}
-      ${stitch(`M${o(6, 35.5)}C${o(22, 37)} ${o(33, 43)} ${o(40, 51)}C${o(45, 58)} ${o(47, 66)} ${o(46, 76)}`, P.overStitch)}
-      <path d="${eyestay}" fill="none" stroke="${P.overlay}" stroke-width="11" stroke-linecap="round"/>
-      <path d="${eyestay}" fill="none" stroke="${P.overLine}" stroke-width=".6" transform="translate(0 5.4)"/>
-      ${stitch(eyestay, P.overStitch, 'transform="translate(0 3.6)"')}
-      <path d="${collar}" fill="none" stroke="${P.collar}" stroke-width="7.5" stroke-linecap="round"/>
-      <path d="${collar}" fill="none" stroke="${P.lining}" stroke-width="2.2" transform="translate(0 -2.6)" stroke-linecap="round"/>
-      <path d="${collar}" fill="none" stroke="#000" stroke-opacity=".22" stroke-width="3" transform="translate(0 4.2)" filter="url(#${id}b1)"/>
-      <rect x="${tx}" y="${ty}" width="2.4" height="9" rx="1" fill="${P.accent}" opacity=".85"/>
-      <path d="${seamPath}" fill="none" stroke="#000" stroke-opacity=".26" stroke-width="5" filter="url(#${id}b3)"/>
-      <path d="${upper}" fill="url(#${id}sh)"/>
-    </g>
-    <path d="${upper}" fill="none" stroke="${P.line}" stroke-width=".6" stroke-linejoin="round"/>
-    ${panel(boltAt(o, 64, 48, 0.78), P.mark, mixHex(P.mark, '#000000', 0.25))}
-    ${laces(P, laceList)}
-    <circle cx="${f1(laceList[4][0] + 3)}" cy="${f1(laceList[4][1] + 2.5)}" r="1.1" fill="${P.accent}"/>
-    ${soleDetails(id, s, P, F, wave, trail)}`;
-}
+// Stride: everyday trainer — engineered mesh, tonal toe cap, medium foam.
+const drawStride = (id, s, P) => drawRunner(id, s, P, { toeCap: true });
+// Pod: max-cushion rocker — tall foam with a long speed cut (closed foam, no hollow pods).
+const drawPod = (id, s, P) => drawRunner(id, s, P, { minStack: 10, extra: 4, longCut: true });
+// Trail: rubber toe bumper and heel band, firmer foam, deep lugs.
+const drawTrail = (id, s, P) => drawRunner(id, s, P, { minStack: 6, trail: true });
 
-// ---------------------------------------------------------------- Pod
-// Max-cushion rocker: the same construction on a tall foam with a sculpted wave
-// sidewall (closed foam, no hollow pods).
-const drawPod = (id, s, P) => drawStride(id, s, P, true, 8);
-
-// ---------------------------------------------------------------- Knit
-// Sock-knit lifestyle runner: one-piece knit upper, ribbed ankle collar, rope
-// laces, heel loop, a slim wave sole.
+// Knit: sock-fit knit runner — one-piece knit, ribbed ankle collar, no separate tongue.
 function drawKnit(id, s, P) {
-  const F = frame(2);
+  const F = frame(3);
   const { o, seam, seamPath } = F;
-  const upper = `M${o(10, 76)}C${o(5, 56)} ${o(9, 35)} ${o(18, 25)}C${o(25, 18)} ${o(35, 18)} ${o(43, 23)}C${o(54, 29)} ${o(66, 30)} ${o(78, 27)}C${o(88, 24.5)} ${o(94, 18)} ${o(102, 15.5)}C${o(108, 14)} ${o(113, 16)} ${o(117, 21)}C${o(130, 36)} ${o(162, 49)} ${o(198, 59)}C${o(224, 66.5)} ${o(239, 74)} ${o(233, 82)}${seam}Z`;
-  const ribs = [0, 1, 2, 3].map((i) => `M${o(14 + i * 1.5, 30 + i * 3.4)}C${o(28, 22.5 + i * 3.4)} ${o(44, 28 + i * 3.2)} ${o(60, 32.5 + i * 2.8)}C${o(78, 34.5 + i * 2.4)} ${o(92, 24 + i * 2.6)} ${o(104, 18.5 + i * 2.6)}`).join('');
-  const laceList = Array.from({ length: 6 }, (_, i) => { const x = 122 + i * 12.5, y = 33 + i * 5.7; return [...xy(o, x, y), ...xy(o, x - 10, y + 6.5)]; });
+  const upper = `M${o(12, 80)}C${o(6, 60)} ${o(8, 38)} ${o(17, 27)}C${o(23, 21)} ${o(31, 20.5)} ${o(39, 24)}C${o(49, 30)} ${o(60, 32)} ${o(72, 29)}C${o(82, 26)} ${o(88, 19.5)} ${o(96, 17.5)}C${o(102, 16.5)} ${o(106, 18.5)} ${o(110, 23)}C${o(122, 36)} ${o(146, 48)} ${o(174, 58)}C${o(200, 66)} ${o(224, 72)} ${o(237, 79)}C${o(240.5, 84)} ${o(238.5, 88)} ${o(232, 89)}${seam}Z`;
+  const edge = (x) => (x < 110 ? 23 : x < 174 ? 23 + (x - 110) * (35 / 64) : 58 + (x - 174) * 0.3);
+  const ribs = [0, 1, 2, 3, 4].map((i) => `M${o(13 + i, 31 + i * 2.6)}C${o(22, 24 + i * 2.7)} ${o(32, 23.5 + i * 2.7)} ${o(40, 27 + i * 2.6)}C${o(50, 33 + i * 2.4)} ${o(60, 35 + i * 2.2)} ${o(72, 32 + i * 2.2)}C${o(82, 29 + i * 2.2)} ${o(88, 22.5 + i * 2.2)} ${o(96, 20.5 + i * 2.2)}`).join('');
+  const throat = throatBand(o, edge, 106, 170);
   return `
     ${groundShadow(id)}
-    ${P.glow ? `<path d="${F.mid}" fill="${P.accent}" filter="url(#${id}g)" opacity=".75"/>` : ''}
-    <path d="M${o(20, 27)}C${o(11, 15)} ${o(18, 4)} ${o(31, 10)}" fill="none" stroke="${P.overlay}" stroke-width="4.6" stroke-linecap="round"/>
+    ${P.glow ? `<path d="${F.mid}" fill="${P.accent}" filter="url(#${id}g)" opacity=".7"/>` : ''}
+    <path d="M${o(19, 28)}C${o(11, 16)} ${o(18, 6)} ${o(30, 11)}" fill="none" stroke="${P.overlay}" stroke-width="4.4" stroke-linecap="round"/>
+    <path d="${throat}" fill="${P.collar}"/>
     <clipPath id="${id}cu"><path d="${upper}"/></clipPath>
     <path d="${upper}" fill="url(#${id}u)"/>
     <g clip-path="url(#${id}cu)">
       <path d="${upper}" fill="url(#${id}k)"/>
-      <path d="${ribs}" fill="none" stroke="${P.line}" stroke-opacity=".55" stroke-width="1"/>
-      <path d="M${o(20, 24)}C${o(27, 17)} ${o(36, 16.5)} ${o(44, 22)}C${o(55, 29)} ${o(66, 29.5)} ${o(78, 26.5)}C${o(88, 24)} ${o(94, 17.5)} ${o(103, 15)}" fill="none" stroke="${P.lining}" stroke-width="2.4"/>
-      <path d="M${o(10, 71)}C${o(40, 67)} ${o(110, 67)} ${o(233, 75)}L${o(240, 92)}L${o(4, 92)}Z" fill="${P.overlay}" opacity=".22"/>
-      <path d="${seamPath}" fill="none" stroke="#000" stroke-opacity=".24" stroke-width="5" filter="url(#${id}b3)"/>
+      <rect width="244" height="120" fill="url(#${id}dot)" mask="url(#${id}km)" opacity=".6"/>
+      <path d="${ribs}" fill="none" stroke="${P.collar}" stroke-width="1.5"/>
+      <path d="${ribs}" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width=".6" transform="translate(0 -.8)"/>
+      <path d="M${o(16, 28)}C${o(23, 21.5)} ${o(31, 21)} ${o(39, 24.5)}C${o(49, 30.5)} ${o(60, 32.5)} ${o(72, 29.5)}C${o(82, 26.5)} ${o(88, 20)} ${o(96, 18)}" fill="none" stroke="${P.lining}" stroke-width="2.2"/>
+      <path d="M${o(118, 33)}C${o(142, 46)} ${o(172, 56)} ${o(212, 67)}" fill="none" stroke="#fff" stroke-opacity=".26" stroke-width="3" filter="url(#${id}b1)"/>
+      <path d="${upper}" fill="url(#${id}toe)"/>
+      <path d="${seamPath}" fill="none" stroke="#000" stroke-opacity=".28" stroke-width="4.5" filter="url(#${id}b3)"/>
       <path d="${upper}" fill="url(#${id}sh)"/>
     </g>
-    <path d="${upper}" fill="none" stroke="${P.line}" stroke-width=".6" stroke-linejoin="round"/>
-    ${panel(boltAt(o, 26, 50, 0.5), P.mark, mixHex(P.mark, '#000000', 0.25))}
-    ${laces(P, laceList, 2.8)}
-    ${soleDetails(id, s, P, F, true)}`;
+    <path d="${boltAt(o, 24, 52, 0.46)}" fill="${P.mark}"/>
+    ${laceRow(id, P, o, edge, [108, 120, 132, 144, 156], { noTag: true })}
+    ${foam(id, s, P, F, {})}`;
 }
-
-// ---------------------------------------------------------------- Trail
-// Trail runner: rubber toe bumper and heel band, gusseted tongue, a firmer
-// mid-height foam and deep multi-directional lugs.
-const drawTrail = (id, s, P) => drawStride(id, s, P, false, 6, true);
 
 const DRAW = { stride: drawStride, pod: drawPod, knit: drawKnit, trail: drawTrail };
 const DEFAULT_PATTERN = { stride: 'mesh', pod: 'mesh', knit: 'knit', trail: 'speckle' };
