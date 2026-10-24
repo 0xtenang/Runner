@@ -11,7 +11,7 @@ export const MODELS = {
   stride: { label: 'Stride', note: 'Modern road runner' },
   pod: { label: 'Pod', note: 'Cloud-cushion runner' },
   knit: { label: 'Knit', note: 'Sock-knit lifestyle runner' },
-  court: { label: 'Court', note: 'High-top court classic' },
+  trail: { label: 'Trail', note: 'Trail runner' },
 };
 
 export const EDITIONS = {
@@ -65,7 +65,7 @@ function weighted(r, table) {
 /** Look traits for token `id` (1–9999). Same id → same traits, always. */
 export function traitsFor(id) {
   const r = rng(Math.imul(id, 2654435761) ^ 0x5eed);
-  const model = weighted(r, [['stride', 30], ['pod', 27], ['knit', 24], ['court', 19]]);
+  const model = weighted(r, [['stride', 30], ['pod', 27], ['knit', 24], ['trail', 19]]);
   const hue = Math.floor(r() * 360);
   const accent = Math.floor((hue + 120 + r() * 120) % 360);
   const midTone = Math.floor(r() * 3);       // 0 white, 1 contrast, 2 tonal foam

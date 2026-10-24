@@ -1,4 +1,4 @@
-// Original RUNNER sneaker illustrations — four lines (Stride, Pod, Knit, Court)
+// Original RUNNER sneaker illustrations — four running lines (Stride, Pod, Knit, Trail)
 // inspired by popular shoe *styles* but drawn from scratch with our own
 // details and the RUNNER bolt mark. No real brand's logos, stripes, text or
 // signature parts are used (e.g. no hollow tube or cloud-pod soles, no side
@@ -162,7 +162,7 @@ function frame(S) {
   return { off, o, seam, seamPath, mid, outsole };
 }
 
-function soleDetails(id, s, P, F, wave) {
+function soleDetails(id, s, P, F, wave, trail = false) {
   const { mid, outsole, seamPath, off } = F;
   const y = (x, base, k) => f1(base - off(x) * k);
   const sculpt = wave
@@ -181,14 +181,27 @@ function soleDetails(id, s, P, F, wave) {
       <rect x="22" y="${y(22, 97, 0.3)}" width="14" height="1.6" rx=".8" fill="${P.midLine}" opacity=".7"/>
     </g>
     ${panel(outsole, P.outsole, mixHex(P.outsole, '#000000', 0.4))}
-    ${s.type === 'trainer' ? `<g fill="${P.outsole}">${Array.from({ length: 12 }, (_, i) => `<rect x="${28 + i * 16}" y="${f1(106.6 - (i > 9 ? (i - 9) * 1.6 : 0))}" width="8" height="3" rx="1"/>`).join('')}</g>` : ''}
+    ${trail ? trailLugs(P) : ''}
+    ${!trail && s.type === 'trainer' ? `<g fill="${P.outsole}">${Array.from({ length: 12 }, (_, i) => `<rect x="${28 + i * 16}" y="${f1(106.6 - (i > 9 ? (i - 9) * 1.6 : 0))}" width="8" height="3" rx="1"/>`).join('')}</g>` : ''}
     <path d="M32 104L176 104C202 103 222 96 236 86" fill="none" stroke="#fff" stroke-opacity=".14" stroke-width=".7" transform="translate(0 1.2)"/>`;
+}
+
+/** Deep multi-directional lugs under a trail outsole (they follow the toe spring). */
+function trailLugs(P) {
+  const lug = mixHex(P.outsole, '#000000', 0.15);
+  const out = [];
+  for (let x = 22; x <= 200; x += 13) {
+    const yb = x < 176 ? 108 : 108 - (x - 176) * 0.42;      // ground line, rising at the toe
+    const lean = x < 120 ? -1.2 : 1.2;                       // heel lugs face back, forefoot lugs forward
+    out.push(`<path d="M${x} ${f1(yb - 0.5)}L${f1(x + 8)} ${f1(yb - 0.5)}L${f1(x + 7 + lean)} ${f1(yb + 3.4)}L${f1(x + 1 + lean)} ${f1(yb + 3.4)}Z"/>`);
+  }
+  return `<g fill="${lug}">${out.join('')}</g>`;
 }
 
 // ---------------------------------------------------------------- Stride
 // Everyday runner: engineered mesh, heel counter, toe mudguard, eyestay, lace
 // cage straps, padded collar and pull tab. The bolt sits on the quarter panel.
-function drawStride(id, s, P, wave = false, minStack = 0) {
+function drawStride(id, s, P, wave = false, minStack = 0, trail = false) {
   const S = Math.max(minStack, STACK[s.type] ?? 4);
   const F = frame(S);
   const { o, seam, seamPath } = F;
@@ -199,8 +212,12 @@ function drawStride(id, s, P, wave = false, minStack = 0) {
   const eyestay = `M${o(101, 22.5)}C${o(124, 39)} ${o(156, 51)} ${o(192, 61)}`;
   const laceList = Array.from({ length: 5 }, (_, i) => { const x = 116 + i * 14, y = 28 + i * 6.3; return [...xy(o, x, y), ...xy(o, x - 11, y + 7.5)]; });
   const [tx, ty] = xy(o, 9, 52);
+  const rubber = mixHex(P.outsole, P.overlay, 0.25);
+  // Trail: a rubber toe bumper and heel band instead of the mesh mudguard.
+  const bumper = `M${o(170, 93)}C${o(186, 71)} ${o(216, 65)} ${o(244, 70)}L${o(246, 96)}L${o(170, 96)}Z`;
+  const heelRand = `M${o(0, 80)}C${o(10, 70)} ${o(32, 69.5)} ${o(48, 71)}C${o(56, 72)} ${o(61, 74.5)} ${o(64, 78)}L${o(64, 92)}L${o(0, 92)}Z`;
   return `
-    ${groundShadow(id)}
+    ${groundShadow(id, trail ? 111.5 : 108.5)}
     ${P.glow ? `<path d="${F.mid}" fill="${P.accent}" filter="url(#${id}g)" opacity=".75"/>` : ''}
     <clipPath id="${id}cu"><path d="${upper}"/></clipPath>
     ${panel(`M${o(14, 33)}C${o(10, 22)} ${o(14, 15)} ${o(22, 16.5)}L${o(26, 23)}C${o(21, 21.5)} ${o(19, 26)} ${o(20, 32)}Z`, P.overlay, P.overLine)}
@@ -208,9 +225,10 @@ function drawStride(id, s, P, wave = false, minStack = 0) {
     <path d="${upper}" fill="url(#${id}u)"/>
     <g clip-path="url(#${id}cu)">
       <path d="${upper}" fill="url(#${id}k)"/>
-      ${panel(mudguard, P.overlay, P.overLine)}
-      ${stitch(`M${o(154, 87)}C${o(171, 72.5)} ${o(200, 67.5)} ${o(240, 72.5)}`, P.overStitch)}
+      ${trail ? '' : panel(mudguard, P.overlay, P.overLine)}
+      ${trail ? '' : stitch(`M${o(154, 87)}C${o(171, 72.5)} ${o(200, 67.5)} ${o(240, 72.5)}`, P.overStitch)}
       ${panel(heel, P.overlay, P.overLine)}
+      ${trail ? panel(bumper, rubber, mixHex(rubber, '#000000', 0.35)) + `<path d="M${o(192, 78)}L${o(194, 88)}M${o(203, 74.5)}L${o(205, 86)}M${o(214, 72.5)}L${o(216, 84)}M${o(225, 72)}L${o(227, 83)}" stroke="#fff" stroke-opacity=".14" stroke-width="1.4" stroke-linecap="round"/>` + panel(heelRand, rubber, mixHex(rubber, '#000000', 0.35)) : ''}
       ${stitch(`M${o(6, 35.5)}C${o(22, 37)} ${o(33, 43)} ${o(40, 51)}C${o(45, 58)} ${o(47, 66)} ${o(46, 76)}`, P.overStitch)}
       <path d="${eyestay}" fill="none" stroke="${P.overlay}" stroke-width="11" stroke-linecap="round"/>
       <path d="${eyestay}" fill="none" stroke="${P.overLine}" stroke-width=".6" transform="translate(0 5.4)"/>
@@ -226,7 +244,7 @@ function drawStride(id, s, P, wave = false, minStack = 0) {
     ${panel(boltAt(o, 64, 48, 0.78), P.mark, mixHex(P.mark, '#000000', 0.25))}
     ${laces(P, laceList)}
     <circle cx="${f1(laceList[4][0] + 3)}" cy="${f1(laceList[4][1] + 2.5)}" r="1.1" fill="${P.accent}"/>
-    ${soleDetails(id, s, P, F, wave)}`;
+    ${soleDetails(id, s, P, F, wave, trail)}`;
 }
 
 // ---------------------------------------------------------------- Pod
@@ -263,66 +281,20 @@ function drawKnit(id, s, P) {
     ${soleDetails(id, s, P, F, true)}`;
 }
 
-// ---------------------------------------------------------------- Court
-// High-top court classic: padded ankle collar, colour-blocked leather panels,
-// perforated toe, stitched cupsole and the RUNNER badge on the collar.
-function drawCourt(id, s, P) {
-  const white = s.midTone === 0 || luminance(P.upper) < 0.12;
-  const base = white ? '#f3f2ec' : P.upper;
-  const block = white ? P.upper : P.overlay;
-  const blockLine = mixHex(block, '#000000', 0.3);
-  const toe = s.edition === 'neon' ? P.overlay : '#f6f5f0';
-  const cupFill = s.edition === 'neon' ? P.mid : s.edition === 'gold' ? '#fff6dc' : s.midTone === 1 ? '#efe7d4' : '#faf9f5';
-  const upper = 'M14 78L13 34C13 18 20 7 32 5C44 3 58 5 67 9L72 13C82 16 92 19 100 23C118 34 150 46 188 56C214 62 232 68 232 78C180 81 120 80 60 79C40 78 24 78 14 78Z';
-  const seam = 'M232 78C180 81 120 80 60 79C40 78 24 78 14 78';
-  const cup = 'M10 77L232 79C238 79 240 83 239 88C238 95 232 98 222 98L22 98C14 98 10 94 10 88Z';
-  const laceList = Array.from({ length: 6 }, (_, i) => { const x = 108 + i * 13, y = 28 + i * 5.6; return [x, y, x - 12, y + 8]; });
-  const perfs = [[196, 66], [204, 68], [212, 70], [200, 72], [208, 74], [216, 74], [220, 70]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1"/>`).join('');
-  const bolt = (x0, y0, k) => BOLT.map(([x, y], i) => `${i ? 'L' : 'M'}${f1(x0 + x * k)} ${f1(y0 + y * k)}`).join('') + 'Z';
-  return `
-    ${groundShadow(id, 103.5)}
-    ${P.glow ? `<path d="${cup}" fill="${P.accent}" filter="url(#${id}g)" opacity=".75"/>` : ''}
-    ${panel('M86 26C90 10 102 2 113 5C117 6 119 10 118 16L114 30Z', toe, '#cfcdc4')}
-    <rect x="100" y="8" width="9" height="6" rx="1.5" fill="${block}"/>
-    <clipPath id="${id}cu"><path d="${upper}"/></clipPath><clipPath id="${id}cm"><path d="${cup}"/></clipPath>
-    <path d="${upper}" fill="${base}"/>
-    <g clip-path="url(#${id}cu)">
-      ${panel('M168 51C198 58 226 64 232 76L232 80C214 80 196 80 172 80C169 70 168 61 168 51Z', toe, '#cfcdc4')}
-      <g fill="#000" opacity=".26">${perfs}</g>
-      ${panel('M14 78L13 36C26 41 38 46 46 54C43 62 43 71 47 79Z', block, blockLine)}
-      ${panel('M0 40L0 0L70 0L71 22C56 17 36 19 22 33Z', block, blockLine)}
-      ${panel('M100 23C118 34 150 46 188 56L184 64C150 55 118 44 96 33Z', block, blockLine)}
-      ${panel('M60 79C66 70 78 63 96 60C120 57 146 60 170 66L172 80C140 80 100 80 60 79Z', block, blockLine)}
-      ${stitch('M22 33C36 19 56 17 71 22M47 79C43 71 43 62 46 54M96 33C118 44 150 55 184 64M60 79C66 70 78 63 96 60C120 57 146 60 170 66', luminance(block) < 0.45 ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.3)')}
-      <path d="M13 34C13 18 20 7 32 5C44 3 58 5 67 9" fill="none" stroke="${P.lining}" stroke-width="2.4" transform="translate(0 2)"/>
-      <path d="${seam}" fill="none" stroke="#000" stroke-opacity=".24" stroke-width="5" filter="url(#${id}b3)"/>
-      <path d="${upper}" fill="url(#${id}sh)"/>
-    </g>
-    <path d="${upper}" fill="none" stroke="${mixHex(base, '#000000', 0.3)}" stroke-width=".6"/>
-    <path d="M13 34C13 18 20 7 32 5C44 3 58 5 67 9" fill="none" stroke="${block}" stroke-width="5" stroke-linecap="round"/>
-    ${panel(bolt(124, 52, 1.05), white ? P.overlay : P.mark, white ? P.overLine : mixHex(P.mark, '#000000', 0.25))}
-    <circle cx="36" cy="21" r="6.6" fill="${block}" stroke="${toe}" stroke-width="1.6"/>
-    <path d="${bolt(30.5, 18, 0.22)}" fill="${toe}"/>
-    ${laces({ ...P, lace: P.lace === '#f5f4ef' ? '#f5f4ef' : block, overLine: blockLine }, laceList)}
-    ${panel(cup, cupFill, '#d6d4cb')}
-    <g clip-path="url(#${id}cm)">
-      <path d="${cup}" fill="url(#${id}m)"/>
-      ${P.pearl ? `<path d="${cup}" fill="url(#${id}p)"/>` : ''}
-      <path d="M16 85L233 86.5" stroke="#000" stroke-opacity=".28" stroke-width=".8" stroke-dasharray="2 1.6"/>
-      <path d="M8 93L240 93L240 104L8 104Z" fill="${s.edition && s.edition !== 'standard' ? P.outsole : block}"/>
-      <path d="${seam}" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="1.2"/>
-    </g>`;
-}
+// ---------------------------------------------------------------- Trail
+// Trail runner: rubber toe bumper and heel band, gusseted tongue, a firmer
+// mid-height foam and deep multi-directional lugs.
+const drawTrail = (id, s, P) => drawStride(id, s, P, false, 6, true);
 
-const DRAW = { stride: drawStride, pod: drawPod, knit: drawKnit, court: drawCourt };
-const DEFAULT_PATTERN = { stride: 'mesh', pod: 'mesh', knit: 'knit', court: 'plain' };
+const DRAW = { stride: drawStride, pod: drawPod, knit: drawKnit, trail: drawTrail };
+const DEFAULT_PATTERN = { stride: 'mesh', pod: 'mesh', knit: 'knit', trail: 'speckle' };
 
 /** SVG markup for a sneaker (owned, listed, or a collection preview). */
 export function sneakerSvg(s, cls = 'sneaker-art') {
   const id = `sn${++seq}`;
   const model = DRAW[s.model] ? s.model : 'stride';
   const P = palette(s);
-  const pattern = model === 'court' ? 'plain' : s.pattern || DEFAULT_PATTERN[model];
+  const pattern = s.pattern || DEFAULT_PATTERN[model];
   return `<svg class="${cls} rarity-${s.rarity || 'common'} model-${model} ed-${s.edition || 'standard'}" viewBox="0 0 244 120" aria-hidden="true">
     ${defs(id, P, pattern)}
     ${DRAW[model](id, s, P)}
