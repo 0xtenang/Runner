@@ -5,3 +5,7 @@ node_modules/
 share-qr.html
 tests/node_modules
 www/
+lib/
+contracts/out/
+contracts/cache/
+cache/

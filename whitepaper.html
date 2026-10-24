@@ -89,7 +89,7 @@
         <li><a href="#nft">Sneaker NFTs</a></li>
         <li><a href="#token">The RUNNER token</a></li>
         <li><a href="#emission">Emission &amp; claims</a></li>
-        <li><a href="#holders">Tax &amp; holder rewards</a></li>
+        <li><a href="#holders">Trading fee &amp; holder rewards</a></li>
         <li><a href="#fair">Fair play</a></li>
         <li><a href="#controls">Controls &amp; limits</a></li>
         <li><a href="#security">Security &amp; audits</a></li>
@@ -181,7 +181,7 @@
         <div class="tbl"><table>
           <tr><th>Share</th><th class="num">Amount</th><th>Where it goes</th></tr>
           <tr><td>Run rewards</td><td class="num">800,000,000</td><td>Locked in the token contract. Paid out only to runners through verified claims, following the emission schedule. Nobody, including the owner, can withdraw it otherwise.</td></tr>
-          <tr><td>Liquidity</td><td class="num">100,000,000</td><td>Dev wallet <span class="mono">0x0f397E46e4e810313dBC782CDb0236347157f1B4</span>, to seed an exchange pool.</td></tr>
+          <tr><td>Liquidity</td><td class="num">100,000,000</td><td>Locked forever in the RUNNER/IMD Uniswap v4 pool by its hook, starting at a market cap of about 635 IMD.</td></tr>
           <tr><td>Team</td><td class="num">100,000,000</td><td>Team wallet <span class="mono">0x0f4FE718eb8492533E600b30F3287E2f04087332</span>.</td></tr>
         </table></div>
         <p><b>Where RUNNER is used:</b> level-ups and repairs in the app, trading on exchanges, and holding for holder rewards (section 7). <b>Where it's removed:</b> instant claims and early releases burn 20% (section 6).</p>
@@ -212,14 +212,15 @@
       </section>
 
       <section class="wp-sec" id="holders">
-        <h2><span>7</span>Trading tax &amp; holder rewards</h2>
+        <h2><span>7</span>Trading fee &amp; holder rewards (in IMD)</h2>
         <ul>
-          <li><b>4% tax on buys and sells</b> through registered exchange pools, fixed forever in the contract: <b>2% to the protocol</b> wallet and <b>2% to holders</b>. Wallet-to-wallet transfers and run-reward claims are not taxed.</li>
-          <li><b>Holder rewards:</b> each UTC day's 2% is shared by every wallet that held at least <b>300,000 RUNNER for the whole day</b>, in proportion to the lowest balance it held that day. Buying just before the day ends doesn't count — you need to hold through a full day.</li>
+          <li><b>RUNNER trades against IMD</b> in one Uniswap v4 pool on Robinhood Chain. Its liquidity (the 100M allocation) is <b>locked forever</b>: the pool's hook added it and has no way to take it out.</li>
+          <li><b>4% fee on every trade, paid in IMD</b>, fixed in the hook: <b>2% to the protocol</b> wallet and <b>2% to holders</b>. The token itself has no transfer tax — wallet-to-wallet transfers and run-reward claims move exactly what you send.</li>
+          <li><b>Holder rewards, in IMD:</b> each UTC day's 2% is shared by every wallet that held at least <b>300,000 RUNNER for the whole day</b>, in proportion to the lowest balance it held that day. Buying just before the day ends doesn't count — you need to hold through a full day.</li>
           <li>Each day's share can be claimed for <b>7 days</b>; after that, anything unclaimed goes to the protocol wallet.</li>
-          <li>Exchange pools and the token contract itself get no holder rewards; dev and team wallets are eligible like any holder.</li>
+          <li>The pool, its hook and the token contract itself get no holder rewards; the team wallet is eligible like any holder.</li>
         </ul>
-        <div class="note">Because of the tax, use exchanges that support fee-on-transfer tokens (Uniswap-V2-style pools) and expect to set about 5% slippage.</div>
+        <div class="note">Buy and sell with IMD, or with ETH in one step (it routes through the IMD/ETH pool). Trades through other pools someone might create elsewhere pay no fee and earn holders nothing.</div>
       </section>
 
       <section class="wp-sec" id="fair">
@@ -246,12 +247,13 @@
           <tr><th>Control</th><th>What it does</th><th>Limit</th></tr>
           <tr><td>Emission schedule</td><td>New daily amount, halving period and floor</td><td>From the next UTC day; ≤ 20M/day</td></tr>
           <tr><td>Pause claims · server key</td><td>Stop run-reward claims; rotate the server's signing key</td><td>Can't move tokens</td></tr>
-          <tr><td>Register exchange pools</td><td>Turns on the 4% tax for a pool</td><td>Only real RUNNER pools; can't be removed</td></tr>
-          <tr><td>Protocol wallet</td><td>Where the 2% protocol tax and expired holder rewards go</td><td>—</td></tr>
+          <tr><td>Exclude other pools</td><td>Stops another RUNNER pool from counting as a holder</td><td>Only real RUNNER pools; doesn't affect trading</td></tr>
+          <tr><td>Hook fee recipient</td><td>Where the protocol's 2% (in IMD) goes</td><td>The 4% fee and the locked liquidity can't be changed</td></tr>
+          <tr><td>Protocol wallet</td><td>Where expired holder rewards (IMD) go</td><td>—</td></tr>
           <tr><td>Game settings (server)</td><td>Level prices, per-runner daily max, NFT boosts, fair-play thresholds, phone-app-only earning</td><td>Boosts ≤ +100%; always within the day's emission</td></tr>
           <tr><td>NFT admin</td><td>Pause minting, metadata links, royalty receiver, OpenSea royalty enforcement</td><td>Can't take anyone's NFTs</td></tr>
         </table></div>
-        <p><b>Nobody — including the owner — can:</b> change the 4% tax, mint new tokens, exceed 20M RUNNER of emission per day, change today's emission, or take tokens out of the run-reward pool, locked claims or the holder-reward bucket.</p>
+        <p><b>Nobody — including the owner — can:</b> change the 4% fee, remove the pool's liquidity, mint new tokens, exceed 20M RUNNER of emission per day, change today's emission, or take tokens out of the run-reward pool, locked claims or the holder-reward bucket.</p>
         <div class="note">Before launch, ownership is planned to move to a multisig wallet so no single key controls these settings.</div>
       </section>
 
@@ -284,7 +286,7 @@
           <li><b>Smart-contract risk.</b> Bugs are possible despite reviews and tests. Contracts are not upgradeable.</li>
           <li><b>Centralization.</b> The dev wallet holds the controls in section 9 until ownership moves to a multisig; the rewards server decides which runs earn.</li>
           <li><b>Cheating.</b> Fair-play checks reduce but cannot eliminate cheating.</li>
-          <li><b>Thin early liquidity</b> means large price swings, made larger by the 4% tax.</li>
+          <li><b>Thin early liquidity</b> means large price swings, made larger by the 4% fee. RUNNER's price is in IMD, so it also moves with IMD's own price.</li>
           <li><b>Regulation.</b> Rules for tokens differ by country (in Indonesia, for example, OJK oversight applies). Check what applies to you.</li>
         </ul>
         <div class="warn">This document describes software and a game economy. It is not an offer to sell securities, not financial advice and not a promise of returns.</div>

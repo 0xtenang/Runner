@@ -685,13 +685,16 @@ function emissionLine(em) {
   return `<span class="small">Emission today <b>${fmtM(em.limit)} ${COIN}</b> · earn rate <b>${Math.round(em.factor * 100)}%</b>${next}${boost}${change}</span>`;
 }
 
+/** IMD amounts: a few decimals, since one IMD is worth far more than one RUNNER. */
+const fmtImd = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: n < 1 ? 6 : 4 });
+
 function holderRewardsBlock() {
   if (claimInfo?.holder == null || claimInfo.address !== auth.state.address) return '';
   const h = claimInfo.holder;
   return `<div class="holder-rewards">
       <span class="lbl">Holder rewards</span>
-      <span class="muted small">Hold at least ${MIN_HOLDING.toLocaleString()} ${COIN} for a whole day (UTC) to share 2% of that day's trading volume. Each day's reward can be claimed for 7 days.</span>
-      <button class="btn pill sm" data-act="holder-claim" ${h > 0 ? '' : 'disabled'}>${h > 0 ? `Claim ${fmtCoins(h)} ${COIN} holder rewards` : 'No holder rewards to claim'}</button>
+      <span class="muted small">Hold at least ${MIN_HOLDING.toLocaleString()} ${COIN} for a whole day (UTC) to share 2% of that day's trading volume, paid in IMD. Each day's reward can be claimed for 7 days.</span>
+      <button class="btn pill sm" data-act="holder-claim" ${h > 0 ? '' : 'disabled'}>${h > 0 ? `Claim ${fmtImd(h)} IMD holder rewards` : 'No holder rewards to claim'}</button>
     </div>`;
 }
 

@@ -5,6 +5,7 @@ import { auth, shortAddress } from './auth.js';
 import {
   NFT_CHAIN, NFT_CONTRACT, NFT_CREATION_CODE_KECCAK, NFT_BASE_URI, NFT_CONTRACT_URI, DEV_WALLET,
   TOKEN_CHAIN, TOKEN_CONTRACT, TOKEN_CREATION_CODE_KECCAK, TEAM_WALLET,
+  IMD_TOKEN, POOL_MANAGER, IMD_ETH_POOL, CREATE2_DEPLOYER, HOOK_FLAGS, HOOK_START_TICK, HOOK_CONTRACT, HOOK_CREATION_CODE_KECCAK,
 } from './config.js';
 import { formatEth } from './wallet.js';
 import { DEFAULT_SETTINGS } from './rules.js';
@@ -14,6 +15,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const hex = (u8) => Array.from(u8, (b) => b.toString(16).padStart(2, '0')).join('');
 const word = (n) => BigInt(n).toString(16).padStart(64, '0');
 const encAddress = (a) => a.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+const encInt = (n) => (BigInt(n) < 0n ? (1n << 256n) + BigInt(n) : BigInt(n)).toString(16).padStart(64, '0');
+const fromHex = (h) => Uint8Array.from(h.replace(/^0x/, '').match(/../g) || [], (x) => parseInt(x, 16));
 function encStringTail(s) {
   const b = hex(new TextEncoder().encode(s));
   return word(b.length / 2) + b.padEnd(Math.ceil(b.length / 64) * 64, '0');
@@ -35,20 +38,33 @@ const CONTRACTS = {
         + word(5 * 32) + word(5 * 32 + base.length / 2) + base + encStringTail(NFT_CONTRACT_URI);
     },
   },
+  hook: {
+    title: 'RUNNER pool hook',
+    file: 'build/RunnerHook.json', contract: 'RunnerHook', artifact: true,
+    chain: TOKEN_CHAIN, configured: HOOK_CONTRACT, fingerprint: HOOK_CREATION_CODE_KECCAK,
+    minBalance: 2n * 10n ** 15n, goodBalance: 4n * 10n ** 15n,
+    about: `Step 1 of the token launch. The Uniswap v4 hook that owns the RUNNER/IMD pool: every trade pays 4% of its IMD side — 2% to the protocol wallet (the dev wallet <span class="mono">${shortAddress(DEV_WALLET)}</span>) and 2% to RUNNER holders, in IMD. It locks the 100M RUNNER liquidity in the pool forever. Deployed through the standard CREATE2 deployer at an address carrying its hook flags (found in your browser).`,
+    roles: `Owner and fee recipient: dev wallet ${DEV_WALLET}\nPool: RUNNER/IMD on Uniswap v4 (${POOL_MANAGER})\nStarting market cap: about 635 IMD`,
+    next: 'send this to Claude, then deploy the token',
+    /** constructor(poolManager, imd, owner, feeRecipient, startTick, (fee, tickSpacing, hooks)) */
+    args: () => encAddress(POOL_MANAGER) + encAddress(IMD_TOKEN) + encAddress(DEV_WALLET) + encAddress(DEV_WALLET)
+      + encInt(HOOK_START_TICK) + word(IMD_ETH_POOL.fee) + encInt(IMD_ETH_POOL.tickSpacing) + encAddress(IMD_ETH_POOL.hooks),
+  },
   token: {
     title: 'RUNNER token',
     file: 'RunnerToken.sol', contract: 'RunnerToken',
     chain: TOKEN_CHAIN, configured: TOKEN_CONTRACT, fingerprint: TOKEN_CREATION_CODE_KECCAK,
     minBalance: 5n * 10n ** 14n, goodBalance: 10n ** 15n,
-    about: `The ERC-20 token, fixed supply of 1,000,000,000 RUNNER: 800M run-reward pool (locked in the contract, paid only through verified claims), 100M liquidity to the dev wallet <span class="mono">${shortAddress(DEV_WALLET)}</span>, 100M team to <span class="mono">${shortAddress(TEAM_WALLET)}</span>. 4% tax on buys/sells (2% protocol, 2% to holders of 300k+), fixed forever. Run rewards: 10M/day from launch, halving every 30 days, floor 100k/day. The dev wallet becomes owner. No more tokens can ever be created. <a href="https://github.com/0xtenang/Runner/blob/main/AUDIT.md" target="_blank" rel="noopener">Read the audit report first.</a>`,
-    roles: `Owner + 100M liquidity: dev wallet ${DEV_WALLET}\n100M team: ${TEAM_WALLET}\n800M run rewards: locked in the contract`,
-    next: 'send this to Claude to connect the app and the claim server',
-    /** constructor(owner, liquidityWallet, teamWallet) */
-    args: () => encAddress(DEV_WALLET) + encAddress(DEV_WALLET) + encAddress(TEAM_WALLET),
+    needs: () => (HOOK_CONTRACT ? '' : 'Deploy the pool hook first (step 1) and send its address to Claude.'),
+    about: `Step 2 of the token launch. The ERC-20 token, fixed supply of 1,000,000,000 RUNNER, no transfer tax: 800M run-reward pool (locked in the contract, paid only through verified claims), 100M liquidity to the pool hook <span class="mono">${HOOK_CONTRACT ? shortAddress(HOOK_CONTRACT) : '(not deployed yet)'}</span>, which locks it in the RUNNER/IMD pool forever, 100M team to <span class="mono">${shortAddress(TEAM_WALLET)}</span>. Holder rewards are paid in IMD. Run rewards: 10M/day from launch, halving every 30 days, floor 100k/day. The dev wallet becomes owner. No more tokens can ever be created. <a href="https://github.com/0xtenang/Runner/blob/main/AUDIT.md" target="_blank" rel="noopener">Read the audit report first.</a>`,
+    roles: `Owner: dev wallet ${DEV_WALLET}\n100M liquidity: pool hook ${HOOK_CONTRACT}\n100M team: ${TEAM_WALLET}\n800M run rewards: locked in the contract\nHolder rewards paid in IMD (${IMD_TOKEN})`,
+    next: 'send this to Claude to connect the app and the claim server, then open the pool',
+    /** constructor(owner, hook, teamWallet, rewardToken, poolManager) */
+    args: () => encAddress(DEV_WALLET) + encAddress(HOOK_CONTRACT) + encAddress(TEAM_WALLET) + encAddress(IMD_TOKEN) + encAddress(POOL_MANAGER),
   },
 };
 
-let kind = new URLSearchParams(location.search).get('c') === 'token' ? 'token' : 'nft';
+let kind = ['token', 'hook'].includes(new URLSearchParams(location.search).get('c')) ? new URLSearchParams(location.search).get('c') : 'nft';
 let bytecode = null;
 let balance = 0n;
 const C = () => CONTRACTS[kind];
@@ -84,18 +100,22 @@ function render() {
   $('#net').className = c.chain.testnet ? 'mono' : 'mono bad';
   $('#s1').textContent = `Sign in with a wallet that has ${ethName}`;
   $('#src').textContent = `contracts/${c.file}`;
+  $('#compile-note').textContent = c.artifact
+    ? 'Loads the committed build (made with Foundry: solc 0.8.26, via-IR, optimizer 200, cancun) and checks it matches the tested build exactly.'
+    : 'Compiles it with Solidity 0.8.24 and checks it matches the tested build exactly.';
   $('#fee').textContent = c.chain.testnet
     ? 'Costs a small network fee in test ETH. Get free test ETH from the Robinhood Chain Testnet faucet first (it may need a VPN in Indonesia).'
     : `Costs a small network fee in real ETH on ${c.chain.name} (well under 0.001 ETH). This cannot be undone — the supply and wallets above are permanent.`;
   $('#b-deploy').textContent = `Deploy ${c.title}`;
   $('#compile').textContent = '';
   $('#b-compile').disabled = false;
-  $('#deploy').innerHTML = c.configured
+  const blocked = c.needs?.();
+  $('#deploy').innerHTML = blocked ? `<span class="bad">${esc(blocked)}</span>` : c.configured
     ? `<span class="bad">A ${esc(c.title)} contract is already configured in the app: <span class="mono">${esc(c.configured)}</span>. Deploying again creates a second, separate contract.</span>`
     : '';
   bytecode = null;
   $('#server').hidden = kind !== 'token';
-  $('#launch').hidden = kind !== 'token' || !TOKEN_CONTRACT;
+  $('#launch').hidden = kind !== 'token' || !TOKEN_CONTRACT || !HOOK_CONTRACT;
   $('#controls').hidden = kind !== 'token';
   $('#review').hidden = kind !== 'token';
   if (kind === 'token') refreshServer();
@@ -106,7 +126,7 @@ $('#pick').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-c]');
   if (!b || b.dataset.c === kind) return;
   kind = b.dataset.c;
-  history.replaceState(null, '', kind === 'token' ? '?c=token' : location.pathname);
+  history.replaceState(null, '', kind === 'nft' ? location.pathname : `?c=${kind}`);
   render();
 });
 
@@ -134,8 +154,20 @@ auth.load().then(refreshWho);
 $('#b-compile').onclick = async () => {
   const c = C();
   $('#b-compile').disabled = true;
-  $('#compile').textContent = 'Loading the Solidity compiler (≈8 MB)…';
+  $('#compile').textContent = c.artifact ? 'Loading the build…' : 'Loading the Solidity compiler (≈8 MB)…';
   try {
+    if (c.artifact) {
+      const art = await (await fetch(`contracts/${c.file}`, { cache: 'no-store' })).json();
+      const code = String(art.bytecode).replace(/^0x/, '');
+      const { keccak_256 } = await import('https://esm.sh/@noble/hashes@1.4.0/sha3');
+      const fp = `0x${hex(keccak_256(fromHex(code)))}`;
+      if (!c.fingerprint || fp !== c.fingerprint) throw new Error(`Fingerprint mismatch (${fp}). The build changed since it was tested — don't deploy.`);
+      if (c !== C()) return;
+      bytecode = code;
+      $('#compile').innerHTML = `<span class="ok">✓ Matches the tested build</span> · ${code.length / 2} bytes · solc ${esc(art.solc)}`;
+      updateDeploy();
+      return;
+    }
     const src = await (await fetch(`contracts/${c.file}`, { cache: 'no-store' })).text();
     const worker = new Worker('js/solc-worker.js');
     await new Promise((res, rej) => { worker.onmessage = (e) => (e.data.ready ? res() : null); worker.onerror = () => rej(new Error('Compiler failed to load')); });
@@ -167,7 +199,7 @@ $('#b-compile').onclick = async () => {
 
 // ----- 3. deploy
 function updateDeploy() {
-  $('#b-deploy').disabled = !(auth.signedIn && bytecode && balance >= C().minBalance);
+  $('#b-deploy').disabled = !(auth.signedIn && bytecode && balance >= C().minBalance && !C().needs?.());
 }
 $('#b-deploy').onclick = async () => {
   const c = C();
@@ -175,10 +207,27 @@ $('#b-deploy').onclick = async () => {
   $('#b-deploy').disabled = true;
   $('#deploy').textContent = 'Confirm the transaction in the Privy window…';
   try {
-    const hash = await auth.sendTx({ data: `0x${bytecode}${c.args()}`, chainId: c.chain.id });
+    let hash, address;
+    if (c.artifact) {
+      // CREATE2 through the standard deployer, at an address whose low 14 bits are the hook flags.
+      $('#deploy').textContent = 'Finding a hook address (a few seconds)…';
+      const initCode = `${bytecode}${c.args()}`;
+      const { salt, predicted } = await mineHookSalt(initCode);
+      $('#deploy').innerHTML = `Hook address: <span class="mono">${esc(predicted)}</span><br>Confirm the transaction in the Privy window…`;
+      hash = await auth.sendTx({ to: CREATE2_DEPLOYER, data: `0x${salt}${initCode}`, chainId: c.chain.id });
+      address = predicted;
+    } else {
+      hash = await auth.sendTx({ data: `0x${bytecode}${c.args()}`, chainId: c.chain.id });
+    }
     $('#deploy').innerHTML = `Sent — waiting for the network… <span class="mono">${esc(hash)}</span>`;
     const rcpt = await waitForReceipt(hash);
-    if (rcpt.status !== '0x1' || !rcpt.contractAddress) throw new Error(`Deployment failed on-chain (tx ${hash}).`);
+    if (rcpt.status !== '0x1') throw new Error(`Deployment failed on-chain (tx ${hash}).`);
+    if (address) {
+      const code = await rpc('eth_getCode', [address, 'latest']);
+      if (!code || code === '0x') throw new Error(`No contract at ${address} after the transaction (tx ${hash}).`);
+      rcpt.contractAddress = address;
+    }
+    if (!rcpt.contractAddress) throw new Error(`Deployment failed on-chain (tx ${hash}).`);
     const explorer = c.chain.blockExplorers.default.url;
     $('#deploy').innerHTML = `
       <div class="result">
@@ -195,6 +244,25 @@ $('#b-deploy').onclick = async () => {
     updateDeploy();
   }
 };
+
+/** Finds a CREATE2 salt whose deployed address carries exactly HOOK_FLAGS in its low 14 bits. */
+async function mineHookSalt(initCodeHex) {
+  const { keccak_256 } = await import('https://esm.sh/@noble/hashes@1.4.0/sha3');
+  const initHash = keccak_256(fromHex(initCodeHex));
+  const buf = new Uint8Array(85);
+  buf[0] = 0xff;
+  buf.set(fromHex(CREATE2_DEPLOYER), 1);
+  buf.set(initHash, 53);
+  const start = Math.floor(Math.random() * 2 ** 32);
+  for (let i = 0; i < 2_000_000; i++) {
+    const salt = (BigInt(start) * 2n ** 32n + BigInt(i)).toString(16).padStart(64, '0');
+    buf.set(fromHex(salt), 21);
+    const h = keccak_256(buf);
+    if ((((h[30] << 8) | h[31]) & 0x3fff) === HOOK_FLAGS) return { salt, predicted: `0x${hex(h.slice(12))}` };
+    if (i % 20000 === 0) await new Promise((r) => setTimeout(r)); // keep the page responsive
+  }
+  throw new Error('No hook address found — try again.');
+}
 
 // ----- 4. claim server (token only)
 let serverStatus = null;
@@ -419,11 +487,22 @@ $('#b-emission').onclick = async () => {
   refreshServer();
 };
 
-$('#b-addpair').onclick = async () => {
-  const pair = $('#pair-addr').value.trim();
-  if (!/^0x[0-9a-fA-F]{40}$/.test(pair)) { $('#addpair').innerHTML = '<span class="bad">Paste the pool contract address (0x… 40 hex characters).</span>'; return; }
-  if (!confirm(`Register ${pair} as a RUNNER exchange pool?\n\nTrades through it will pay the 4% tax. This can't be undone.`)) return;
-  await runTx($('#b-addpair'), $('#addpair'), () => sendAsDev(TOKEN_CONTRACT, `0xc2b7bbb6${encAddress(pair)}`), '✓ Pool registered — trades through it are now taxed.'); // addPair(address)
+$('#b-openpool').onclick = async () => {
+  if (!confirm(`Open the RUNNER/IMD pool now?\n\nThe hook adds the 100,000,000 RUNNER liquidity allocation at a starting market cap of about 635 IMD and locks it forever. Trading starts immediately. This can only be done once.`)) return;
+  await runTx($('#b-openpool'), $('#openpool'), () => sendAsDev(HOOK_CONTRACT, `0x109fda53${encAddress(TOKEN_CONTRACT)}`), '✓ Pool open — RUNNER is tradable against IMD, liquidity locked forever.'); // openPool(address)
+};
+
+$('#b-exclude').onclick = async () => {
+  const pool = $('#pool-addr').value.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(pool)) { $('#exclude').innerHTML = '<span class="bad">Paste the pool contract address (0x… 40 hex characters).</span>'; return; }
+  if (!confirm(`Exclude ${pool} from holder rewards?\n\nUse this for another RUNNER pool someone created elsewhere, so its balance doesn't dilute holders. It doesn't affect trading. This can't be undone.`)) return;
+  await runTx($('#b-exclude'), $('#exclude'), () => sendAsDev(TOKEN_CONTRACT, `0xb6ae9c93${encAddress(pool)}`), '✓ Pool excluded from holder rewards.'); // excludePool(address)
+};
+
+$('#b-fees').onclick = async () => {
+  // Anyone may do both: send pending holder IMD to the token, and the protocol's IMD to the fee recipient.
+  const send = (data) => (window.ethereum ? sendAsDev(HOOK_CONTRACT, data) : auth.sendTx({ to: HOOK_CONTRACT, data, chainId: TOKEN_CHAIN.id }));
+  await runTx($('#b-fees'), $('#fees'), async () => { await send(`0x79c76e1a${encAddress(TOKEN_CONTRACT)}`); return send(`0x2a54db01${encAddress(IMD_TOKEN)}`); }, '✓ Holder IMD booked and protocol IMD sent.'); // flush(token), collectProtocolFees(IMD)
 };
 
 $('#b-sweep').onclick = async () => {

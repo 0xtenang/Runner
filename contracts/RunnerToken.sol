@@ -4,17 +4,20 @@ pragma solidity 0.8.24;
 /// @title RUNNER — the run-to-earn token of the RUNNER app.
 /// @notice Fixed supply of 1,000,000,000 RUNNER, all created at deployment:
 ///         • 80% run rewards — held by this contract, paid out only through claim()
-///         • 10% liquidity   — to the liquidity wallet
+///         • 10% liquidity   — to the RunnerHook, which locks it forever in the RUNNER/IMD
+///                             Uniswap v4 pool (it can never be removed)
 ///         • 10% team        — to the team wallet
 ///         There is no mint function. Supply can only go down (burn).
 ///
-///         Trading tax — fixed forever at 4% on buys and sells through registered exchange
-///         pools (wallet-to-wallet transfers and run-reward claims are never taxed):
-///         • 2% to the protocol wallet
-///         • 2% to holders. Each UTC day's holder tax is shared by every wallet that held at
-///           least 300,000 RUNNER for that whole day, in proportion to the lowest balance it
-///           held that day. A day's share can be claimed for 7 days after the day ends;
-///           whatever is left after that goes to the protocol wallet (sweepExpired).
+///         This token has no transfer tax: every transfer moves exactly the amount sent.
+///         The 4% trading fee is charged by the RunnerHook on the IMD side of every swap in
+///         the RUNNER/IMD pool, so it is paid in IMD:
+///         • 2% to the protocol wallet (sent by the hook)
+///         • 2% to holders, delivered to this contract in IMD. Each UTC day's holder IMD is
+///           shared by every wallet that held at least 300,000 RUNNER for that whole day, in
+///           proportion to the lowest balance it held that day. A day's share can be claimed
+///           for 7 days after the day ends; whatever is left after that goes to the protocol
+///           wallet (sweepExpired).
 ///
 /// @dev    Holder rewards use per-wallet daily checkpoints {day, lowest balance that day,
 ///         balance at the end of the day} and a running total of eligible balances, so
@@ -26,8 +29,9 @@ pragma solidity 0.8.24;
 ///         out of the holder-reward bucket. Run rewards leave the pool only through signed
 ///         claims, at most the day's emission — but the owner chooses the signer, so a
 ///         compromised owner key could claim up to that daily cap: use a multisig owner.
-///         Tax and the 300,000 threshold apply per address: tokens pooled in a vault or
-///         wrapper count as one holder, and only V2-style pools (token0/token1) can be taxed.
+///         The 300,000 threshold applies per address: tokens pooled in a vault or wrapper
+///         count as one holder. Only trades through the RunnerHook pool pay the fee; other
+///         pools someone may create are untaxed (the owner can exclude them from rewards).
 contract RunnerToken {
     string public constant name = "RUNNER";
     string public constant symbol = "RUNNER";
@@ -38,8 +42,6 @@ contract RunnerToken {
     uint256 public constant LIQUIDITY_ALLOCATION = 100_000_000 ether;
     uint256 public constant TEAM_ALLOCATION = 100_000_000 ether;
 
-    uint256 public constant PROTOCOL_TAX_BPS = 200;   // 2%
-    uint256 public constant HOLDER_TAX_BPS = 200;     // 2%
     uint256 public constant MIN_HOLDING = 300_000 ether;
     uint256 public constant CLAIM_WINDOW_DAYS = 7;
     /// Run-reward emission: starts at 10,000,000 RUNNER/day, halving every 30 days, never
@@ -54,6 +56,7 @@ contract RunnerToken {
     uint256 public constant LOCK_PERIOD = 7 days;
     uint256 public constant MAX_ACTIVE_LOCKS = 30;
     uint256 private constant BPS = 10_000;
+    address private constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
@@ -81,7 +84,7 @@ contract RunnerToken {
 
     struct Day {
         uint256 shares;      // sum of eligible lowest balances for the day
-        uint128 rewards;     // holder tax collected during the day
+        uint128 rewards;     // holder rewards (IMD) received during the day
         uint128 paidOut;     // claimed by holders + swept to the protocol
         bool started;
     }
@@ -100,14 +103,14 @@ contract RunnerToken {
     uint256 public totalBurnedInstant;   // burned by instant claims / early releases
 
     uint256 public eligibleSupply;       // sum of balances >= MIN_HOLDING of non-excluded wallets
-    uint256 public holderRewardsHeld;    // holder tax inside this contract, not yet paid out
+    uint256 public holderRewardsHeld;    // IMD inside this contract owed to holders (not yet paid out)
+    uint256 public totalHolderRewards;   // all IMD ever received for holders
     uint256 public nextSweepDay;
 
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     mapping(address => uint256) public claimed;
     mapping(uint256 => uint256) public claimedOnDay;
-    mapping(address => bool) public isPair;
     mapping(address => bool) public excludedFromHolderRewards;
     mapping(address => Checkpoint[]) private _checkpoints;
     mapping(uint256 => Day) private _days;
@@ -117,6 +120,13 @@ contract RunnerToken {
 
     uint256 private immutable _cachedChainId;
     bytes32 private immutable _cachedDomainSeparator;
+    /// @notice Holder rewards are paid in this token (IMD).
+    address public immutable rewardToken;
+    /// @notice The RunnerHook that owns the RUNNER/IMD pool and sends the holder IMD here.
+    address public immutable hook;
+    /// @notice The Uniswap v4 PoolManager that holds the pool's tokens (excluded from rewards).
+    address public immutable poolManager;
+    uint256 private _locked = 1;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed holder, address indexed spender, uint256 value);
@@ -127,7 +137,7 @@ contract RunnerToken {
     event HolderRewardsAdded(uint256 indexed day, uint256 amount);
     event HolderRewardsClaimed(address indexed holder, uint256 amount);
     event HolderRewardsExpired(uint256 indexed day, uint256 amount);
-    event PairAdded(address indexed pair);
+    event PoolExcluded(address indexed pool);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event ProtocolWalletChanged(address indexed wallet);
@@ -150,7 +160,9 @@ contract RunnerToken {
     error TooManyLocks();
     error NothingToRelease();
     error NotAContract();
-    error AlreadyPair();
+    error AlreadyExcluded();
+    error Reentrancy();
+    error TransferFailed();
     error NotAPool();
     error EmissionNotStarted();
     error AlreadyStarted();
@@ -161,8 +173,19 @@ contract RunnerToken {
         _;
     }
 
-    constructor(address initialOwner, address liquidityWallet, address teamWallet) {
-        if (initialOwner == address(0) || liquidityWallet == address(0) || teamWallet == address(0)) revert ZeroAddress();
+    modifier nonReentrant() {
+        if (_locked != 1) revert Reentrancy();
+        _locked = 2;
+        _;
+        _locked = 1;
+    }
+
+    /// @param hook_ the RunnerHook (deployed first); it receives the liquidity allocation and locks it in the pool
+    constructor(address initialOwner, address hook_, address teamWallet, address rewardToken_, address poolManager_) {
+        if (initialOwner == address(0) || hook_ == address(0) || teamWallet == address(0) || rewardToken_ == address(0) || poolManager_ == address(0)) revert ZeroAddress();
+        rewardToken = rewardToken_;
+        hook = hook_;
+        poolManager = poolManager_;
         owner = initialOwner;
         protocolWallet = initialOwner;
         emit OwnershipTransferred(address(0), initialOwner);
@@ -170,13 +193,17 @@ contract RunnerToken {
         _cachedChainId = block.chainid;
         _cachedDomainSeparator = _buildDomainSeparator();
 
+        // The pool's tokens sit in the PoolManager; the hook only holds them until the pool opens.
         excludedFromHolderRewards[address(this)] = true;
+        excludedFromHolderRewards[hook_] = true;
+        excludedFromHolderRewards[poolManager_] = true;
+        excludedFromHolderRewards[DEAD] = true;
         uint256 today = _today();
         nextSweepDay = today;
         // Opening balances count as held for the whole deploy day, then the day's share
         // total is frozen — so launch-day holder tax goes to holders, not the protocol.
         _mintAtStart(address(this), REWARDS_ALLOCATION, today);
-        _mintAtStart(liquidityWallet, LIQUIDITY_ALLOCATION, today);
+        _mintAtStart(hook_, LIQUIDITY_ALLOCATION, today);
         _mintAtStart(teamWallet, TEAM_ALLOCATION, today);
         _startDay(today);
     }
@@ -222,7 +249,7 @@ contract RunnerToken {
     }
 
     /// @notice Claim all holder rewards still inside their 7-day window.
-    function claimHolderRewards() external returns (uint256 total) {
+    function claimHolderRewards() external nonReentrant returns (uint256 total) {
         uint256 today = _today();
         uint256 first = today > CLAIM_WINDOW_DAYS ? today - CLAIM_WINDOW_DAYS : 0;
         for (uint256 d = first; d < today; d++) {
@@ -235,13 +262,13 @@ contract RunnerToken {
         }
         if (total == 0) revert NothingToClaim();
         holderRewardsHeld -= total;
-        _move(address(this), msg.sender, total, today);
         emit HolderRewardsClaimed(msg.sender, total);
+        _sendReward(msg.sender, total);
     }
 
     /// @notice Send unclaimed holder rewards of expired days (older than 7 days) to the
     ///         protocol wallet. Anyone may call; processes at most `maxDays` days.
-    function sweepExpired(uint256 maxDays) external returns (uint256 total) {
+    function sweepExpired(uint256 maxDays) external nonReentrant returns (uint256 total) {
         uint256 today = _today();
         uint256 d = nextSweepDay;
         uint256 end = d + maxDays;
@@ -258,11 +285,28 @@ contract RunnerToken {
         nextSweepDay = d;
         if (total > 0) {
             holderRewardsHeld -= total;
-            _move(address(this), protocolWallet, total, today);
+            _sendReward(protocolWallet, total);
         }
     }
 
-    /// @notice A day's totals: eligible shares, holder tax collected, amount paid out.
+    /// @notice Books IMD that arrived since the last call as today's holder rewards. The hook
+    ///         calls it after sending the holder share; anyone may call it (IMD sent here by
+    ///         anyone simply becomes holder rewards for today).
+    function syncHolderRewards() public nonReentrant returns (uint256 amount) {
+        uint256 bal = _rewardBalance();
+        uint256 held = holderRewardsHeld;
+        if (bal <= held) return 0;
+        amount = bal - held;
+        if (amount > type(uint128).max) amount = type(uint128).max;
+        uint256 today = _today();
+        _startDay(today);
+        holderRewardsHeld = held + amount;
+        totalHolderRewards += amount;
+        _days[today].rewards += uint128(amount);
+        emit HolderRewardsAdded(today, amount);
+    }
+
+    /// @notice A day's totals: eligible shares, holder IMD received, amount paid out.
     function dayInfo(uint256 day) external view returns (uint256 shares, uint256 rewards, uint256 paidOut) {
         Day storage d = _days[day];
         return (d.shares, d.rewards, d.paidOut);
@@ -291,7 +335,7 @@ contract RunnerToken {
 
     /// @notice RUNNER still waiting in the run-reward pool.
     function rewardsRemaining() public view returns (uint256) {
-        return balanceOf[address(this)] - holderRewardsHeld - totalLocked;
+        return balanceOf[address(this)] - totalLocked;
     }
 
     /// @notice How much `account` can claim with a server signature for `totalEarned`.
@@ -419,19 +463,18 @@ contract RunnerToken {
 
     // ----------------------------------------------------------------- owner
 
-    /// @notice Register an exchange pool: trades through it pay the 4% tax, and it gets no
-    ///         holder rewards. Pools can only be added, never removed, and must be pool
-    ///         contracts that hold RUNNER as token0 or token1 — so a wallet (including a
-    ///         smart-contract wallet) can never be taxed or cut out of rewards this way.
-    function addPair(address pair) external onlyOwner {
-        if (pair.code.length == 0) revert NotAContract();
-        if (isPair[pair]) revert AlreadyPair();
-        if (_poolToken(pair, 0x0dfe1681) != address(this) && _poolToken(pair, 0xd21220a7) != address(this)) revert NotAPool(); // token0(), token1()
+    /// @notice Exclude another exchange pool from holder rewards (e.g. a RUNNER pool someone
+    ///         created elsewhere), so its balance doesn't dilute holders. It changes nothing
+    ///         about transfers. Only contracts that report RUNNER as token0 or token1 qualify,
+    ///         so a wallet (including a smart-contract wallet) can never be cut out this way.
+    function excludePool(address pool) external onlyOwner {
+        if (pool.code.length == 0) revert NotAContract();
+        if (excludedFromHolderRewards[pool]) revert AlreadyExcluded();
+        if (_poolToken(pool, 0x0dfe1681) != address(this) && _poolToken(pool, 0xd21220a7) != address(this)) revert NotAPool(); // token0(), token1()
         uint256 today = _today();
         _startDay(today);
-        _exclude(pair, today);
-        isPair[pair] = true;
-        emit PairAdded(pair);
+        _exclude(pool, today);
+        emit PoolExcluded(pool);
     }
 
     function setProtocolWallet(address wallet) external onlyOwner {
@@ -527,25 +570,10 @@ contract RunnerToken {
 
     function _transfer(address from, address to, uint256 value) private {
         if (to == address(0)) revert ZeroAddress();
-        uint256 today = _today();
-        _startDay(today);
-        if ((isPair[from] || isPair[to]) && from != address(this) && to != address(this)) {
-            uint256 protocolCut = value * PROTOCOL_TAX_BPS / BPS;
-            uint256 holderCut = value * HOLDER_TAX_BPS / BPS;
-            _move(from, to, value - protocolCut - holderCut, today);
-            if (protocolCut > 0) _move(from, protocolWallet, protocolCut, today);
-            if (holderCut > 0) {
-                _move(from, address(this), holderCut, today);
-                holderRewardsHeld += holderCut;
-                _days[today].rewards += uint128(holderCut);
-                emit HolderRewardsAdded(today, holderCut);
-            }
-        } else {
-            _move(from, to, value, today);
-        }
+        _move(from, to, value, _today());
     }
 
-    /// Moves tokens without tax and keeps holder checkpoints up to date.
+    /// Moves tokens and keeps holder checkpoints up to date.
     function _move(address from, address to, uint256 value, uint256 today) private {
         uint256 fromBal = balanceOf[from];
         if (fromBal < value) revert InsufficientBalance();
@@ -664,6 +692,17 @@ contract RunnerToken {
         totalBurnedInstant += amount;
         _burn(address(this), amount);
         emit RewardsBurned(account, amount);
+    }
+
+    function _rewardBalance() private view returns (uint256) {
+        (bool ok, bytes memory ret) = rewardToken.staticcall(abi.encodeWithSelector(0x70a08231, address(this))); // balanceOf(address)
+        if (!ok || ret.length < 32) revert TransferFailed();
+        return abi.decode(ret, (uint256));
+    }
+
+    function _sendReward(address to, uint256 amount) private {
+        (bool ok, bytes memory ret) = rewardToken.call(abi.encodeWithSelector(0xa9059cbb, to, amount)); // transfer(address,uint256)
+        if (!ok || (ret.length != 0 && !abi.decode(ret, (bool)))) revert TransferFailed();
     }
 
     function _burn(address from, uint256 value) private {

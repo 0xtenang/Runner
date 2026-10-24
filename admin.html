@@ -26,7 +26,8 @@
     <h1>RUNNER Admin · Contracts</h1>
     <div class="seg" id="pick" role="tablist" aria-label="Contract">
       <button data-c="nft">Sneaker NFT</button>
-      <button data-c="token">RUNNER token</button>
+      <button data-c="hook">1 · Pool hook</button>
+      <button data-c="token">2 · RUNNER token</button>
     </div>
     <p class="muted" style="margin:0" id="about"></p>
     <p class="small" style="margin:0">Network: <b id="net"></b></p>
@@ -40,7 +41,7 @@
 
     <section class="card step">
       <h3><i>2</i>Compile &amp; check the contract</h3>
-      <p class="muted small" style="margin:0">Compiles <span class="mono" id="src"></span> with Solidity 0.8.24 and checks it matches the tested build exactly.</p>
+      <p class="muted small" style="margin:0"><span class="mono" id="src"></span> — <span id="compile-note"></span></p>
       <button class="btn pill" id="b-compile">Compile &amp; check</button>
       <div id="compile" class="small"></div>
     </section>
@@ -72,11 +73,17 @@
     </section>
 
     <section class="card step" id="launch" hidden>
-      <h3><i>5</i>After adding liquidity</h3>
-      <p class="muted small" style="margin:0">Add liquidity on the exchange first (that transfer is untaxed), then register the pool right away — from then on buys and sells through it pay the 4% tax and the pool gets no holder rewards. Pools can't be removed. Use a Uniswap-V2-style pool: fee-on-transfer tokens don't work in V3-style pools.</p>
-      <input id="pair-addr" class="input mono" placeholder="Pool (pair) contract address 0x…" autocomplete="off" spellcheck="false">
-      <button class="btn primary pill" id="b-addpair">Register pool (dev wallet)</button>
-      <div id="addpair" class="small"></div>
+      <h3><i>5</i>Open the pool</h3>
+      <p class="muted small" style="margin:0">From the dev wallet, once the hook and the token are both deployed and in the app: the hook adds the 100,000,000 RUNNER liquidity allocation to the RUNNER/IMD Uniswap v4 pool at a starting market cap of about 635 IMD and locks it forever. Trading starts right away; every trade pays 4% in IMD (2% protocol, 2% holders).</p>
+      <button class="btn primary pill" id="b-openpool">Open RUNNER/IMD pool (dev wallet)</button>
+      <div id="openpool" class="small"></div>
+      <p class="muted small" style="margin:8px 0 0">Trades through our routers credit holders at once. Fees from other routers (wallet apps, aggregators) wait in the hook until someone sends them on — anyone can:</p>
+      <button class="btn pill" id="b-fees">Send pending fees (holders + protocol)</button>
+      <div id="fees" class="small"></div>
+      <p class="muted small" style="margin:8px 0 0">If someone creates another RUNNER pool elsewhere, exclude it so its balance doesn't dilute holder rewards (trading through it stays untaxed):</p>
+      <input id="pool-addr" class="input mono" placeholder="Other RUNNER pool contract 0x…" autocomplete="off" spellcheck="false">
+      <button class="btn pill" id="b-exclude">Exclude pool from holder rewards (dev wallet)</button>
+      <div id="exclude" class="small"></div>
       <p class="muted small" style="margin:8px 0 0">Holder rewards not claimed within 7 days go to the protocol wallet when anyone sweeps them:</p>
       <button class="btn pill" id="b-sweep">Sweep expired holder rewards</button>
       <div id="sweep" class="small"></div>

@@ -1,6 +1,8 @@
-// RunnerToken tests: supply, run-reward claims, 4% trading tax, daily holder rewards
-// (300,000 minimum held all day, 7-day claim window, expiry to protocol), plus a
-// randomized test that checks the contract's bookkeeping against an independent model.
+// RunnerToken tests: supply, no transfer tax, run-reward claims, daily holder rewards paid in
+// IMD (300,000 minimum held all day, 7-day claim window, expiry to protocol), plus a randomized
+// test that checks the contract's bookkeeping against an independent model. The RunnerHook (the
+// RUNNER/IMD Uniswap v4 pool that charges the 4% fee in IMD) is tested with Foundry:
+// forge test (see contracts/test). Here the hook is an address and IMD a mock token.
 // Run: cd tests && npm install && node token.test.mjs
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { compile, readContract, iface, chain, u, errSel, word, addrWord, keccakHex, toHex } from './evm.mjs';
@@ -11,6 +13,9 @@ const E18 = 10n ** 18n;
 const DAY = 86400;
 const DEV = '0x0f397e46e4e810313dbc782cdb0236347157f1b4';
 const TEAM = '0x0f4fe718eb8492533e600b30f3287e2f04087332';
+const HOOK = '0x2222222222222222222222222222222222222222'; // stands in for the RunnerHook
+const PM = '0x3333333333333333333333333333333333333333';   // stands in for the Uniswap v4 PoolManager
+const DEAD = '0x000000000000000000000000000000000000dead';
 const DEPLOYER = '0x1111111111111111111111111111111111111111';
 const W = (n) => `0x${(0xa0 + n).toString(16).padStart(2, '0').repeat(20)}`; // test wallets
 const ZERO = '0x0000000000000000000000000000000000000000';
@@ -24,13 +29,19 @@ contract MockPair {
   function send(address t, address to, uint256 a) external { IT(t).transfer(to, a); }
 }
 contract MockSmartWallet { function send(address t, address to, uint256 a) external { IT(t).transfer(to, a); } }
-contract MockOtherPool { address public token0 = address(2); address public token1 = address(3); }`;
+contract MockOtherPool { address public token0 = address(2); address public token1 = address(3); }
+contract MockIMD {
+  mapping(address => uint256) public balanceOf;
+  function mint(address to, uint256 a) external { balanceOf[to] += a; }
+  function transfer(address to, uint256 a) external returns (bool) { balanceOf[msg.sender] -= a; balanceOf[to] += a; return true; }
+}`;
 
 const { contracts, warnings } = compile({ 'RunnerToken.sol': readContract('RunnerToken.sol'), 'Mocks.sol': MOCKS });
 const T = iface(contracts['RunnerToken.sol'].RunnerToken);
 const P = iface(contracts['Mocks.sol'].MockPair);
 const SW = iface(contracts['Mocks.sol'].MockSmartWallet);
 const OP = iface(contracts['Mocks.sol'].MockOtherPool);
+const I = iface(contracts['Mocks.sol'].MockIMD);
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) pass++; else { fail++; console.log(`FAIL ${name}${extra ? ` — ${extra}` : ''}`); } };
@@ -39,7 +50,8 @@ const reverts = (r, name) => !r.ok && r.error === errSel(name);
 async function setup() {
   const c = await chain();
   c.setTime(20_500 * DAY + 3600); // 01:00 UTC on day 20500
-  const d = await c.send(DEPLOYER, null, T.ctor(DEV, DEV, TEAM));
+  const imd = (await c.send(DEPLOYER, null, I.ctor())).created;
+  const d = await c.send(DEPLOYER, null, T.ctor(DEV, HOOK, TEAM, imd, PM));
   if (!d.ok) throw new Error('deploy failed');
   const tok = d.created;
   const call = (from, name, ...args) => c.send(from, tok, T.data(name, ...args));
@@ -47,31 +59,37 @@ async function setup() {
   const bal = async (a) => u(await view('balanceOf', a));
   let pairs = 0;
   const newPair = async () => (await c.send(DEPLOYER, null, P.ctor(tok, pairs++ % 2 === 1))).created;
-  const buy = (pair, to, amt) => c.send(DEPLOYER, pair, P.data('send', tok, to, amt));
+  const buy = (pair, to, amt) => c.send(DEPLOYER, pair, P.data('send', tok, to, amt)); // a pool paying out RUNNER
   const today = async () => Number(u(await view('currentDay')));
-  return { c, tok, call, view, bal, newPair, buy, today };
+  // What the hook does after a trade: send the holder share in IMD, then book it.
+  const reward = async (amt) => { await c.send(DEPLOYER, imd, I.data('mint', tok, amt)); return call(W(9), 'syncHolderRewards'); };
+  const imdBal = async (a) => u(await c.view(imd, I.data('balanceOf', a)));
+  return { c, tok, imd, call, view, bal, newPair, buy, today, reward, imdBal };
 }
 
 // =================================================================== basics
 {
-  const { c, tok, call, view, bal } = await setup();
+  const { c, tok, imd, call, view, bal } = await setup();
   ok('compiles without warnings', warnings.length === 0, warnings.join('\n'));
   ok('supply 1B', u(await view('totalSupply')) === 1_000_000_000n * E18);
   ok('pool 800M in contract', await bal(tok) === 800_000_000n * E18 && u(await view('rewardsRemaining')) === 800_000_000n * E18);
-  ok('dev 100M', await bal(DEV) === 100_000_000n * E18);
+  ok('liquidity allocation (100M) goes to the hook, which locks it in the pool', await bal(HOOK) === 100_000_000n * E18);
   ok('team 100M', await bal(TEAM) === 100_000_000n * E18);
-  ok('deployer nothing', await bal(DEPLOYER) === 0n);
+  ok('dev and deployer hold nothing', await bal(DEV) === 0n && await bal(DEPLOYER) === 0n);
   ok('owner + protocol wallet = dev', u(await view('owner')) === BigInt(DEV) && u(await view('protocolWallet')) === BigInt(DEV));
-  ok('tax constants 2% + 2%', u(await view('PROTOCOL_TAX_BPS')) === 200n && u(await view('HOLDER_TAX_BPS')) === 200n);
+  ok('wired to the hook, the pool manager and IMD', u(await view('hook')) === BigInt(HOOK) && u(await view('poolManager')) === BigInt(PM) && u(await view('rewardToken')) === BigInt(imd));
+  ok('no tax anywhere in the token', !T.selectors.some((x) => /tax|pair/i.test(x)));
   ok('min holding 300,000', u(await view('MIN_HOLDING')) === 300_000n * E18);
-  ok('every state-changing function is accounted for (none change tax, mint, or take pooled funds)', JSON.stringify(T.writes) === JSON.stringify(['acceptOwnership', 'addPair', 'approve', 'burn', 'burnFrom', 'claim', 'claimHolderRewards', 'release', 'releaseEarly', 'setClaimsPaused', 'setEmissionSchedule', 'setProtocolWallet', 'setSigner', 'startEmission', 'sweepExpired', 'transfer', 'transferFrom', 'transferOwnership']), T.writes.join(' '));
-  ok('contract excluded from holder rewards', u(await view('excludedFromHolderRewards', tok)) === 1n);
-  ok('eligible supply = dev + team (200M)', u(await view('eligibleSupply')) === 200_000_000n * E18);
-  ok('zero team rejected', reverts(await c.send(DEPLOYER, null, T.ctor(DEV, DEV, ZERO)), 'ZeroAddress'));
-  ok('zero owner rejected', reverts(await c.send(DEPLOYER, null, T.ctor(ZERO, DEV, TEAM)), 'ZeroAddress'));
+  ok('every state-changing function is accounted for (none mint, tax, or take pooled funds)', JSON.stringify(T.writes) === JSON.stringify(['acceptOwnership', 'approve', 'burn', 'burnFrom', 'claim', 'claimHolderRewards', 'excludePool', 'release', 'releaseEarly', 'setClaimsPaused', 'setEmissionSchedule', 'setProtocolWallet', 'setSigner', 'startEmission', 'sweepExpired', 'syncHolderRewards', 'transfer', 'transferFrom', 'transferOwnership']), T.writes.join(' '));
+  ok('contract, hook, pool manager and burn address excluded from holder rewards', [tok, HOOK, PM, DEAD].every(Boolean) && u(await view('excludedFromHolderRewards', tok)) === 1n && u(await view('excludedFromHolderRewards', HOOK)) === 1n && u(await view('excludedFromHolderRewards', PM)) === 1n && u(await view('excludedFromHolderRewards', DEAD)) === 1n);
+  ok('eligible supply = team (the hook\'s liquidity is excluded)', u(await view('eligibleSupply')) === 100_000_000n * E18);
+  const zeroArgs = [[ZERO, HOOK, TEAM, imd, PM], [DEV, ZERO, TEAM, imd, PM], [DEV, HOOK, ZERO, imd, PM], [DEV, HOOK, TEAM, ZERO, PM], [DEV, HOOK, TEAM, imd, ZERO]];
+  let allZero = true;
+  for (const a of zeroArgs) if (!reverts(await c.send(DEPLOYER, null, T.ctor(...a)), 'ZeroAddress')) allZero = false;
+  ok('zero owner, hook, team, reward token or pool manager rejected', allZero);
 
-  // ERC-20
-  ok('wallet transfer untaxed', (await call(TEAM, 'transfer', W(1), 1000n * E18)).ok && await bal(W(1)) === 1000n * E18 && await bal(TEAM) === 100_000_000n * E18 - 1000n * E18);
+  // ERC-20: no transfer tax
+  ok('wallet transfer moves the exact amount', (await call(TEAM, 'transfer', W(1), 1000n * E18)).ok && await bal(W(1)) === 1000n * E18 && await bal(TEAM) === 100_000_000n * E18 - 1000n * E18);
   ok('over balance', reverts(await call(W(1), 'transfer', W(2), 2000n * E18), 'InsufficientBalance'));
   ok('to zero', reverts(await call(W(1), 'transfer', ZERO, 1n), 'ZeroAddress'));
   await call(W(1), 'approve', W(2), 300n * E18);
@@ -83,14 +101,15 @@ async function setup() {
   const sup = u(await view('totalSupply'));
   ok('burn', (await call(W(3), 'burn', 10n * E18)).ok && u(await view('totalSupply')) === sup - 10n * E18);
   ok('self-transfer keeps balance', (await call(W(3), 'transfer', W(3), 5n * E18)).ok && await bal(W(3)) === 191n * E18);
+  ok('the pool manager and hook can move RUNNER like anyone (plain ERC-20 for Uniswap v4)', (await call(HOOK, 'transfer', PM, 1000n * E18)).ok && await bal(PM) === 1000n * E18);
 
   // ownership + admin
-  ok('non-owner addPair', reverts(await call(W(1), 'addPair', tok), 'NotOwner'));
-  ok('addPair rejects wallets (not a contract)', reverts(await call(DEV, 'addPair', W(5)), 'NotAContract'));
+  ok('non-owner excludePool', reverts(await call(W(1), 'excludePool', tok), 'NotOwner'));
+  ok('excludePool rejects wallets (not a contract)', reverts(await call(DEV, 'excludePool', W(5)), 'NotAContract'));
   const smart = (await c.send(DEPLOYER, null, SW.ctor())).created;
-  ok('addPair rejects smart-contract wallets (not a RUNNER pool)', reverts(await call(DEV, 'addPair', smart), 'NotAPool'));
+  ok('excludePool rejects smart-contract wallets (not a RUNNER pool)', reverts(await call(DEV, 'excludePool', smart), 'NotAPool'));
   const other = (await c.send(DEPLOYER, null, OP.ctor())).created;
-  ok('addPair rejects pools of other tokens', reverts(await call(DEV, 'addPair', other), 'NotAPool'));
+  ok('excludePool rejects pools of other tokens', reverts(await call(DEV, 'excludePool', other), 'NotAPool'));
   ok('no adjustable daily cap exists (schedule is fixed)', !T.selectors.some((x) => /DailyClaimCap/.test(x)));
   ok('non-owner protocol wallet', reverts(await call(W(1), 'setProtocolWallet', W(1)), 'NotOwner'));
   ok('owner sets protocol wallet', (await call(DEV, 'setProtocolWallet', W(9))).ok && u(await view('protocolWallet')) === BigInt(W(9)));
@@ -108,7 +127,7 @@ async function setup() {
 
 // =================================================================== run-reward claims
 {
-  const { c, tok, call, view, bal, newPair, buy } = await setup();
+  const { c, tok, call, view, bal, reward } = await setup();
   const SKEY = secp256k1.utils.randomPrivateKey();
   const SIGNER = `0x${keccakHex(secp256k1.getPublicKey(SKEY, false).slice(1)).slice(24)}`;
   const domain = keccakHex(Buffer.from(keccakHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)') + keccakHex('RUNNER') + keccakHex('1') + word(4663) + addrWord(tok), 'hex'));
@@ -170,13 +189,10 @@ async function setup() {
   c.addTime(31 * DAY);
   ok('after the halving, 5M/day: 5M+1 rejected, 5M ok', reverts(await claim(W(1), W(1), 250n * E18 + 5_000_001n * E18, c.now + 3600n, sign(SKEY, W(1), 250n * E18 + 5_000_001n * E18, c.now + 3600n)), 'DailyCapReached')
     && (await claim(W(1), W(1), 250n * E18 + 5_000_000n * E18, c.now + 3600n, sign(SKEY, W(1), 250n * E18 + 5_000_000n * E18, c.now + 3600n))).ok);
-  // pool never counts holder tax: create holder tax, then try to claim more than the pool
-  const pair = await newPair();
-  await call(DEV, 'transfer', pair, 10_000_000n * E18);
-  await call(DEV, 'addPair', pair);
-  await buy(pair, W(2), 1_000_000n * E18);
+  // holder rewards are IMD, so they can never be paid out of the RUNNER run-reward pool
+  await reward(20_000n * E18);
   const held = u(await view('holderRewardsHeld'));
-  ok('holder tax and locks kept apart from the run pool', held === 20_000n * E18 && u(await view('rewardsRemaining')) === await bal(tok) - held - u(await view('totalLocked')));
+  ok('holder IMD and locks kept apart from the RUNNER run pool', held === 20_000n * E18 && u(await view('rewardsRemaining')) === await bal(tok) - u(await view('totalLocked')));
 }
 
 // =================================================================== emission controls
@@ -272,47 +288,39 @@ async function setup() {
   // accounting
   const burned = u(await view('totalBurnedInstant'));
   ok('supply fell by exactly what was burned', u(await view('totalSupply')) === supply0 - burned);
-  ok('contract balance = pool + locks (+ holder bucket)', await bal(tok) === u(await view('rewardsRemaining')) + u(await view('totalLocked')) + u(await view('holderRewardsHeld')));
+  ok('contract RUNNER balance = pool + locks', await bal(tok) === u(await view('rewardsRemaining')) + u(await view('totalLocked')));
 }
 
-// =================================================================== tax
+// =================================================================== holder rewards arrive in IMD
 {
-  const { c, tok, call, view, bal, newPair, buy, today } = await setup();
+  const { c, tok, call, view, bal, newPair, buy, today, reward, imdBal } = await setup();
   const pair = await newPair();
-  ok('liquidity can be added before the pool is registered (untaxed)', (await call(DEV, 'transfer', pair, 50_000_000n * E18)).ok && await bal(pair) === 50_000_000n * E18);
-  const before = await bal(pair);
-  await call(DEV, 'addPair', pair);
-  ok('pair registered + excluded', u(await view('isPair', pair)) === 1n && u(await view('excludedFromHolderRewards', pair)) === 1n);
-  ok('pair can\'t be added twice', reverts(await call(DEV, 'addPair', pair), 'AlreadyPair'));
-  ok('pair gets no holder share', u(await view('eligibleBalanceOn', pair, await today())) === 0n);
-  ok('eligible supply dropped by the pair\'s balance', u(await view('eligibleSupply')) === 150_000_000n * E18);
-  const devBefore = await bal(DEV);
+  ok('liquidity moves untaxed', (await call(HOOK, 'transfer', pair, 50_000_000n * E18)).ok && await bal(pair) === 50_000_000n * E18);
   await buy(pair, W(1), 1_000_000n * E18);
-  ok('buy: buyer gets 96%', await bal(W(1)) === 960_000n * E18);
-  ok('buy: protocol gets 2%', await bal(DEV) - devBefore === 20_000n * E18);
-  ok('buy: holders get 2%', u(await view('holderRewardsHeld')) === 20_000n * E18);
-  ok('pair paid the full amount', before - await bal(pair) === 1_000_000n * E18);
+  ok('a pool payout (buy) moves the exact amount: no RUNNER tax', await bal(W(1)) === 1_000_000n * E18 && await bal(DEV) === 0n);
   await call(W(1), 'transfer', pair, 100_000n * E18);
-  ok('sell: pair receives 96%', await bal(pair) === before - 1_000_000n * E18 + 96_000n * E18);
-  ok('sell: tax split', u(await view('holderRewardsHeld')) === 22_000n * E18 && await bal(DEV) - devBefore === 22_000n * E18);
   await call(W(1), 'approve', W(5), 50_000n * E18);
   await call(W(5), 'transferFrom', W(1), pair, 50_000n * E18);
-  ok('router-style sell (transferFrom) taxed', u(await view('holderRewardsHeld')) === 23_000n * E18);
-  await call(W(1), 'transfer', W(2), 10_000n * E18);
-  ok('wallet → wallet still untaxed', await bal(W(2)) === 10_000n * E18);
-  const [, rewards] = [0, u(await view('dayInfo', await today()), 1)];
-  ok('day rewards recorded', rewards === 23_000n * E18);
-  // tiny amounts: tax rounds down, never reverts
-  await call(W(1), 'transfer', pair, 49n);
-  ok('dust trade ok (tax rounds to 0)', u(await view('holderRewardsHeld')) === 23_000n * E18);
+  ok('sells (transfer or transferFrom) move the exact amount', await bal(pair) === 49_150_000n * E18 && await bal(W(1)) === 850_000n * E18);
+  ok('no holder rewards from transfers themselves', u(await view('holderRewardsHeld')) === 0n);
+  const d = await today();
+  ok('IMD from the hook is booked as today\'s holder rewards', (await reward(23_000n * E18)).ok && u(await view('holderRewardsHeld')) === 23_000n * E18
+    && u(await view('dayInfo', d), 1) === 23_000n * E18 && u(await view('totalHolderRewards')) === 23_000n * E18);
+  ok('syncing again adds nothing', (await call(W(7), 'syncHolderRewards')).ok && u(await view('holderRewardsHeld')) === 23_000n * E18);
+  ok('rewards are held in IMD, not RUNNER', await imdBal(tok) === 23_000n * E18 && u(await view('rewardsRemaining')) === 800_000_000n * E18);
+  await reward(1n);
+  ok('a second delivery the same day adds up', u(await view('dayInfo', d), 1) === 23_000n * E18 + 1n);
+  ok('owner can exclude another RUNNER pool from rewards', (await call(DEV, 'excludePool', pair)).ok && u(await view('excludedFromHolderRewards', pair)) === 1n);
+  ok('a pool can\'t be excluded twice', reverts(await call(DEV, 'excludePool', pair), 'AlreadyExcluded'));
+  ok('excluded pool gets no holder share', u(await view('eligibleBalanceOn', pair, d)) === 0n);
 }
 
 // =================================================================== holder rewards
 {
-  const { c, tok, call, view, bal, newPair, buy, today } = await setup();
+  const { c, tok, call, view, bal, newPair, buy, today, reward, imdBal } = await setup();
   const pair = await newPair();
-  await call(DEV, 'transfer', pair, 50_000_000n * E18);
-  await call(DEV, 'addPair', pair);
+  await call(HOOK, 'transfer', pair, 50_000_000n * E18);
+  await call(DEV, 'excludePool', pair);
   // Day 0: give A 1,000,000, B 500,000, C 200,000 (below minimum)
   const A = W(1), B = W(2), C = W(3), D = W(4);
   await call(TEAM, 'transfer', A, 1_000_000n * E18);
@@ -322,17 +330,17 @@ async function setup() {
   ok('received today → not eligible today', u(await view('eligibleBalanceOn', A, day0)) === 0n);
   c.addTime(DAY); // day 1: A, B, C held all day
   const day1 = await today();
-  // trading on day 1 creates holder rewards
+  // trading on day 1: D buys, the hook delivers the holders' 2% in IMD
   await buy(pair, D, 10_000_000n * E18); // D buys mid-day → not eligible for day 1
+  await reward(200_000n * E18);
   await call(B, 'transfer', W(6), 100_000n * E18); // B drops to 400k → share 400k
   await call(B, 'transfer', B, 0n);
   const [shares, rewards] = [u(await view('dayInfo', day1), 0), u(await view('dayInfo', day1), 1)];
-  // eligible today: DEV (100M - 50M lp + 200k tax so far but min = start balance), TEAM (start balance), A 1M, B min 400k
-  const devStart = 50_000_000n * E18;            // dev after LP; tax received today doesn't raise the day's min
+  // eligible today: TEAM (start balance), A 1M, B min 400k (the hook, pool manager and pool are excluded)
   const teamStart = 100_000_000n * E18 - 1_700_000n * E18;
-  const expectShares = devStart + teamStart + 1_000_000n * E18 + 400_000n * E18;
+  const expectShares = teamStart + 1_000_000n * E18 + 400_000n * E18;
   ok('day shares = lowest balances of eligible wallets', shares === expectShares, `${shares} vs ${expectShares}`);
-  ok('day rewards = 2% of buy', rewards === 200_000n * E18);
+  ok('day rewards = IMD delivered that day', rewards === 200_000n * E18);
   ok('A counts 1M', u(await view('eligibleBalanceOn', A, day1)) === 1_000_000n * E18);
   ok('B counts its lowest (400k)', u(await view('eligibleBalanceOn', B, day1)) === 400_000n * E18);
   ok('C under 300k → 0', u(await view('eligibleBalanceOn', C, day1)) === 0n);
@@ -341,11 +349,11 @@ async function setup() {
   c.addTime(DAY); // day 2
   const expA = rewards * 1_000_000n * E18 / expectShares;
   ok('A claimable next day', u(await view('holderClaimable', A)) === expA, `${u(await view('holderClaimable', A))} vs ${expA}`);
-  const aBefore = await bal(A);
-  ok('A claims', (await call(A, 'claimHolderRewards')).ok && await bal(A) - aBefore === expA);
+  const aBefore = await imdBal(A), aTok = await bal(A);
+  ok('A claims, paid in IMD', (await call(A, 'claimHolderRewards')).ok && await imdBal(A) - aBefore === expA && await bal(A) === aTok);
   ok('A can\'t claim twice', reverts(await call(A, 'claimHolderRewards'), 'NothingToClaim'));
   ok('C nothing', reverts(await call(C, 'claimHolderRewards'), 'NothingToClaim'));
-  ok('D eligible from day 2 (held all day)', u(await view('eligibleBalanceOn', D, await today())) === 9_600_000n * E18);
+  ok('D eligible from day 2 (held all day, no tax taken)', u(await view('eligibleBalanceOn', D, await today())) === 10_000_000n * E18);
   // B waits until the last day of the window (day1 + 7 = day 8)
   c.setTime((day1 + 7) * DAY + 80000);
   const expB = rewards * 400_000n * E18 / expectShares;
@@ -353,12 +361,12 @@ async function setup() {
   ok('expired days not sweepable yet', u(await view('nextSweepDay')) === BigInt(day0) && (await call(W(9), 'sweepExpired', 30)).ok && u(await view('dayInfo', day1), 2) === expA);
   c.setTime((day1 + 8) * DAY + 10);
   ok('after 7 days B can no longer claim', u(await view('holderClaimable', B)) === 0n && reverts(await call(B, 'claimHolderRewards'), 'NothingToClaim'));
-  const devBefore = await bal(DEV);
+  const devBefore = await imdBal(DEV);
   const left = rewards - expA;
   const sw = await call(W(9), 'sweepExpired', 30);
-  ok('anyone sweeps expired rewards to protocol', sw.ok && await bal(DEV) - devBefore === left, `${await bal(DEV) - devBefore} vs ${left}`);
-  ok('holder bucket empty after sweep', u(await view('holderRewardsHeld')) === 0n);
-  ok('sweep is idempotent', (await call(W(9), 'sweepExpired', 30)).ok && await bal(DEV) - devBefore === left);
+  ok('anyone sweeps expired rewards to protocol, in IMD', sw.ok && await imdBal(DEV) - devBefore === left, `${await imdBal(DEV) - devBefore} vs ${left}`);
+  ok('holder bucket empty after sweep', u(await view('holderRewardsHeld')) === 0n && await imdBal(tok) === 0n);
+  ok('sweep is idempotent', (await call(W(9), 'sweepExpired', 30)).ok && await imdBal(DEV) - devBefore === left);
   ok('sweep progress saved', u(await view('nextSweepDay')) === BigInt(day1 + 1));
 }
 
@@ -375,21 +383,22 @@ async function setup() {
 
 // =================================================================== audit fixes (IMD audit 28c0a5e2)
 {
-  // Finding 5: opening balances count for the deploy day, so launch-day holder tax goes to holders.
-  const { c, tok, call, view, bal, newPair, buy, today } = await setup();
+  // Finding 5: opening balances count for the deploy day, so launch-day holder rewards go to holders.
+  const { c, tok, call, view, bal, newPair, buy, today, reward } = await setup();
   const d0 = await today();
-  ok('deploy day: share total = opening eligible balances (liquidity + team)', u(await view('dayInfo', d0), 0) === 200_000_000n * E18);
+  ok('deploy day: share total = opening eligible balances (team; the hook\'s liquidity is excluded)', u(await view('dayInfo', d0), 0) === 100_000_000n * E18);
   ok('deploy day: team wallet counts for the whole day', u(await view('eligibleBalanceOn', TEAM, d0)) === 100_000_000n * E18);
   const p = await newPair();
-  await call(DEV, 'transfer', p, 10_000_000n * E18);
-  await call(DEV, 'addPair', p);
-  await buy(p, W(1), 1_000_000n * E18);                        // taxed on launch day
+  await call(HOOK, 'transfer', p, 10_000_000n * E18);
+  await call(DEV, 'excludePool', p);
+  await buy(p, W(1), 1_000_000n * E18);                        // a launch-day trade
+  await reward(20_000n * E18);                                 // its holder fee, in IMD
   const [shares, rewards] = [u(await view('dayInfo', d0), 0), u(await view('dayInfo', d0), 1)];
   c.setTime((d0 + 1) * DAY + 10);
   const team = u(await view('holderClaimable', TEAM)), dev = u(await view('holderClaimable', DEV));
-  ok('launch-day holder tax is claimable by holders', rewards === 20_000n * E18 && team === rewards * 100_000_000n * E18 / shares && team > 0n);
-  ok('…and holders\' shares add up to the day\'s tax (no slice stranded)', rewards - team - dev < 10n, `${rewards - team - dev}`);
-  ok('…pool weight left the deploy day when it was registered', shares === 190_000_000n * E18);
+  ok('launch-day holder IMD is claimable by holders', rewards === 20_000n * E18 && team === rewards * 100_000_000n * E18 / shares && team > 0n);
+  ok('…and holders\' shares add up to the day\'s rewards (no slice stranded)', rewards - team - dev < 10n, `${rewards - team - dev}`);
+  ok('…the pool held no weight on the deploy day', shares === 100_000_000n * E18);
 
   // Finding 1: a self-transfer never lowers the day's lowest balance.
   await call(TEAM, 'transfer', W(2), 1_000_000n * E18);
@@ -405,23 +414,24 @@ async function setup() {
     && u(await view('eligibleBalanceOn', W(2), d2)) === 1_000_000n * E18 && u(await view('dayInfo', d2), 0) === sh0);
   ok('self-transfer still spends the allowance and emits normally', u(await view('allowance', W(2), W(3))) === 0n);
 
-  // Finding 2: registering a pool that held RUNNER on earlier days keeps those days consistent.
+  // Finding 2: excluding a pool that held RUNNER on earlier days keeps those days consistent.
   const late = await newPair();
-  await call(DEV, 'transfer', late, 50_000_000n * E18);       // day d2: unregistered, so it is just a big holder
+  await call(HOOK, 'transfer', late, 50_000_000n * E18);      // day d2: not excluded yet, so it is just a big holder
   c.setTime((d2 + 1) * DAY + 10);
-  await buy(p, W(4), 1_000_000n * E18);                        // day d2+1: holder tax with late pool still counted
+  await buy(p, W(4), 1_000_000n * E18);                        // day d2+1: a trade…
+  await reward(20_000n * E18);                                 // …and its holder IMD, with the late pool still counted
   const d3 = d2 + 1;
   const ws = async (d) => { let t = 0n; for (const a of [DEV, TEAM, W(1), W(2), W(3), W(4), late, p]) t += u(await view('eligibleBalanceOn', a, d)); return t; };
-  ok('before registration: weights add up to the share total', await ws(d3) === u(await view('dayInfo', d3), 0));
+  ok('before exclusion: weights add up to the share total', await ws(d3) === u(await view('dayInfo', d3), 0));
   c.setTime((d3 + 1) * DAY + 10);
-  await call(DEV, 'addPair', late);
-  ok('after registration: the pool counts for no day', u(await view('eligibleBalanceOn', late, d3)) === 0n && u(await view('eligibleBalanceOn', late, d2)) === 0n);
+  await call(DEV, 'excludePool', late);
+  ok('after exclusion: the pool counts for no day', u(await view('eligibleBalanceOn', late, d3)) === 0n && u(await view('eligibleBalanceOn', late, d2)) === 0n);
   ok('…and past days\' share totals dropped by its weight, so weights still add up', await ws(d3) === u(await view('dayInfo', d3), 0) && await ws(d2) === u(await view('dayInfo', d2), 0));
   const rw = u(await view('dayInfo', d3), 1);
   const sh3 = u(await view('dayInfo', d3), 0);
   let tot = 0n;
   for (const a of [DEV, TEAM, W(1), W(2), W(3), W(4)]) tot += rw * u(await view('eligibleBalanceOn', a, d3)) / sh3;
-  ok('…so the whole day\'s holder tax is claimable by real holders', rw > 0n && rw - tot < 10n, `${rw - tot}`);
+  ok('…so the whole day\'s holder IMD is claimable by real holders', rw > 0n && rw - tot < 10n, `${rw - tot}`);
 
   // Finding 3: the payout choice is signed, so nobody can switch a runner's claim into a lock.
   const SKEY = secp256k1.utils.randomPrivateKey();
@@ -447,16 +457,16 @@ async function setup() {
 
 // =================================================================== randomized model check
 {
-  const { c, tok, call, view, bal, newPair, buy, today } = await setup();
+  const { c, tok, call, view, bal, newPair, buy, today, reward, imdBal } = await setup();
   const MIN = 300_000n * E18;
   let seed = 0x5eed1234;
   const rnd = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 4294967296; };
   const pick = (a) => a[Math.floor(rnd() * a.length)];
   const holders = [DEV, TEAM, W(1), W(2), W(3), W(4), W(5), W(6)];
   const pairs = [await newPair(), await newPair()];
-  const late = await newPair();             // a pool that holds RUNNER for days before it is registered
+  const late = await newPair();             // a pool that holds RUNNER for days before it is excluded
   const weighted = [...holders, late];      // every wallet whose balance can count toward a day's shares
-  const m = { bal: new Map(), dayMin: new Map(), rewards: new Map(), paid: new Map(), claimed: new Set(), excluded: new Set([tok.toLowerCase()]), day: await today(), held: 0n };
+  const m = { bal: new Map(), dayMin: new Map(), rewards: new Map(), paid: new Map(), claimed: new Set(), excluded: new Set([tok, HOOK, PM, DEAD].map((x) => x.toLowerCase())), day: await today(), held: 0n, imd: new Map() };
   const B = (a) => m.bal.get(a.toLowerCase()) || 0n;
   const setB = (a, v) => {
     a = a.toLowerCase(); m.bal.set(a, v);
@@ -465,8 +475,9 @@ async function setup() {
   const enterDay = (d) => {
     while (m.day < d) { m.day++; m.dayMin.set(m.day, new Map([...m.bal].map(([k, v]) => [k, v]))); }
   };
+  const addImd = (a, v) => { a = a.toLowerCase(); m.imd.set(a, (m.imd.get(a) || 0n) + v); };
   m.dayMin.set(m.day, new Map());
-  for (const a of [tok, DEV, TEAM, late, ...pairs, ...holders]) m.bal.set(a.toLowerCase(), await bal(a));
+  for (const a of [tok, DEV, TEAM, HOOK, late, ...pairs, ...holders]) m.bal.set(a.toLowerCase(), await bal(a));
   for (const [k, v] of m.bal) m.dayMin.get(m.day).set(k, v); // opening balances count as held all deploy day
   const elig = (a, d) => {
     a = a.toLowerCase();
@@ -475,16 +486,16 @@ async function setup() {
     return v >= MIN ? v : 0n;
   };
   const move = (from, to, amt) => { if (from.toLowerCase() === to.toLowerCase()) return; setB(from, B(from) - amt); setB(to, B(to) + amt); };
-  // LP + pairs (before registering → untaxed)
-  for (const p of pairs) { await call(DEV, 'transfer', p, 20_000_000n * E18); move(DEV, p, 20_000_000n * E18); await call(DEV, 'addPair', p); m.excluded.add(p.toLowerCase()); }
+  // liquidity: pools are funded from the hook's allocation and excluded
+  for (const p of pairs) { await call(HOOK, 'transfer', p, 20_000_000n * E18); move(HOOK, p, 20_000_000n * E18); await call(DEV, 'excludePool', p); m.excluded.add(p.toLowerCase()); }
   for (const h of holders.slice(2)) { const a = BigInt(Math.floor(rnd() * 1_500_000)) * E18; await call(TEAM, 'transfer', h, a); move(TEAM, h, a); }
-  await call(DEV, 'transfer', late, 5_000_000n * E18); move(DEV, late, 5_000_000n * E18);
+  await call(HOOK, 'transfer', late, 5_000_000n * E18); move(HOOK, late, 5_000_000n * E18);
 
-  let steps = 0, checks = 0, claims = 0, sweeps = 0, taxed = 0;
+  let steps = 0, checks = 0, claims = 0, sweeps = 0, trades = 0, deliveries = 0;
   const check = async (label) => {
     const d = await today();
     let sumB = 0n;
-    for (const a of new Set([tok, late, ...pairs, ...holders])) {
+    for (const a of new Set([tok, HOOK, late, ...pairs, ...holders])) {
       const cb = await bal(a);
       if (cb !== B(a)) throw new Error(`${label}: balance ${a} ${cb} != model ${B(a)}`);
       sumB += cb;
@@ -502,7 +513,9 @@ async function setup() {
       if (u(info, 1) !== (m.rewards.get(dd) || 0n)) throw new Error(`${label}: rewards day ${dd}`);
     }
     if (u(await view('holderRewardsHeld')) !== m.held) throw new Error(`${label}: held ${u(await view('holderRewardsHeld'))} != ${m.held}`);
-    if (u(await view('rewardsRemaining')) !== B(tok) - m.held) throw new Error(`${label}: pool`);
+    if (await imdBal(tok) !== m.held) throw new Error(`${label}: IMD in contract ${await imdBal(tok)} != ${m.held}`);
+    for (const h of holders) if (await imdBal(h) !== (m.imd.get(h.toLowerCase()) || 0n)) throw new Error(`${label}: IMD of ${h}`);
+    if (u(await view('rewardsRemaining')) !== B(tok)) throw new Error(`${label}: pool`);
     checks++;
   };
   const expectedClaim = (h) => {
@@ -517,35 +530,35 @@ async function setup() {
   };
 
   for (; steps < 600; steps++) {
-    if (steps === 300) {                    // register the late pool mid-run (audit finding 2)
-      const r = await call(DEV, 'addPair', late); if (!r.ok) throw new Error('addPair failed');
+    if (steps === 300) {                    // exclude the late pool mid-run (audit finding 2)
+      const r = await call(DEV, 'excludePool', late); if (!r.ok) throw new Error('excludePool failed');
       m.excluded.add(late.toLowerCase());
     }
     const roll = rnd();
     if (roll < 0.12) {                     // time passes
       c.addTime(Math.floor(rnd() * 30 * 3600));
       enterDay(await today());
-    } else if (roll < 0.35) {               // buy
+    } else if (roll < 0.32) {               // buy: a pool pays out RUNNER (no tax)
       const p = pick(pairs), h = pick(holders);
       const amt = BigInt(Math.floor(rnd() * 900_000)) * E18 + BigInt(Math.floor(rnd() * 1e6));
       if (amt > B(p)) continue;
       const r = await buy(p, h, amt); if (!r.ok) throw new Error('buy failed');
-      const pc = amt * 200n / 10000n, hc = amt * 200n / 10000n;
-      move(p, h, amt - pc - hc); move(p, DEV, pc); move(p, tok, hc);
-      m.held += hc; m.rewards.set(m.day, (m.rewards.get(m.day) || 0n) + hc); taxed++;
-    } else if (roll < 0.55) {               // sell
+      move(p, h, amt); trades++;
+    } else if (roll < 0.47) {               // sell: RUNNER into a pool (no tax)
       const p = pick(pairs), h = pick(holders);
       const amt = B(h) * BigInt(Math.floor(rnd() * 100)) / 100n; if (!amt) continue;
       const r = await call(h, 'transfer', p, amt); if (!r.ok) throw new Error('sell failed');
-      const pc = amt * 200n / 10000n, hc = amt * 200n / 10000n;
-      move(h, p, amt - pc - hc); move(h, DEV, pc); move(h, tok, hc);
-      m.held += hc; m.rewards.set(m.day, (m.rewards.get(m.day) || 0n) + hc); taxed++;
+      move(h, p, amt); trades++;
+    } else if (roll < 0.59) {               // the hook delivers holder IMD
+      const amt = BigInt(Math.floor(rnd() * 40_000)) * E18 + BigInt(Math.floor(rnd() * 1e6));
+      const r = await reward(amt); if (!r.ok) throw new Error('sync failed');
+      m.held += amt; m.rewards.set(m.day, (m.rewards.get(m.day) || 0n) + amt); deliveries++;
     } else if (roll < 0.72) {               // wallet transfer
       const a = pick(holders), b = pick(holders);
       const amt = B(a) * BigInt(Math.floor(rnd() * 100)) / 100n;
       const r = await call(a, 'transfer', b, amt); if (!r.ok) throw new Error('transfer failed');
       move(a, b, amt);
-    } else if (roll < 0.88) {               // claim holder rewards
+    } else if (roll < 0.88) {               // claim holder rewards (paid in IMD)
       const h = pick(holders);
       const { t, list } = expectedClaim(h);
       const view0 = u(await view('holderClaimable', h));
@@ -554,14 +567,14 @@ async function setup() {
       if (!t) { if (r.ok) throw new Error('claim of 0 succeeded'); continue; }
       if (!r.ok) throw new Error('claim failed');
       for (const [dd, a] of list) { m.claimed.add(`${h}:${dd}`); m.paid.set(dd, (m.paid.get(dd) || 0n) + a); }
-      move(tok, h, t); m.held -= t; claims++;
-    } else if (roll < 0.95) {               // sweep
+      addImd(h, t); m.held -= t; claims++;
+    } else if (roll < 0.95) {               // sweep (IMD to the protocol wallet)
       const next = Number(u(await view('nextSweepDay')));
       const max = 1 + Math.floor(rnd() * 5);
       let t = 0n, d = next;
       while (d + 7 < m.day && d < next + max) { const left = (m.rewards.get(d) || 0n) - (m.paid.get(d) || 0n); if (left > 0n) { t += left; m.paid.set(d, m.rewards.get(d)); } d++; }
       const r = await call(W(9), 'sweepExpired', max); if (!r.ok) throw new Error('sweep failed');
-      if (t) { move(tok, DEV, t); m.held -= t; sweeps++; }
+      if (t) { addImd(DEV, t); m.held -= t; sweeps++; }
     } else {                                 // burn
       const h = pick(holders); const amt = B(h) / 10n;
       const r = await call(h, 'burn', amt); if (!r.ok) throw new Error('burn failed');
@@ -570,7 +583,7 @@ async function setup() {
     if (steps % 5 === 0) await check(`step ${steps}`);
   }
   await check('final');
-  console.log(`randomized: ${steps} steps over ${m.dayMin.size} days, ${taxed} taxed trades, ${claims} holder claims, ${sweeps} sweeps, ${checks} full bookkeeping checks — all matched`);
+  console.log(`randomized: ${steps} steps over ${m.dayMin.size} days, ${trades} untaxed trades, ${deliveries} IMD deliveries, ${claims} holder claims, ${sweeps} sweeps, ${checks} full bookkeeping checks — all matched`);
   ok('randomized model check', true);
 }
 

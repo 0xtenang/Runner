@@ -55,10 +55,26 @@ export const NFT_CONTRACT_URI = 'https://runearn.fun/nft/collection.json';
 // 5% resale royalty. Also owns the RUNNER token and receives its liquidity share.
 export const DEV_WALLET = '0x0f397E46e4e810313dBC782CDb0236347157f1B4';
 
-// RUNNER token (contracts/RunnerToken.sol) — ERC-20, fixed 1,000,000,000 supply:
+// RUNNER token (contracts/RunnerToken.sol) — ERC-20, fixed 1,000,000,000 supply, no transfer tax:
 // 80% run-reward pool (inside the contract, paid only via server-verified claims),
-// 10% liquidity → DEV_WALLET, 10% team → TEAM_WALLET. Owner = DEV_WALLET.
+// 10% liquidity → the RunnerHook, which locks it forever in the RUNNER/IMD Uniswap v4 pool,
+// 10% team → TEAM_WALLET. Owner = DEV_WALLET. The hook charges 4% of every trade in IMD:
+// 2% to the protocol (DEV_WALLET) and 2% to RUNNER holders (paid out by the token, in IMD).
 export const TOKEN_CHAIN = ROBINHOOD_CHAIN;
 export const TOKEN_CONTRACT = '';
 export const TEAM_WALLET = '0x0f4FE718eb8492533E600b30F3287E2f04087332';
-export const TOKEN_CREATION_CODE_KECCAK = '0x627456a3a13a3583775039551a4d2bc2f151ea552038059b5de771ebe188d320';
+export const TOKEN_CREATION_CODE_KECCAK = '0x0423d56917325535e516ad0bf61e13aaa115cb96c343ad60ef153c5313eb297e';
+
+// RUNNER/IMD pool on Robinhood Chain's Uniswap v4 (the same PoolManager, IMD and IMD/ETH pool
+// PepesFamily uses). The RunnerHook (contracts/RunnerHook.sol) is deployed first, through the
+// standard CREATE2 deployer at an address carrying its hook flags; then the token; then
+// hook.openPool(token) adds the 100M RUNNER liquidity (locked forever).
+export const IMD_TOKEN = '0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127';
+export const POOL_MANAGER = '0x8366a39CC670B4001A1121B8F6A443A643e40951';
+export const IMD_ETH_POOL = { fee: 10_000, tickSpacing: 100, hooks: '0x0000000000000000000000000000000000000000' };
+export const CREATE2_DEPLOYER = '0x4e59b44847b379578588920cA78FbF26c0B4956C';
+export const HOOK_FLAGS = 0x28cc; // beforeInitialize, beforeAddLiquidity, before/afterSwap (+ return deltas)
+export const HOOK_START_TICK = 142_600; // tick of RUNNER-per-IMD: about 642 IMD starting market cap (635 IMD rounded to the tick spacing)
+export const HOOK_CONTRACT = '';
+// Fingerprint of contracts/build/RunnerHook.json (solc 0.8.26, via-IR, optimizer 200, cancun).
+export const HOOK_CREATION_CODE_KECCAK = '0xa0c1cf67591f4a5bfe27130c3a6faaad160bdfcec5040596b7c4a44941880f2e';

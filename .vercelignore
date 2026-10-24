@@ -9,3 +9,7 @@ package-lock.json
 capacitor.config.json
 NATIVE.md
 tests
+lib
+contracts/out
+contracts/cache
+cache

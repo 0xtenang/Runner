@@ -233,10 +233,10 @@ export const releaseRewards = () => auth.sendTx({ to: TOKEN_CONTRACT, data: `0x1
 /** Takes every lock now: finished ones 100%, unfinished 80% (20% burned). */
 export const releaseEarly = () => auth.sendTx({ to: TOKEN_CONTRACT, data: '0xa2c48db8', chainId: TOKEN_CHAIN.id });
 
-// ------------------------------------------------------------------ holder rewards (2% of trades)
+// ------------------------------------------------------------------ holder rewards (2% of trades, paid in IMD)
 export const MIN_HOLDING = 300_000;
 
-/** Holder rewards `address` can claim now (whole tokens), or null if the token isn't live. */
+/** Holder rewards `address` can claim now, in IMD (18 decimals), or null if the token isn't live. */
 export async function holderClaimable(address = auth.state.address) {
   if (!isAddr(TOKEN_CONTRACT) || !address) return null;
   return Number(await tokenCall(`0x7a8afcc2${addrWord(address)}`)) / 1e18;
