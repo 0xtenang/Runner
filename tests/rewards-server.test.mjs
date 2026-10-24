@@ -145,6 +145,7 @@ ok('claim signed', r.code === 200 && c && Math.abs(Number(BigInt(c.totalEarned))
 const digest = eth.claimDigest({ token: c.contract, chainId: c.chainId, account: USER, totalWei: BigInt(c.totalEarned), deadline: c.deadline });
 const sigHex = c.r + c.s.slice(2) + c.v.toString(16);
 ok('claim signature recovers to server key', eth.recoverAddress(digest, sigHex) === eth.addressOfKey(SERVER_KEY));
+ok('lock claim is signed as a lock (instant = false)', c.instant === false && eth.recoverAddress(eth.claimDigest({ token: c.contract, chainId: c.chainId, account: USER, totalWei: BigInt(c.totalEarned), deadline: c.deadline, instant: true }), sigHex) !== eth.addressOfKey(SERVER_KEY));
 ok('claimed amount locked from in-app spending', r.state.balance === 0 && Math.abs(r.state.withdrawn - (firstCoins - spentNow)) < 0.01, JSON.stringify(r.state).slice(0, 160));
 ok('claim chain is Robinhood mainnet', c.chainId === 4663);
 r = await call({ action: 'repair', session: S, tokenId: JOG });
@@ -185,7 +186,11 @@ advance(24 * 3600e3 + 60e3); // U3's earnings released
 // partial claim: only 2 RUNNER left in today's on-chain emission
 const limitWei = 5_000_000n * 10n ** 18n;
 process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY - 30, claimedToday: String(limitWei - 2n * 10n ** 18n), claimed: {} });
-r = await call({ action: 'claim', session: S3 });
+r = await call({ action: 'claim', session: S3, instant: true });
+{
+  const k = r.claim, sh = k.r + k.s.slice(2) + k.v.toString(16);
+  ok('instant claim is signed as instant', k.instant === true && eth.recoverAddress(eth.claimDigest({ token: k.contract, chainId: k.chainId, account: k.account, totalWei: BigInt(k.totalEarned), deadline: k.deadline, instant: true }), sh) === eth.addressOfKey(SERVER_KEY));
+}
 ok('partial claim when today\'s emission is nearly used', r.code === 200 && r.claim.partial && BigInt(r.claim.totalEarned) === 2n * 10n ** 18n, JSON.stringify(r).slice(0, 220));
 ok('rest of the balance stays spendable', Math.abs(r.state.balance - (earned3 - 2)) < 0.01, String(r.state.balance));
 process.env.REWARDS_FAKE_TOKEN = JSON.stringify({ startDay: TODAY - 30, claimedToday: String(limitWei), claimed: { [U3]: String(2n * 10n ** 18n) } });

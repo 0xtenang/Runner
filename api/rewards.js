@@ -427,7 +427,7 @@ async function upgrade(address, body, action) {
 }
 
 // ------------------------------------------------------------------ claims
-async function claim(address) {
+async function claim(address, instant) {
   await assertNotBanned(address);
   return withUser(address, async (u, owned) => {
     const total = u.earned - u.spent;              // everything ever earned and not spent in-app
@@ -445,9 +445,9 @@ async function claim(address) {
     }
     const totalWei = BigInt(allowed) * 10n ** 12n;
     const deadline = Math.floor(Date.now() / 1000) + CLAIM_TTL_S;
-    const sig = await signDigest(claimDigest({ token: TOKEN_CONTRACT, chainId: TOKEN_CHAIN.id, account: address, totalWei, deadline }), KEY);
+    const sig = await signDigest(claimDigest({ token: TOKEN_CONTRACT, chainId: TOKEN_CHAIN.id, account: address, totalWei, deadline, instant }), KEY);
     u.signed = Math.max(u.signed, allowed);        // from now on this amount can't be spent in-app
-    return { claim: { contract: TOKEN_CONTRACT, chainId: TOKEN_CHAIN.id, account: address, totalEarned: totalWei.toString(), deadline, partial: allowed < total, ...sig }, state: await view(address, u, owned) };
+    return { claim: { contract: TOKEN_CONTRACT, chainId: TOKEN_CHAIN.id, account: address, totalEarned: totalWei.toString(), deadline, partial: allowed < total, instant, ...sig }, state: await view(address, u, owned) };
   });
 }
 
@@ -522,7 +522,7 @@ export default async function handler(req, res) {
       if (action === 'state') out = await withUser(address, () => null);
       else if (action === 'run') out = await submitRun(address, body);
       else if (action === 'levelup' || action === 'repair' || action === 'allocate') out = await upgrade(address, body, action);
-      else if (action === 'claim') out = await claim(address);
+      else if (action === 'claim') out = await claim(address, body.instant === true);
       else fail(400, 'Unknown action');
     }
     res.status(200).json(out);

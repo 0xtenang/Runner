@@ -29,7 +29,13 @@ contract ReentrantValidator {
 }
 contract GoodReceiver { function onERC721Received(address,address,uint256,bytes calldata) external pure returns (bytes4) { return 0x150b7a02; } }
 contract BadReceiver { function onERC721Received(address,address,uint256,bytes calldata) external pure returns (bytes4) { return 0xdeadbeef; } }
-contract NoReceiver {}`;
+contract NoReceiver {}
+interface IMint { function mint(uint256) external payable; }
+contract MinterNoReceiver { function buy(address g, uint256 id) external payable { IMint(g).mint{value: msg.value}(id); } }
+contract MinterWithReceiver {
+  function buy(address g, uint256 id) external payable { IMint(g).mint{value: msg.value}(id); }
+  function onERC721Received(address,address,uint256,bytes calldata) external pure returns (bytes4) { return 0x150b7a02; }
+}`;
 
 const { contracts, warnings } = compile({ 'RunnerGenesis.sol': readContract('RunnerGenesis.sol'), 'Mocks.sol': MOCKS });
 const N = iface(contracts['RunnerGenesis.sol'].RunnerGenesis);
@@ -96,6 +102,15 @@ ok('to zero rejected', reverts(await call(W(3), 'transferFrom', W(3), ZERO, 146)
 const good = await deploy('GoodReceiver'), bad = await deploy('BadReceiver'), none = await deploy('NoReceiver');
 ok('safe transfer to receiver contract', (await call(W(3), 'safeTransferFrom(address,address,uint256)', W(3), good, 146)).ok);
 ok('safe transfer to bad receiver blocked', reverts(await call(W(1), 'safeTransferFrom(address,address,uint256)', W(1), bad, 3), 'UnsafeRecipient'));
+// Minting into a contract (audit finding 6): it must accept ERC-721s, or it pays for a token it can never move.
+{
+  const stuck = await deploy('MinterNoReceiver'), fine = await deploy('MinterWithReceiver');
+  const p = u(await view('priceOf', 500)), t0 = await c.ethBalance(DEV);
+  ok('mint into a contract without onERC721Received is refused', reverts(await c.send(W(1), stuck, M('MinterNoReceiver').data('buy', nft, 500), p), 'UnsafeRecipient'));
+  ok('…and nothing is charged or minted', (await c.ethBalance(DEV)) === t0 && !(await c.send(W(1), nft, N.data('ownerOf', 500))).ok);
+  ok('mint into a contract that accepts ERC-721s works', (await c.send(W(1), fine, M('MinterWithReceiver').data('buy', nft, 500), p)).ok && u(await view('ownerOf', 500)) === BigInt(fine));
+  ok('…and the treasury is paid', (await c.ethBalance(DEV)) - t0 === p);
+}
 ok('safe transfer to non-receiver blocked', reverts(await call(W(1), 'safeTransferFrom(address,address,uint256)', W(1), none, 3), 'UnsafeRecipient'));
 
 // ERC-721C validator
@@ -108,7 +123,7 @@ await c.send(DEPLOYER, v, M('MockValidator').data('setBlocked', W(5), true));
 ok('validator blocks a disallowed marketplace', !(await call(W(5), 'transferFrom', W(1), W(6), 3)).ok);
 ok('owner transfers still pass the validator', (await call(W(1), 'transferFrom', W(1), W(6), 3)).ok);
 ok('validator saw the right caller', u(await c.view(v, M('MockValidator').data('lastCaller'))) === BigInt(W(1)));
-ok('mints are not validated', (await pay(W(7), u(await view('priceOf', 500)), 'mint', 500)).ok);
+ok('mints are not validated', (await pay(W(7), u(await view('priceOf', 501)), 'mint', 501)).ok);
 // malicious validator that moves the token during validation
 const sink = W(9);
 const evil = await deploy('ReentrantValidator', nft, sink);
@@ -130,7 +145,13 @@ ok('setBaseURI', (await call(DEV, 'setBaseURI', 'ipfs://x/')).ok && decodeString
 ok('setContractURI', (await call(DEV, 'setContractURI', 'ipfs://c')).ok && decodeString(await view('contractURI')) === 'ipfs://c');
 ok('setRoyaltyReceiver', (await call(DEV, 'setRoyaltyReceiver', W(8))).ok && u(await view('royaltyInfo', 1, 100n), 0) === BigInt(W(8)));
 ok('setTreasury rejects zero', reverts(await call(DEV, 'setTreasury', ZERO), 'ZeroAddress'));
+// Two-step handover (audit finding 7)
+await call(DEV, 'transferOwnership', W(9));
+ok('ownership proposal alone changes nothing', (await call(DEV, 'setPaused', false)).ok);
+ok('nobody else can accept ownership', reverts(await call(W(8), 'acceptOwnership'), 'NotAuthorized'));
 await call(DEV, 'transferOwnership', W(8));
+ok('replaced proposal can no longer be accepted', reverts(await call(W(9), 'acceptOwnership'), 'NotAuthorized'));
+ok('proposed owner accepts', (await call(W(8), 'acceptOwnership')).ok);
 ok('old owner locked out', reverts(await call(DEV, 'setPaused', true), 'NotOwner'));
 ok('new owner works', (await call(W(8), 'setPaused', false)).ok);
 

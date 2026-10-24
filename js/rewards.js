@@ -205,12 +205,12 @@ export async function tokenBalance(address = auth.state.address) {
  */
 export async function claimRewards(onStatus = () => {}, instant = false) {
   onStatus('Asking the RUNNER server to sign your claim…');
-  const r = await post({ action: 'claim' });
+  const r = await post({ action: 'claim', instant }); // the server signs this payout choice
   await game.applyServer(r.state);
   const c = r.claim;
   const already = await tokenCall(`0xc884ef83${addrWord(c.account)}`).catch(() => 0n); // claimed(account)
   if (BigInt(c.totalEarned) <= already) throw new Error('Everything you earned is already in your wallet.');
-  const data = `0xec558eda${addrWord(c.account)}${word(c.totalEarned)}${word(c.deadline)}${word(c.v)}${c.r.slice(2)}${c.s.slice(2)}${word(instant ? 1 : 0)}`;
+  const data = `0xec558eda${addrWord(c.account)}${word(c.totalEarned)}${word(c.deadline)}${word(c.v)}${c.r.slice(2)}${c.s.slice(2)}${word(c.instant ? 1 : 0)}`;
   onStatus('Confirm the claim in your wallet…');
   const hash = await auth.sendTx({ to: TOKEN_CONTRACT, data, chainId: TOKEN_CHAIN.id });
   return { hash, amount: Number(BigInt(c.totalEarned) - already) / 1e18, partial: Boolean(c.partial), instant };

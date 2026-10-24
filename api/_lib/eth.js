@@ -20,11 +20,11 @@ export function addressOfKey(privHex) {
 }
 
 const DOMAIN_TYPEHASH = toHex(keccak('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'));
-const CLAIM_TYPEHASH = toHex(keccak('Claim(address account,uint256 totalEarned,uint256 deadline)'));
+const CLAIM_TYPEHASH = toHex(keccak('Claim(address account,uint256 totalEarned,uint256 deadline,bool instant)'));
 
-export function claimDigest({ token, chainId, account, totalWei, deadline }) {
+export function claimDigest({ token, chainId, account, totalWei, deadline, instant = false }) {
   const domain = keccak(fromHex(DOMAIN_TYPEHASH + toHex(keccak('RUNNER')) + toHex(keccak('1')) + word(chainId) + addrWord(token)));
-  const struct = keccak(fromHex(CLAIM_TYPEHASH + addrWord(account) + word(totalWei) + word(deadline)));
+  const struct = keccak(fromHex(CLAIM_TYPEHASH + addrWord(account) + word(totalWei) + word(deadline) + word(instant ? 1 : 0)));
   return keccak(fromHex(`1901${toHex(domain)}${toHex(struct)}`));
 }
 

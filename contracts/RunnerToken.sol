@@ -22,9 +22,12 @@ pragma solidity 0.8.24;
 ///         message "account has earned `totalEarned` in total"; claim() pays the difference
 ///         to what was already claimed, limited by the emission schedule (launch: 10M/day,
 ///         halving every 30 days, floor 100k/day; the owner can change it from the next day,
-///         never above 20M/day). The owner can never take
-///         tokens out of the run-reward pool or the holder-reward bucket, and cannot change
-///         the tax.
+///         never above 20M/day). The owner cannot change the tax, mint, or take tokens
+///         out of the holder-reward bucket. Run rewards leave the pool only through signed
+///         claims, at most the day's emission — but the owner chooses the signer, so a
+///         compromised owner key could claim up to that daily cap: use a multisig owner.
+///         Tax and the 300,000 threshold apply per address: tokens pooled in a vault or
+///         wrapper count as one holder, and only V2-style pools (token0/token1) can be taxed.
 contract RunnerToken {
     string public constant name = "RUNNER";
     string public constant symbol = "RUNNER";
@@ -55,7 +58,7 @@ contract RunnerToken {
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 public constant CLAIM_TYPEHASH =
-        keccak256("Claim(address account,uint256 totalEarned,uint256 deadline)");
+        keccak256("Claim(address account,uint256 totalEarned,uint256 deadline,bool instant)");
     uint256 private constant HALF_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
 
     struct Checkpoint {
@@ -85,6 +88,7 @@ contract RunnerToken {
 
     uint256 public totalSupply;
     address public owner;
+    address public pendingOwner;         // two-step handover: set by the owner, accepted by the new owner
     address public protocolWallet;
     address public signer;
     bool public claimsPaused;
@@ -125,6 +129,7 @@ contract RunnerToken {
     event HolderRewardsExpired(uint256 indexed day, uint256 amount);
     event PairAdded(address indexed pair);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event ProtocolWalletChanged(address indexed wallet);
     event SignerChanged(address indexed signer);
     event ClaimsPausedChanged(bool paused);
@@ -168,10 +173,12 @@ contract RunnerToken {
         excludedFromHolderRewards[address(this)] = true;
         uint256 today = _today();
         nextSweepDay = today;
+        // Opening balances count as held for the whole deploy day, then the day's share
+        // total is frozen — so launch-day holder tax goes to holders, not the protocol.
+        _mintAtStart(address(this), REWARDS_ALLOCATION, today);
+        _mintAtStart(liquidityWallet, LIQUIDITY_ALLOCATION, today);
+        _mintAtStart(teamWallet, TEAM_ALLOCATION, today);
         _startDay(today);
-        _mint(address(this), REWARDS_ALLOCATION, today);
-        _mint(liquidityWallet, LIQUIDITY_ALLOCATION, today);
-        _mint(teamWallet, TEAM_ALLOCATION, today);
     }
 
     // ----------------------------------------------------------------- ERC-20
@@ -296,6 +303,7 @@ contract RunnerToken {
     /// @notice Pay `account` its verified run earnings, either
     ///         • instant: 80% now, 20% burned — only the runner can choose this, or
     ///         • locked:  100% after 7 days — anyone may submit this for the runner.
+    ///         The server signs the choice the runner made, so nobody else can switch it.
     ///         Any of the runner's locks that have finished are paid out in the same call.
     function claim(address account, uint256 totalEarned, uint256 deadline, uint8 v, bytes32 r, bytes32 s, bool instant) external {
         if (claimsPaused) revert ClaimsPaused();
@@ -304,7 +312,7 @@ contract RunnerToken {
         if (block.timestamp > deadline) revert Expired();
         if (account == address(0)) revert ZeroAddress();
         bytes32 digest = keccak256(abi.encodePacked(
-            "\x19\x01", domainSeparator(), keccak256(abi.encode(CLAIM_TYPEHASH, account, totalEarned, deadline))
+            "\x19\x01", domainSeparator(), keccak256(abi.encode(CLAIM_TYPEHASH, account, totalEarned, deadline, instant))
         ));
         if (uint256(s) > HALF_ORDER || (v != 27 && v != 28)) revert BadSignature();
         address recovered = ecrecover(digest, v, r, s);
@@ -468,10 +476,20 @@ contract RunnerToken {
         emit EmissionScheduleSet(dailyStart, halvingDays, floor, today + 1);
     }
 
+    /// @notice Step 1 of 2: propose a new owner. Nothing changes until they call
+    ///         acceptOwnership(), so a mistyped address can't take the token.
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice Step 2 of 2: the proposed owner takes over.
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotOwner();
+        emit OwnershipTransferred(owner, msg.sender);
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 
     // ----------------------------------------------------------------- internals
@@ -531,6 +549,11 @@ contract RunnerToken {
     function _move(address from, address to, uint256 value, uint256 today) private {
         uint256 fromBal = balanceOf[from];
         if (fromBal < value) revert InsufficientBalance();
+        if (from == to) { // balance unchanged, so the day's lowest balance must not change either
+            _startDay(today);
+            emit Transfer(from, to, value);
+            return;
+        }
         unchecked { balanceOf[from] = fromBal - value; }
         _track(from, fromBal, fromBal - value, today);
         uint256 toBal = balanceOf[to];
@@ -564,9 +587,17 @@ contract RunnerToken {
         if (drop > 0) _days[today].shares -= drop;
     }
 
-    /// Removes a wallet from holder rewards from today on.
+    /// Removes a wallet from holder rewards. eligibleBalanceOn() then reads 0 for every day,
+    /// so its weight also leaves the share totals of the days still claimable — otherwise its
+    /// slice of those days could be claimed by nobody and every other holder would be diluted.
     function _exclude(address account, uint256 today) private {
         if (excludedFromHolderRewards[account]) return;
+        for (uint256 d = today > CLAIM_WINDOW_DAYS ? today - CLAIM_WINDOW_DAYS : 0; d < today; d++) {
+            Day storage past = _days[d];
+            if (!past.started) continue;
+            uint256 w = eligibleBalanceOn(account, d);
+            past.shares -= w < past.shares ? w : past.shares;
+        }
         uint256 bal = balanceOf[account];
         Checkpoint[] storage cps = _checkpoints[account];
         uint256 n = cps.length;
@@ -586,6 +617,20 @@ contract RunnerToken {
             if (allowed < value) revert InsufficientAllowance();
             unchecked { allowance[from][msg.sender] = allowed - value; }
         }
+    }
+
+    /// Constructor only: credits an opening balance as if held since the day began.
+    function _mintAtStart(address to, uint256 value, uint256 today) private {
+        totalSupply += value;
+        uint256 bal = balanceOf[to];
+        uint256 newBal = bal + value;
+        balanceOf[to] = newBal;
+        emit Transfer(address(0), to, value);
+        if (excludedFromHolderRewards[to]) return;
+        eligibleSupply = eligibleSupply - _eligible(bal) + _eligible(newBal);
+        Checkpoint[] storage cps = _checkpoints[to];
+        if (cps.length > 0) cps.pop(); // same wallet given two allocations
+        cps.push(Checkpoint(uint32(today), uint112(newBal), uint112(newBal)));
     }
 
     function _mint(address to, uint256 value, uint256 today) private {

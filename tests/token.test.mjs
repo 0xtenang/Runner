@@ -64,7 +64,7 @@ async function setup() {
   ok('owner + protocol wallet = dev', u(await view('owner')) === BigInt(DEV) && u(await view('protocolWallet')) === BigInt(DEV));
   ok('tax constants 2% + 2%', u(await view('PROTOCOL_TAX_BPS')) === 200n && u(await view('HOLDER_TAX_BPS')) === 200n);
   ok('min holding 300,000', u(await view('MIN_HOLDING')) === 300_000n * E18);
-  ok('every state-changing function is accounted for (none change tax, mint, or take pooled funds)', JSON.stringify(T.writes) === JSON.stringify(['addPair', 'approve', 'burn', 'burnFrom', 'claim', 'claimHolderRewards', 'release', 'releaseEarly', 'setClaimsPaused', 'setEmissionSchedule', 'setProtocolWallet', 'setSigner', 'startEmission', 'sweepExpired', 'transfer', 'transferFrom', 'transferOwnership']), T.writes.join(' '));
+  ok('every state-changing function is accounted for (none change tax, mint, or take pooled funds)', JSON.stringify(T.writes) === JSON.stringify(['acceptOwnership', 'addPair', 'approve', 'burn', 'burnFrom', 'claim', 'claimHolderRewards', 'release', 'releaseEarly', 'setClaimsPaused', 'setEmissionSchedule', 'setProtocolWallet', 'setSigner', 'startEmission', 'sweepExpired', 'transfer', 'transferFrom', 'transferOwnership']), T.writes.join(' '));
   ok('contract excluded from holder rewards', u(await view('excludedFromHolderRewards', tok)) === 1n);
   ok('eligible supply = dev + team (200M)', u(await view('eligibleSupply')) === 200_000_000n * E18);
   ok('zero team rejected', reverts(await c.send(DEPLOYER, null, T.ctor(DEV, DEV, ZERO)), 'ZeroAddress'));
@@ -94,7 +94,14 @@ async function setup() {
   ok('no adjustable daily cap exists (schedule is fixed)', !T.selectors.some((x) => /DailyClaimCap/.test(x)));
   ok('non-owner protocol wallet', reverts(await call(W(1), 'setProtocolWallet', W(1)), 'NotOwner'));
   ok('owner sets protocol wallet', (await call(DEV, 'setProtocolWallet', W(9))).ok && u(await view('protocolWallet')) === BigInt(W(9)));
-  await call(DEV, 'transferOwnership', W(8));
+  // Two-step handover (audit finding 7): a proposal changes nothing until it is accepted.
+  ok('only owner proposes a new owner', reverts(await call(W(8), 'transferOwnership', W(8)), 'NotOwner'));
+  await call(DEV, 'transferOwnership', W(9));                 // e.g. a mistyped address
+  ok('proposal alone changes nothing', (await view('owner')).slice(26) === DEV.slice(2) && (await call(DEV, 'setClaimsPaused', false)).ok);
+  ok('nobody else can accept', reverts(await call(W(8), 'acceptOwnership'), 'NotOwner'));
+  await call(DEV, 'transferOwnership', W(8));                 // owner corrects the mistake
+  ok('replaced proposal can no longer be accepted', reverts(await call(W(9), 'acceptOwnership'), 'NotOwner'));
+  ok('proposed owner accepts', (await call(W(8), 'acceptOwnership')).ok && (await view('pendingOwner')).slice(26) === '0'.repeat(40));
   ok('old owner locked out', reverts(await call(DEV, 'setSigner', DEV), 'NotOwner'));
   ok('new owner works', (await call(W(8), 'setClaimsPaused', false)).ok);
 }
@@ -105,8 +112,8 @@ async function setup() {
   const SKEY = secp256k1.utils.randomPrivateKey();
   const SIGNER = `0x${keccakHex(secp256k1.getPublicKey(SKEY, false).slice(1)).slice(24)}`;
   const domain = keccakHex(Buffer.from(keccakHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)') + keccakHex('RUNNER') + keccakHex('1') + word(4663) + addrWord(tok), 'hex'));
-  const sign = (key, account, total, deadline) => {
-    const struct = keccakHex(Buffer.from(keccakHex('Claim(address account,uint256 totalEarned,uint256 deadline)') + addrWord(account) + word(total) + word(deadline), 'hex'));
+  const sign = (key, account, total, deadline, instant = false) => {
+    const struct = keccakHex(Buffer.from(keccakHex('Claim(address account,uint256 totalEarned,uint256 deadline,bool instant)') + addrWord(account) + word(total) + word(deadline) + word(instant ? 1 : 0), 'hex'));
     const s = secp256k1.sign(Buffer.from(keccakHex(Buffer.from(`1901${domain}${struct}`, 'hex')), 'hex'), key);
     return { v: 27 + s.recovery, r: `0x${s.r.toString(16).padStart(64, '0')}`, s: `0x${s.s.toString(16).padStart(64, '0')}` };
   };
@@ -141,7 +148,7 @@ async function setup() {
   ok('locked claim (submitted by anyone): 100 locked for 7 days, nothing paid yet', r.ok && await bal(W(1)) === 0n && await bal(W(7)) === 0n && u(lk, 0) === 100n * E18 && u(lk, 2) === c.now + 7n * 86400n, `gas ${r.gas}`);
   ok('locked rewards leave the run pool', u(await view('totalLocked')) === 100n * E18 && u(await view('rewardsRemaining')) === 800_000_000n * E18 - 100n * E18);
   ok('replay', reverts(await claim(W(1), W(1), 100n * E18, dl(), sg), 'NothingToClaim'));
-  sg = sign(SKEY, W(1), 250n * E18, dl());
+  sg = sign(SKEY, W(1), 250n * E18, dl(), true);
   const supply0 = u(await view('totalSupply'));
   ok('instant claim of the difference: 80% paid, 20% burned', (await claim(W(1), W(1), 250n * E18, dl(), sg, true)).ok && await bal(W(1)) === 120n * E18
     && u(await view('totalSupply')) === supply0 - 30n * E18 && u(await view('totalBurnedInstant')) === 30n * E18);
@@ -217,7 +224,7 @@ async function setup() {
   const domain = keccakHex(Buffer.from(keccakHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)') + keccakHex('RUNNER') + keccakHex('1') + word(4663) + addrWord(tok), 'hex'));
   const claimAs = (from, account, total, instant = false) => {
     const deadline = c.now + 3600n;
-    const struct = keccakHex(Buffer.from(keccakHex('Claim(address account,uint256 totalEarned,uint256 deadline)') + addrWord(account) + word(total) + word(deadline), 'hex'));
+    const struct = keccakHex(Buffer.from(keccakHex('Claim(address account,uint256 totalEarned,uint256 deadline,bool instant)') + addrWord(account) + word(total) + word(deadline) + word(instant ? 1 : 0), 'hex'));
     const sg = secp256k1.sign(Buffer.from(keccakHex(Buffer.from(`1901${domain}${struct}`, 'hex')), 'hex'), SKEY);
     return call(from, 'claim', account, total, deadline, 27 + sg.recovery, `0x${sg.r.toString(16).padStart(64, '0')}`, `0x${sg.s.toString(16).padStart(64, '0')}`, instant);
   };
@@ -355,6 +362,89 @@ async function setup() {
   ok('sweep progress saved', u(await view('nextSweepDay')) === BigInt(day1 + 1));
 }
 
+// =================================================================== the 300,000 boundary
+{
+  const { c, call, view, today } = await setup();
+  await call(TEAM, 'transfer', W(7), 300_000n * E18);
+  await call(TEAM, 'transfer', W(8), 300_000n * E18 - 1n);
+  const d = await today();
+  c.setTime((d + 1) * DAY + 10);
+  ok('exactly 300,000 held all day counts', u(await view('eligibleBalanceOn', W(7), d + 1)) === 300_000n * E18);
+  ok('one wei under 300,000 does not', u(await view('eligibleBalanceOn', W(8), d + 1)) === 0n);
+}
+
+// =================================================================== audit fixes (IMD audit 28c0a5e2)
+{
+  // Finding 5: opening balances count for the deploy day, so launch-day holder tax goes to holders.
+  const { c, tok, call, view, bal, newPair, buy, today } = await setup();
+  const d0 = await today();
+  ok('deploy day: share total = opening eligible balances (liquidity + team)', u(await view('dayInfo', d0), 0) === 200_000_000n * E18);
+  ok('deploy day: team wallet counts for the whole day', u(await view('eligibleBalanceOn', TEAM, d0)) === 100_000_000n * E18);
+  const p = await newPair();
+  await call(DEV, 'transfer', p, 10_000_000n * E18);
+  await call(DEV, 'addPair', p);
+  await buy(p, W(1), 1_000_000n * E18);                        // taxed on launch day
+  const [shares, rewards] = [u(await view('dayInfo', d0), 0), u(await view('dayInfo', d0), 1)];
+  c.setTime((d0 + 1) * DAY + 10);
+  const team = u(await view('holderClaimable', TEAM)), dev = u(await view('holderClaimable', DEV));
+  ok('launch-day holder tax is claimable by holders', rewards === 20_000n * E18 && team === rewards * 100_000_000n * E18 / shares && team > 0n);
+  ok('…and holders\' shares add up to the day\'s tax (no slice stranded)', rewards - team - dev < 10n, `${rewards - team - dev}`);
+  ok('…pool weight left the deploy day when it was registered', shares === 190_000_000n * E18);
+
+  // Finding 1: a self-transfer never lowers the day's lowest balance.
+  await call(TEAM, 'transfer', W(2), 1_000_000n * E18);
+  c.setTime((d0 + 2) * DAY + 10);
+  const d2 = d0 + 2;
+  await call(W(9), 'transfer', W(9), 0n);                     // starts day d2 (its share total freezes)
+  const sh0 = u(await view('dayInfo', d2), 0);
+  ok('self-transfer: balance and day minimum unchanged', (await call(W(2), 'transfer', W(2), 1_000_000n * E18)).ok
+    && await bal(W(2)) === 1_000_000n * E18 && u(await view('eligibleBalanceOn', W(2), d2)) === 1_000_000n * E18
+    && u(await view('dayInfo', d2), 0) === sh0);
+  await call(W(2), 'approve', W(3), 1n);
+  ok('transferFrom(self, self) by a spender with a 1 wei allowance changes nothing', (await call(W(3), 'transferFrom', W(2), W(2), 1n)).ok
+    && u(await view('eligibleBalanceOn', W(2), d2)) === 1_000_000n * E18 && u(await view('dayInfo', d2), 0) === sh0);
+  ok('self-transfer still spends the allowance and emits normally', u(await view('allowance', W(2), W(3))) === 0n);
+
+  // Finding 2: registering a pool that held RUNNER on earlier days keeps those days consistent.
+  const late = await newPair();
+  await call(DEV, 'transfer', late, 50_000_000n * E18);       // day d2: unregistered, so it is just a big holder
+  c.setTime((d2 + 1) * DAY + 10);
+  await buy(p, W(4), 1_000_000n * E18);                        // day d2+1: holder tax with late pool still counted
+  const d3 = d2 + 1;
+  const ws = async (d) => { let t = 0n; for (const a of [DEV, TEAM, W(1), W(2), W(3), W(4), late, p]) t += u(await view('eligibleBalanceOn', a, d)); return t; };
+  ok('before registration: weights add up to the share total', await ws(d3) === u(await view('dayInfo', d3), 0));
+  c.setTime((d3 + 1) * DAY + 10);
+  await call(DEV, 'addPair', late);
+  ok('after registration: the pool counts for no day', u(await view('eligibleBalanceOn', late, d3)) === 0n && u(await view('eligibleBalanceOn', late, d2)) === 0n);
+  ok('…and past days\' share totals dropped by its weight, so weights still add up', await ws(d3) === u(await view('dayInfo', d3), 0) && await ws(d2) === u(await view('dayInfo', d2), 0));
+  const rw = u(await view('dayInfo', d3), 1);
+  const sh3 = u(await view('dayInfo', d3), 0);
+  let tot = 0n;
+  for (const a of [DEV, TEAM, W(1), W(2), W(3), W(4)]) tot += rw * u(await view('eligibleBalanceOn', a, d3)) / sh3;
+  ok('…so the whole day\'s holder tax is claimable by real holders', rw > 0n && rw - tot < 10n, `${rw - tot}`);
+
+  // Finding 3: the payout choice is signed, so nobody can switch a runner's claim into a lock.
+  const SKEY = secp256k1.utils.randomPrivateKey();
+  const SIGNER = `0x${keccakHex(secp256k1.getPublicKey(SKEY, false).slice(1)).slice(24)}`;
+  const domain = keccakHex(Buffer.from(keccakHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)') + keccakHex('RUNNER') + keccakHex('1') + word(4663) + addrWord(tok), 'hex'));
+  const sign = (account, total, deadline, instant) => {
+    const struct = keccakHex(Buffer.from(keccakHex('Claim(address account,uint256 totalEarned,uint256 deadline,bool instant)') + addrWord(account) + word(total) + word(deadline) + word(instant ? 1 : 0), 'hex'));
+    const sg = secp256k1.sign(Buffer.from(keccakHex(Buffer.from(`1901${domain}${struct}`, 'hex')), 'hex'), SKEY);
+    return [27 + sg.recovery, `0x${sg.r.toString(16).padStart(64, '0')}`, `0x${sg.s.toString(16).padStart(64, '0')}`];
+  };
+  await call(DEV, 'setSigner', SIGNER);
+  await call(DEV, 'startEmission');
+  const A = W(5), dl = c.now + 3600n;
+  const inst = sign(A, 1000n * E18, dl, true);
+  ok('someone else submitting a runner\'s instant claim as a lock is rejected', reverts(await call(W(6), 'claim', A, 1000n * E18, dl, ...inst, false), 'BadSignature'));
+  ok('…or as instant (only the runner can)', reverts(await call(W(6), 'claim', A, 1000n * E18, dl, ...inst, true), 'OnlyRunnerCanClaimInstantly'));
+  ok('the runner\'s own instant claim goes through: 80% now, nothing locked', (await call(A, 'claim', A, 1000n * E18, dl, ...inst, true)).ok
+    && await bal(A) === 800n * E18 && u(await view('locksOf', A), 3) === 0n);
+  const lock = sign(A, 1500n * E18, dl, false);
+  ok('a lock signature cannot be used for an instant payout', reverts(await call(A, 'claim', A, 1500n * E18, dl, ...lock, true), 'BadSignature'));
+  ok('a signed lock can still be submitted by anyone', (await call(W(6), 'claim', A, 1500n * E18, dl, ...lock, false)).ok && u(await view('locksOf', A), 0) === 500n * E18);
+}
+
 // =================================================================== randomized model check
 {
   const { c, tok, call, view, bal, newPair, buy, today } = await setup();
@@ -364,6 +454,8 @@ async function setup() {
   const pick = (a) => a[Math.floor(rnd() * a.length)];
   const holders = [DEV, TEAM, W(1), W(2), W(3), W(4), W(5), W(6)];
   const pairs = [await newPair(), await newPair()];
+  const late = await newPair();             // a pool that holds RUNNER for days before it is registered
+  const weighted = [...holders, late];      // every wallet whose balance can count toward a day's shares
   const m = { bal: new Map(), dayMin: new Map(), rewards: new Map(), paid: new Map(), claimed: new Set(), excluded: new Set([tok.toLowerCase()]), day: await today(), held: 0n };
   const B = (a) => m.bal.get(a.toLowerCase()) || 0n;
   const setB = (a, v) => {
@@ -374,24 +466,25 @@ async function setup() {
     while (m.day < d) { m.day++; m.dayMin.set(m.day, new Map([...m.bal].map(([k, v]) => [k, v]))); }
   };
   m.dayMin.set(m.day, new Map());
-  for (const a of [tok, DEV, TEAM, ...pairs, ...holders]) m.bal.set(a.toLowerCase(), await bal(a));
-  for (const [k, v] of m.bal) m.dayMin.get(m.day).set(k, 0n); // minted today: lowest balance today was 0
+  for (const a of [tok, DEV, TEAM, late, ...pairs, ...holders]) m.bal.set(a.toLowerCase(), await bal(a));
+  for (const [k, v] of m.bal) m.dayMin.get(m.day).set(k, v); // opening balances count as held all deploy day
   const elig = (a, d) => {
     a = a.toLowerCase();
     if (m.excluded.has(a)) return 0n;
     const v = m.dayMin.get(d)?.get(a) ?? 0n;
     return v >= MIN ? v : 0n;
   };
-  const move = (from, to, amt) => { setB(from, B(from) - amt); setB(to, B(to) + amt); };
+  const move = (from, to, amt) => { if (from.toLowerCase() === to.toLowerCase()) return; setB(from, B(from) - amt); setB(to, B(to) + amt); };
   // LP + pairs (before registering → untaxed)
   for (const p of pairs) { await call(DEV, 'transfer', p, 20_000_000n * E18); move(DEV, p, 20_000_000n * E18); await call(DEV, 'addPair', p); m.excluded.add(p.toLowerCase()); }
   for (const h of holders.slice(2)) { const a = BigInt(Math.floor(rnd() * 1_500_000)) * E18; await call(TEAM, 'transfer', h, a); move(TEAM, h, a); }
+  await call(DEV, 'transfer', late, 5_000_000n * E18); move(DEV, late, 5_000_000n * E18);
 
   let steps = 0, checks = 0, claims = 0, sweeps = 0, taxed = 0;
   const check = async (label) => {
     const d = await today();
     let sumB = 0n;
-    for (const a of new Set([tok, ...pairs, ...holders])) {
+    for (const a of new Set([tok, late, ...pairs, ...holders])) {
       const cb = await bal(a);
       if (cb !== B(a)) throw new Error(`${label}: balance ${a} ${cb} != model ${B(a)}`);
       sumB += cb;
@@ -399,7 +492,7 @@ async function setup() {
     if (sumB !== u(await view('totalSupply'))) throw new Error(`${label}: supply mismatch`);
     for (const dd of [d, d - 1, d - 3].filter((x) => m.dayMin.has(x))) {
       let s = 0n;
-      for (const h of holders) {
+      for (const h of weighted) {
         const ce = u(await view('eligibleBalanceOn', h, dd));
         if (ce !== elig(h, dd)) throw new Error(`${label}: eligible ${h} day ${dd} ${ce} != ${elig(h, dd)}`);
         s += ce;
@@ -416,7 +509,7 @@ async function setup() {
     let t = 0n; const list = [];
     for (let dd = Math.max(0, m.day - 7); dd < m.day; dd++) {
       const r = m.rewards.get(dd) || 0n; if (!r || m.claimed.has(`${h}:${dd}`)) continue;
-      let s = 0n; for (const x of holders) s += elig(x, dd);
+      let s = 0n; for (const x of weighted) s += elig(x, dd);
       const e = elig(h, dd); if (!e || !s) continue;
       t += r * e / s; list.push([dd, r * e / s]);
     }
@@ -424,6 +517,10 @@ async function setup() {
   };
 
   for (; steps < 600; steps++) {
+    if (steps === 300) {                    // register the late pool mid-run (audit finding 2)
+      const r = await call(DEV, 'addPair', late); if (!r.ok) throw new Error('addPair failed');
+      m.excluded.add(late.toLowerCase());
+    }
     const roll = rnd();
     if (roll < 0.12) {                     // time passes
       c.addTime(Math.floor(rnd() * 30 * 3600));

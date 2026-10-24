@@ -42,6 +42,7 @@ contract RunnerGenesis {
 
     // ------------------------------------------------------------ storage
     address public owner;
+    address public pendingOwner;          // two-step handover: set by the owner, accepted by the new owner
     address payable public treasury;
     address public royaltyReceiver;
     address private _transferValidator;
@@ -62,6 +63,7 @@ contract RunnerGenesis {
     event Approval(address indexed holder, address indexed approved, uint256 indexed tokenId);
     event ApprovalForAll(address indexed holder, address indexed operator, bool approved);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event TreasuryChanged(address indexed treasury);
     event RoyaltyReceiverChanged(address indexed receiver);
     event PausedChanged(bool paused);
@@ -138,6 +140,7 @@ contract RunnerGenesis {
         if (msg.value != priceOf(tokenId)) revert WrongPrice(); // also validates the id
         if (_owners[tokenId] != address(0)) revert AlreadyMinted();
         _mint(msg.sender, tokenId);
+        _checkReceiver(msg.sender, address(0), msg.sender, tokenId, ""); // contracts must accept ERC-721s
         (bool ok, ) = treasury.call{value: msg.value}("");
         if (!ok) revert PaymentFailed();
     }
@@ -241,8 +244,13 @@ contract RunnerGenesis {
 
     function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) public {
         transferFrom(from, to, tokenId);
+        _checkReceiver(msg.sender, from, to, tokenId, data);
+    }
+
+    /// A contract recipient must answer onERC721Received, or it could never move the token.
+    function _checkReceiver(address operator, address from, address to, uint256 tokenId, bytes memory data) private {
         if (to.code.length > 0) {
-            try IERC721Receiver(to).onERC721Received(msg.sender, from, tokenId, data) returns (bytes4 ret) {
+            try IERC721Receiver(to).onERC721Received(operator, from, tokenId, data) returns (bytes4 ret) {
                 if (ret != IERC721Receiver.onERC721Received.selector) revert UnsafeRecipient();
             } catch {
                 revert UnsafeRecipient();
@@ -288,10 +296,20 @@ contract RunnerGenesis {
         emit ContractURIUpdated();
     }
 
+    /// @notice Step 1 of 2: propose a new owner. Nothing changes until they call
+    ///         acceptOwnership(), so a mistyped address can't take the collection.
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice Step 2 of 2: the proposed owner takes over.
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotAuthorized();
+        emit OwnershipTransferred(owner, msg.sender);
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 
     /// @notice Recover ETH sent to the contract by mistake (mint payments never stay here).

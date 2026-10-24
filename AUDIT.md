@@ -1,16 +1,31 @@
 # RUNNER — internal security review
 
-**Date:** 23 October 2026 · **Status:** pre-deployment. Nothing has been deployed.
+**Date:** 23 October 2026, updated 24 October 2026 after the IMD audit · **Status:** pre-deployment. Nothing has been deployed.
 **Reviewer:** Claude (AI assistant), working in this repository.
 
 > **This is an internal review, not an independent audit.** It was done by the same assistant that wrote the code, so it can share the author's blind spots. RUNNER handles real money on mainnet: the NFT sale, a tradable token with a tax, and an 800M reward pool. Before mainnet, an **independent audit by a professional firm** or a public audit contest is strongly recommended. This report, the tests and the design notes are written so an auditor can start quickly.
+
+## Independent audit — IMD (24 October 2026)
+
+IMD audited both contracts at commit `9f1a689` ([report](https://imd-explorer.up.railway.app/jobs/28c0a5e2-0f75-404e-a9d9-37a528840d88?hired=audit); four specialist agents plus a judge that reproduced and ranked every finding with Foundry tests). Result: **7 low, 1 informational, no critical/high/medium.** Each finding was re-checked against the code here before fixing.
+
+| IMD # | Severity | Finding | Status |
+|---|---|---|---|
+| 1 | Low | Self-transfer (`transfer`/`transferFrom` with from = to) recorded a dip that never happened, zeroing the wallet's holder-reward weight for the day; a spender with a 1 wei allowance could do it to anyone. | **Fixed.** `_move` returns early when from = to (balance and checkpoints untouched; allowance still spent, `Transfer` still emitted). Tests: self-transfer and `transferFrom(self, self)` keep the day minimum and share total; the randomized model now includes self-transfers. |
+| 2 | Low | `addPair` excluded a pool for every day, but the share totals of still-claimable past days kept its weight, diluting holders and stranding its slice for the sweep. | **Fixed.** `_exclude` also subtracts the pool's weight from each of the last 7 days' share totals (bounded loop). Claims already paid can never exceed a day's tax (a smaller denominator only applies to unpaid shares). Tests: explicit reproduction of IMD's scenario, and the randomized model registers a pool that held 5M for days mid-run, checking Σ weights = day total for every day afterwards. |
+| 3 | Low | The claim signature didn't cover `instant`, so anyone holding a runner's signed claim could submit it as a 7-day lock first, making the runner's instant claim revert. | **Fixed.** EIP-712 struct is now `Claim(address account,uint256 totalEarned,uint256 deadline,bool instant)`; the server (`api/_lib/eth.js`, `api/rewards.js`) signs the choice the runner made in the app (`js/rewards.js`). Instant still requires `msg.sender == account`. Tests: a third party can't switch an instant signature to a lock (`BadSignature`) or use it themselves; a lock signature can't pay instantly; a signed lock can still be submitted by anyone; the server signs `instant` true/false as asked. |
+| 4 | Low (design) | Tax and the 300k threshold are per address: a vault or wrapper can pool small holders past 300k or move volume to an untaxed wrapped token, and singleton DEXes (Uniswap V4, intent settlers) can't be registered. | **Acknowledged, documented** (contract header, README, #10). RUNNER supports registered V2-style pools only; the threshold is per address by design. Adding an owner-controlled tax/exclusion list for arbitrary contracts was rejected because it reintroduces the centralization risk fixed in #2. |
+| 5 | Low | The deploy day's share total was frozen at 0 before the initial mints, so all launch-day holder tax went to the protocol wallet. | **Fixed.** Opening balances are credited as held since the day began (`_mintAtStart`), then the day is started, so the deploy day's share total is the liquidity + team balances. Tests: deploy-day share total = 200M, launch-day tax claimable by holders with nothing stranded. |
+| 6 | Low | `RunnerGenesis.mint()` didn't run the ERC-721 receiver check, so a contract that can't handle NFTs could pay and get a token it can never move. | **Fixed.** `mint` calls the same receiver check as `safeTransferFrom` (EOAs and Safes unchanged). Tests: a minting contract without `onERC721Received` is refused with nothing charged; one that accepts ERC-721s mints and the treasury is paid. |
+| 7 | Low | `transferOwnership` was single-step in both contracts; a typo'd or undeployed multisig address would lose every owner function. | **Fixed.** Two-step handover in both: `transferOwnership` sets `pendingOwner`, the new owner calls `acceptOwnership`. Tests: a proposal changes nothing, nobody else can accept, a replaced proposal can't be accepted, the old owner is locked out only after acceptance. |
+| 8 | Info | Trust assumptions: through `setSigner` + `setEmissionSchedule` the owner key could claim up to 20M RUNNER/day for itself; it can also redirect the protocol share, pause claims, register any V2-style pool, and on the NFT freeze transfers (validator) or halt minting (treasury). | **Acknowledged, documented.** The contract header and README no longer say the owner "can never take tokens out of the run-reward pool": it is bounded by the daily emission only. Mitigation is key custody: move both contracts to a multisig (now safe to do with the two-step handover) — see *Before mainnet*. |
 
 ## Scope
 
 | Contract | File | Creation-code keccak (solc 0.8.24, optimizer 200, EVM paris) |
 |---|---|---|
-| RUNNER token (ERC-20 + tax + holder rewards + run-reward claims) | `contracts/RunnerToken.sol` | `0x35522dc313137bcbaf3b594d746ad9c60b130ce3b9800af30431ba4c1cddaf62` |
-| RUNNER Genesis NFT (ERC-721, ERC-2981, ERC-721C hook) | `contracts/RunnerGenesis.sol` | `0x1c55e9cf65a7def63fa7bc19d49e3b89330b967c964fdba4e63d83a13c00b446` |
+| RUNNER token (ERC-20 + tax + holder rewards + run-reward claims) | `contracts/RunnerToken.sol` | `0x627456a3a13a3583775039551a4d2bc2f151ea552038059b5de771ebe188d320` |
+| RUNNER Genesis NFT (ERC-721, ERC-2981, ERC-721C hook) | `contracts/RunnerGenesis.sol` | `0x751f0622038f2076c10e3be82de83aca50231c198a297a12d8e53a149b3fbbea` |
 | Rewards server (signs run-reward claims) | `api/rewards.js`, `api/_lib/*`, `js/rules.js` | — |
 
 `/admin.html` refuses to deploy any build whose fingerprint differs from the table, so the reviewed code is what gets deployed.
@@ -20,9 +35,9 @@
 1. Line-by-line manual review of both contracts and the server: access control, arithmetic, reentrancy, signature handling, accounting invariants, owner powers, and DEX/marketplace interactions.
 2. **Slither 0.10.4** static analysis (93 detectors). The triage is below.
 3. Tests run against the official compiler build in a local EVM (`tests/`):
-   - `token.test.mjs`: 126 checks, including emission-schedule changes (limits, next-day start, fresh halving clock, the server's decoder), the 7-day locks and instant burns, the halving schedule (checked day by day against the JavaScript mirror for 400 days) and a **randomized model test**. It runs 600 random actions (buys, sells, transfers, claims, sweeps, burns, and time jumps) over 45 days. Every 5 steps it compares every balance, every daily eligible balance, the daily totals and the holder-reward bucket against an independent JavaScript model.
-   - `nft.test.mjs`: 44 checks, including the rarity and price of all 9,999 tokens against the app, and a malicious re-entering validator.
-   - `rewards-server.test.mjs`: 108 checks covering device attestation and step cadence, the trust score (realistic vs scripted tracks, copied routes), the automatic fair-play rules (full, half and no pay, strikes, automatic suspensions and their expiry, forfeiting held earnings), the 24-hour hold, manual bans, rate limits, admin-signed game settings, NFT boosts, the per-runner daily max, on-chain schedule changes, sign-in, run scoring, anti-cheat, spending, claims, halving rates and costs, the energy table, level costs, the global daily budget and partial claims. A server-signed claim was also accepted by the token contract on chain id 4663.
+   - `token.test.mjs`: 150 checks, including the IMD audit reproductions, including emission-schedule changes (limits, next-day start, fresh halving clock, the server's decoder), the 7-day locks and instant burns, the halving schedule (checked day by day against the JavaScript mirror for 400 days) and a **randomized model test**. It runs 600 random actions (buys, sells, transfers, claims, sweeps, burns, and time jumps) over 45 days. Every 5 steps it compares every balance, every daily eligible balance, the daily totals and the holder-reward bucket against an independent JavaScript model.
+   - `nft.test.mjs`: 52 checks, including safe minting into contracts and two-step ownership, including the rarity and price of all 9,999 tokens against the app, and a malicious re-entering validator.
+   - `rewards-server.test.mjs`: 110 checks covering device attestation and step cadence, the trust score (realistic vs scripted tracks, copied routes), the automatic fair-play rules (full, half and no pay, strikes, automatic suspensions and their expiry, forfeiting held earnings), the 24-hour hold, manual bans, rate limits, admin-signed game settings, NFT boosts, the per-runner daily max, on-chain schedule changes, sign-in, run scoring, anti-cheat, spending, claims, halving rates and costs, the energy table, level costs, the global daily budget and partial claims. A server-signed claim was also accepted by the token contract on chain id 4663.
 4. **Mutation checks.** Bugs were planted on purpose to make sure the tests catch them:
 
    | Planted bug | Result |
@@ -36,6 +51,14 @@
    | Locked rewards not reserved from the pool | Caught |
    | Emission schedule without the 20M ceiling | Caught |
    | New schedule taking effect the same day | Caught |
+   | *IMD fixes undone, one at a time (24 Oct):* | |
+   | Self-transfer short-circuit removed (IMD 1) | Caught |
+   | Past days not adjusted on `addPair` (IMD 2) | Caught |
+   | Payout choice left out of the signature (IMD 3) | Caught |
+   | Opening balances not counted on the deploy day (IMD 5) | Caught |
+   | `mint` skips the receiver check (IMD 6) | Caught |
+   | Single-step ownership, token / NFT (IMD 7) | Caught (both) |
+   | *Classic bugs (24 Oct):* holder tax 2%→3%, threshold `>=`→`>`, daily cap not enforced, claim replay, signer check removed, instant claim burns nothing, locks release early, sweep window off by one, 20M ceiling unchecked, anyone sets the signer, excluded wallets earn, NFT price unchecked, NFT double mint | All caught (the threshold one after adding an exact-300,000 test) |
 
 ## Findings
 
@@ -79,14 +102,14 @@
 - **Holder rewards:**
   - Day = `block.timestamp / 1 days`. Each wallet keeps checkpoints `{day, minBalance, endBalance}`.
   - A wallet's weight for day *d* is its lowest balance during *d* if that is at least 300,000, otherwise zero.
-  - The day's total weight is frozen at the first balance change of the day, as the running `eligibleSupply`, and decreases whenever a wallet's daily low falls.
+  - The day's total weight is frozen at the first balance change of the day, as the running `eligibleSupply`, and decreases whenever a wallet's daily low falls. Opening balances count for the deploy day. A self-transfer changes nothing. Registering a pool removes its weight from today and the 7 still-claimable days.
   - Day *d*'s holder tax can be claimed on days *d+1* … *d+7*. Days with *d+7 < today* can be swept to the protocol.
   - Invariants checked by the randomized test:
     - Σ weights = day total;
     - `holderRewardsHeld` = Σ (rewards − paid out);
     - pool = contract balance − `holderRewardsHeld`;
     - Σ balances = `totalSupply`.
-- **Run rewards:** the server signs an EIP-712 `Claim(account, totalEarned, deadline)`. The contract pays `totalEarned − claimed[account]`. Low-s signatures only, with the chain id and contract in the domain, and a deadline.
+- **Run rewards:** the server signs an EIP-712 `Claim(account, totalEarned, deadline, instant)`. The contract pays `totalEarned − claimed[account]`. Low-s signatures only, with the chain id and contract in the domain, and a deadline.
 - **Payout choice and locks:** `claim(…, instant)` sends 80% now and burns 20% (`instant`, runner only), or locks 100% for 7 days. `rewardsRemaining = balance(this) − holderRewardsHeld − totalLocked`, so locked rewards can never be paid out twice. Burned amounts reduce `totalSupply` and are tracked in `totalBurnedInstant`.
 - **Emission:** `emissionOn(day)` = max(dailyStart >> ((day − fromDay) / halvingDays), floor) under the schedule in force (a pending one applies from its `fromDay`), or 0 before `startEmission()`, which can only be called once. Launch schedule: 10M/day, halving every 30 days, floor 100k. `setEmissionSchedule` (owner) starts a new one the next day with a fresh clock, ≤ 20M/day. Claims per day ≤ `emissionOn(today)`. `js/rules.js` mirrors this exactly, and the server scales earn rates by `emissionOn / 10M`.
 
@@ -104,19 +127,19 @@
 | Server | game settings (signed message) | Level-price base and curve, per-runner daily max, NFT boost collections | Boosts ≤ +100% in total; always within the day's emission |
 
 `release(account)` and `sweepExpired` can be called by anyone; they only ever pay the rightful wallet or the protocol wallet.
-| Token | `transferOwnership` | Hand over ownership | — |
+| Both | `transferOwnership` → `acceptOwnership` | Hand over ownership | Two steps: the new owner must accept |
 | NFT | `setPaused` | Pause minting | Transfers unaffected |
 | NFT | `setTreasury`, `setRoyaltyReceiver` | Where mint payments and the 5% royalty go | — |
 | NFT | `setBaseURI`, `setContractURI` | Metadata links | — |
 | NFT | `setTransferValidator` | Royalty enforcement (OpenSea). A malicious validator could block transfers. | See #4 |
 | NFT | `withdraw` | Sweep stray ETH to the treasury | Mint payments never stay in the contract |
 
-Nobody, including the owner, can change the tax, raise emission above 20M/day, change today's emission, mint tokens, or take tokens out of the run-reward pool or the holder-reward bucket.
+Nobody, including the owner, can change the tax, raise emission above 20M/day, change today's emission, mint tokens, or take tokens out of the holder-reward bucket. Run rewards leave the pool only through signed claims within the day's emission; since the owner picks the signer, a compromised owner key could claim up to that cap (IMD #8).
 
 ## Before mainnet
 
-1. Get an independent audit of `RunnerToken.sol` above all, since it has the most novel logic.
-2. Move ownership of both contracts to a multisig, or at minimum a hardware wallet.
+1. ~~Get an independent audit.~~ Done: IMD, 24 October 2026 (see top). All code findings fixed; consider a re-check of the fixes.
+2. Move ownership of both contracts to a multisig, or at minimum a hardware wallet: `transferOwnership(multisig)` from the dev wallet, then `acceptOwnership()` from the multisig.
 3. Choose a Uniswap-V2-style DEX on Robinhood Chain and confirm it supports fee-on-transfer swaps.
 4. Launch sequence: deploy → add liquidity → **register the pool right away** → set up the rewards server → `setSigner` → `startEmission` on launch day.
 5. Before a public launch: finish the Google Play Integrity and Apple App Attest setup (README → *Device attestation setup*), ship the apps through Google Play and TestFlight/App Store, and switch on **Phone app only** (`requireAttestation`) in the admin page (see #9).
