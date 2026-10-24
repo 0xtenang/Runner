@@ -47,7 +47,7 @@ export const NFT_CHAIN = ROBINHOOD_CHAIN;
 export const NFT_CONTRACT = '';
 // Fingerprint of the audited build (solc 0.8.24, optimizer 200 runs, evm "paris").
 // /admin.html refuses to deploy bytecode that doesn't match.
-export const NFT_CREATION_CODE_KECCAK = '0x751f0622038f2076c10e3be82de83aca50231c198a297a12d8e53a149b3fbbea';
+export const NFT_CREATION_CODE_KECCAK = '0xbb23f94439cb6717558d87b83cb1e9d922d54210975a2e75b2aa9405e3ca08fa';
 export const NFT_BASE_URI = 'https://runearn.fun/nft/';
 // Collection page for OpenSea (ERC-7572 contractURI): name, images, website, 5% fee.
 export const NFT_CONTRACT_URI = 'https://runearn.fun/nft/collection.json';
@@ -63,7 +63,7 @@ export const DEV_WALLET = '0x0f397E46e4e810313dBC782CDb0236347157f1B4';
 export const TOKEN_CHAIN = ROBINHOOD_CHAIN;
 export const TOKEN_CONTRACT = '';
 export const TEAM_WALLET = '0x0f4FE718eb8492533E600b30F3287E2f04087332';
-export const TOKEN_CREATION_CODE_KECCAK = '0x0423d56917325535e516ad0bf61e13aaa115cb96c343ad60ef153c5313eb297e';
+export const TOKEN_CREATION_CODE_KECCAK = '0xf41742bf37a9c80554b062bed6203c838465c6cdc8a93a6339635dab3d946776';
 
 // RUNNER/IMD pool on Robinhood Chain's Uniswap v4 (the same PoolManager, IMD and IMD/ETH pool
 // PepesFamily uses). The RunnerHook (contracts/RunnerHook.sol) is deployed first, through the
@@ -77,4 +77,4 @@ export const HOOK_FLAGS = 0x28cc; // beforeInitialize, beforeAddLiquidity, befor
 export const HOOK_START_TICK = 142_600; // tick of RUNNER-per-IMD: about 642 IMD starting market cap (635 IMD rounded to the tick spacing)
 export const HOOK_CONTRACT = '';
 // Fingerprint of contracts/build/RunnerHook.json (solc 0.8.26, via-IR, optimizer 200, cancun).
-export const HOOK_CREATION_CODE_KECCAK = '0xa0c1cf67591f4a5bfe27130c3a6faaad160bdfcec5040596b7c4a44941880f2e';
+export const HOOK_CREATION_CODE_KECCAK = '0x0cf2983a039f19ed3bae0315d53edd86550d9b079a95009937f05706656826ca';

@@ -145,6 +145,11 @@ ok('setBaseURI', (await call(DEV, 'setBaseURI', 'ipfs://x/')).ok && decodeString
 ok('setContractURI', (await call(DEV, 'setContractURI', 'ipfs://c')).ok && decodeString(await view('contractURI')) === 'ipfs://c');
 ok('setRoyaltyReceiver', (await call(DEV, 'setRoyaltyReceiver', W(8))).ok && u(await view('royaltyInfo', 1, 100n), 0) === BigInt(W(8)));
 ok('setTreasury rejects zero', reverts(await call(DEV, 'setTreasury', ZERO), 'ZeroAddress'));
+// Second IMD audit, findings 3 and 5
+ok('treasury can\'t be the NFT contract (every mint would fail)', reverts(await call(DEV, 'setTreasury', nft), 'NotAuthorized'));
+ok('royalty receiver can\'t be the NFT contract', reverts(await call(DEV, 'setRoyaltyReceiver', nft), 'NotAuthorized'));
+await call(DEV, 'transferOwnership', W(7));
+ok('owner can cancel an ownership proposal with address(0)', (await call(DEV, 'transferOwnership', ZERO)).ok && reverts(await call(W(7), 'acceptOwnership'), 'NotAuthorized'));
 // Two-step handover (audit finding 7)
 await call(DEV, 'transferOwnership', W(9));
 ok('ownership proposal alone changes nothing', (await call(DEV, 'setPaused', false)).ok);

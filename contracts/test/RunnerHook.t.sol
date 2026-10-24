@@ -432,6 +432,21 @@ contract RunnerHookTest is Test {
         hook.setFeeRecipient(address(0));
     }
 
+    /// @dev Second IMD audit, finding 3: a pending proposal can be cancelled; the fee recipient can't be the hook.
+    function test_ownershipProposalCanBeCancelled_feeRecipientNotSelf() public {
+        vm.startPrank(owner);
+        hook.transferOwnership(bob);
+        hook.transferOwnership(address(0));
+        vm.stopPrank();
+        assertEq(hook.pendingOwner(), address(0));
+        vm.prank(bob);
+        vm.expectRevert(RunnerHook.NotOwner.selector);
+        hook.acceptOwnership();
+        vm.prank(owner);
+        vm.expectRevert(RunnerHook.ZeroAddress.selector);
+        hook.setFeeRecipient(address(hook));
+    }
+
     // ------------------------------------------------------------ fuzz
 
     /// @dev Any sequence of buys and sells: the hook's IMD claims always cover what it owes, the fee split is

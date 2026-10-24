@@ -30,6 +30,12 @@ contract MockPair {
 }
 contract MockSmartWallet { function send(address t, address to, uint256 a) external { IT(t).transfer(to, a); } }
 contract MockOtherPool { address public token0 = address(2); address public token1 = address(3); }
+interface IClaim { function claimHolderRewards() external returns (uint256); }
+contract ClaimingPool {
+  address public token0; address public token1;
+  constructor(address t) { token0 = t; token1 = address(1); }
+  function claim(address t) external { IClaim(t).claimHolderRewards(); }
+}
 contract MockIMD {
   mapping(address => uint256) public balanceOf;
   function mint(address to, uint256 a) external { balanceOf[to] += a; }
@@ -42,6 +48,7 @@ const P = iface(contracts['Mocks.sol'].MockPair);
 const SW = iface(contracts['Mocks.sol'].MockSmartWallet);
 const OP = iface(contracts['Mocks.sol'].MockOtherPool);
 const I = iface(contracts['Mocks.sol'].MockIMD);
+const CP = iface(contracts['Mocks.sol'].ClaimingPool);
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) pass++; else { fail++; console.log(`FAIL ${name}${extra ? ` — ${extra}` : ''}`); } };
@@ -455,6 +462,72 @@ async function setup() {
   ok('a signed lock can still be submitted by anyone', (await call(W(6), 'claim', A, 1500n * E18, dl, ...lock, false)).ok && u(await view('locksOf', A), 0) === 500n * E18);
 }
 
+// =================================================================== second IMD audit fixes (66b2e980)
+{
+  const { c, tok, imd, call, view, bal, newPair, today, reward, imdBal } = await setup();
+  const H = W(1), P = (await c.send(DEPLOYER, null, CP.ctor(tok))).created;
+  // Finding 1, case (a) from the report: a pool that already claimed a day is excluded afterwards.
+  const X = await newPair();
+  await call(TEAM, 'transfer', H, 1_000_000n * E18);
+  await call(TEAM, 'transfer', P, 1_000_000n * E18);
+  await call(TEAM, 'transfer', X, 97_000_000n * E18);
+  await call(DEV, 'excludePool', X);
+  const d0 = await today(), d1 = d0 + 1;
+  c.setTime(d1 * DAY + 100);                                  // day 1: TEAM, H and P each held 1M all day
+  await reward(100_000n * E18);
+  ok('day 1: three holders of 1M share 100,000 IMD', u(await view('dayInfo', d1), 0) === 3_000_000n * E18);
+  c.setTime((d1 + 1) * DAY + 100);
+  await c.send(DEPLOYER, P, CP.data('claim', tok));
+  const pGot = await imdBal(P);
+  ok('the pool contract claims its third first', pGot === 100_000n * E18 / 3n);
+  ok('owner excludes it afterwards', (await call(DEV, 'excludePool', P)).ok);
+  ok('a day already paid from keeps its share total', u(await view('dayInfo', d1), 0) === 3_000_000n * E18);
+  const h = await call(H, 'claimHolderRewards'), t = await call(TEAM, 'claimHolderRewards');
+  ok('the other holders still claim (no underflow) at the same rate', h.ok && t.ok && await imdBal(H) === pGot && await imdBal(TEAM) === pGot);
+  ok('the day never pays out more than it received', u(await view('dayInfo', d1), 2) <= u(await view('dayInfo', d1), 1));
+  // Case (b): sweeping keeps working past that day.
+  c.setTime((d1 + 9) * DAY + 100);
+  ok('expired days still sweep, past the frozen day', (await call(W(9), 'sweepExpired', 30)).ok && u(await view('nextSweepDay')) === BigInt(d1 + 2));
+  ok('bookkeeping matches the IMD held', u(await view('holderRewardsHeld')) === await imdBal(tok));
+  // Case (c): two identical holders are paid the same, whether they claim before or after an exclusion.
+  const A2 = W(2), B2 = W(3), Q = (await c.send(DEPLOYER, null, CP.ctor(tok))).created;
+  await call(TEAM, 'transfer', A2, 300_000n * E18 + 1n);      // TEAM keeps ~700k
+  await call(H, 'transfer', B2, 300_000n * E18 + 1n);
+  await call(TEAM, 'transfer', Q, 300_000n * E18);
+  const e0 = await today(), e1 = e0 + 1;
+  c.setTime(e1 * DAY + 100);
+  await reward(9_000n * E18);
+  c.setTime((e1 + 1) * DAY + 100);
+  const a0 = await imdBal(A2);
+  await call(A2, 'claimHolderRewards');
+  const aGot = await imdBal(A2) - a0;
+  await call(DEV, 'excludePool', Q);                          // Q never claimed; excluded after A2 was paid
+  const b0 = await imdBal(B2);
+  await call(B2, 'claimHolderRewards');
+  ok('identical holders get identical rewards around an exclusion', aGot > 0n && await imdBal(B2) - b0 === aGot, `${aGot} vs ${await imdBal(B2) - b0}`);
+}
+{
+  // Finding 2: claimable() only promises what claim() would pay right now.
+  const { c, tok, call, view } = await setup();
+  const SKEY = secp256k1.utils.randomPrivateKey();
+  const SIGNER = `0x${keccakHex(secp256k1.getPublicKey(SKEY, false).slice(1)).slice(24)}`;
+  const A = W(1);
+  ok('claimable is 0 before emission starts', u(await view('claimable', A, 100n * E18)) === 0n);
+  await call(DEV, 'startEmission');
+  ok('claimable is 0 with no signer set', u(await view('claimable', A, 100n * E18)) === 0n);
+  await call(DEV, 'setSigner', SIGNER);
+  ok('claimable = the difference once claims are on', u(await view('claimable', A, 100n * E18)) === 100n * E18);
+  ok('claimable never exceeds what is left of today\'s emission', u(await view('claimable', A, 30_000_000n * E18)) === 10_000_000n * E18);
+  await call(DEV, 'setClaimsPaused', true);
+  ok('claimable is 0 while claims are paused', u(await view('claimable', A, 100n * E18)) === 0n);
+  // Finding 3: a pending ownership proposal can be cancelled.
+  await call(DEV, 'transferOwnership', W(5));
+  ok('owner can cancel a proposal with address(0)', (await call(DEV, 'transferOwnership', ZERO)).ok && (await view('pendingOwner')).slice(26) === '0'.repeat(40));
+  ok('the cancelled address can no longer take over', reverts(await call(W(5), 'acceptOwnership'), 'NotOwner') && (await view('owner')).slice(26) === DEV.slice(2));
+  // Finding 4: the protocol wallet can't be the token itself.
+  ok('protocol wallet can\'t be the token contract', reverts(await call(DEV, 'setProtocolWallet', tok), 'BadAddress'));
+}
+
 // =================================================================== randomized model check
 {
   const { c, tok, call, view, bal, newPair, buy, today, reward, imdBal } = await setup();
@@ -466,7 +539,7 @@ async function setup() {
   const pairs = [await newPair(), await newPair()];
   const late = await newPair();             // a pool that holds RUNNER for days before it is excluded
   const weighted = [...holders, late];      // every wallet whose balance can count toward a day's shares
-  const m = { bal: new Map(), dayMin: new Map(), rewards: new Map(), paid: new Map(), claimed: new Set(), excluded: new Set([tok, HOOK, PM, DEAD].map((x) => x.toLowerCase())), day: await today(), held: 0n, imd: new Map() };
+  const m = { bal: new Map(), dayMin: new Map(), rewards: new Map(), paid: new Map(), claimed: new Set(), excluded: new Set([tok, HOOK, PM, DEAD].map((x) => x.toLowerCase())), day: await today(), held: 0n, imd: new Map(), frozen: new Map() };
   const B = (a) => m.bal.get(a.toLowerCase()) || 0n;
   const setB = (a, v) => {
     a = a.toLowerCase(); m.bal.set(a, v);
@@ -508,6 +581,7 @@ async function setup() {
         if (ce !== elig(h, dd)) throw new Error(`${label}: eligible ${h} day ${dd} ${ce} != ${elig(h, dd)}`);
         s += ce;
       }
+      s += m.frozen.get(dd) || 0n;
       const info = await view('dayInfo', dd);
       if (u(info, 0) !== s && (u(info, 0) > 0n || (m.rewards.get(dd) || 0n) > 0n)) throw new Error(`${label}: shares day ${dd} ${u(info, 0)} != ${s}`);
       if (u(info, 1) !== (m.rewards.get(dd) || 0n)) throw new Error(`${label}: rewards day ${dd}`);
@@ -522,7 +596,7 @@ async function setup() {
     let t = 0n; const list = [];
     for (let dd = Math.max(0, m.day - 7); dd < m.day; dd++) {
       const r = m.rewards.get(dd) || 0n; if (!r || m.claimed.has(`${h}:${dd}`)) continue;
-      let s = 0n; for (const x of weighted) s += elig(x, dd);
+      let s = m.frozen.get(dd) || 0n; for (const x of weighted) s += elig(x, dd);
       const e = elig(h, dd); if (!e || !s) continue;
       t += r * e / s; list.push([dd, r * e / s]);
     }
@@ -531,6 +605,9 @@ async function setup() {
 
   for (; steps < 600; steps++) {
     if (steps === 300) {                    // exclude the late pool mid-run (audit finding 2)
+      for (let dd = Math.max(0, m.day - 7); dd < m.day; dd++) {
+        if ((m.paid.get(dd) || 0n) > 0n) m.frozen.set(dd, (m.frozen.get(dd) || 0n) + elig(late, dd)); // second audit, finding 1
+      }
       const r = await call(DEV, 'excludePool', late); if (!r.ok) throw new Error('excludePool failed');
       m.excluded.add(late.toLowerCase());
     }

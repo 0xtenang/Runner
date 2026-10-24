@@ -392,14 +392,14 @@ contract RunnerHook is IHooks, IUnlockCallback {
     // ---------------------------------------------------------------- Admin
 
     function setFeeRecipient(address feeRecipient_) external onlyOwner {
-        if (feeRecipient_ == address(0)) revert ZeroAddress();
+        if (feeRecipient_ == address(0) || feeRecipient_ == address(this)) revert ZeroAddress(); // IMD sent here would be stuck
         feeRecipient = feeRecipient_;
         emit FeeRecipientUpdated(feeRecipient_);
     }
 
     /// @notice Two-step transfer: `newOwner` must call `acceptOwnership`, so a typo can't lose the admin role.
+    ///         address(0) cancels a pending proposal.
     function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert ZeroAddress();
         pendingOwner = newOwner;
         emit OwnershipTransferStarted(owner, newOwner);
     }

@@ -161,6 +161,7 @@ contract RunnerToken {
     error NothingToRelease();
     error NotAContract();
     error AlreadyExcluded();
+    error BadAddress();
     error Reentrancy();
     error TransferFailed();
     error NotAPool();
@@ -338,10 +339,20 @@ contract RunnerToken {
         return balanceOf[address(this)] - totalLocked;
     }
 
-    /// @notice How much `account` can claim with a server signature for `totalEarned`.
-    function claimable(address account, uint256 totalEarned) external view returns (uint256) {
+    /// @notice How much `account` could claim right now with a server signature for `totalEarned`:
+    ///         0 while claims are paused, emission hasn't started or no signer is set, and never
+    ///         more than what is left of today's emission or of the run-reward pool.
+    function claimable(address account, uint256 totalEarned) external view returns (uint256 amount) {
+        if (claimsPaused || emissionStartDay == 0 || signer == address(0)) return 0;
         uint256 done = claimed[account];
-        return totalEarned > done ? totalEarned - done : 0;
+        if (totalEarned <= done) return 0;
+        amount = totalEarned - done;
+        uint256 day = _today();
+        uint256 limit = emissionOn(day);
+        uint256 leftToday = limit > claimedOnDay[day] ? limit - claimedOnDay[day] : 0;
+        if (amount > leftToday) amount = leftToday;
+        uint256 pool = rewardsRemaining();
+        if (amount > pool) amount = pool;
     }
 
     /// @notice Pay `account` its verified run earnings, either
@@ -479,6 +490,7 @@ contract RunnerToken {
 
     function setProtocolWallet(address wallet) external onlyOwner {
         if (wallet == address(0)) revert ZeroAddress();
+        if (wallet == address(this)) revert BadAddress(); // swept IMD would stay here and be re-booked
         protocolWallet = wallet;
         emit ProtocolWalletChanged(wallet);
     }
@@ -519,10 +531,9 @@ contract RunnerToken {
         emit EmissionScheduleSet(dailyStart, halvingDays, floor, today + 1);
     }
 
-    /// @notice Step 1 of 2: propose a new owner. Nothing changes until they call
-    ///         acceptOwnership(), so a mistyped address can't take the token.
+    /// @notice Step 1 of 2: propose a new owner (address(0) cancels a pending proposal).
+    ///         Nothing changes until the proposed owner calls acceptOwnership().
     function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert ZeroAddress();
         pendingOwner = newOwner;
         emit OwnershipTransferStarted(owner, newOwner);
     }
@@ -616,13 +627,17 @@ contract RunnerToken {
     }
 
     /// Removes a wallet from holder rewards. eligibleBalanceOn() then reads 0 for every day,
-    /// so its weight also leaves the share totals of the days still claimable — otherwise its
-    /// slice of those days could be claimed by nobody and every other holder would be diluted.
+    /// so its weight also leaves the share totals of the days still claimable that nobody has
+    /// been paid from yet — otherwise its slice could be claimed by nobody and every other
+    /// holder would be diluted. A day someone was already paid from keeps its total, so every
+    /// holder of that day is paid at the same rate and the day can never pay out more than it
+    /// received (second IMD audit, finding 1); the excluded wallet's slice of such a day goes to
+    /// the protocol wallet when the day is swept.
     function _exclude(address account, uint256 today) private {
         if (excludedFromHolderRewards[account]) return;
         for (uint256 d = today > CLAIM_WINDOW_DAYS ? today - CLAIM_WINDOW_DAYS : 0; d < today; d++) {
             Day storage past = _days[d];
-            if (!past.started) continue;
+            if (!past.started || past.paidOut > 0) continue;
             uint256 w = eligibleBalanceOn(account, d);
             past.shares -= w < past.shares ? w : past.shares;
         }

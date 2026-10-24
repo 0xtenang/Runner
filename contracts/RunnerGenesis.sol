@@ -270,12 +270,14 @@ contract RunnerGenesis {
     // ------------------------------------------------------------ admin
     function setTreasury(address payable newTreasury) external onlyOwner {
         if (newTreasury == address(0)) revert ZeroAddress();
+        if (newTreasury == address(this)) revert NotAuthorized(); // this contract can't receive ETH: every mint would fail
         treasury = newTreasury;
         emit TreasuryChanged(newTreasury);
     }
 
     function setRoyaltyReceiver(address newReceiver) external onlyOwner {
         if (newReceiver == address(0)) revert ZeroAddress();
+        if (newReceiver == address(this)) revert NotAuthorized(); // royalties paid here would be stuck
         royaltyReceiver = newReceiver;
         emit RoyaltyReceiverChanged(newReceiver);
     }
@@ -296,10 +298,9 @@ contract RunnerGenesis {
         emit ContractURIUpdated();
     }
 
-    /// @notice Step 1 of 2: propose a new owner. Nothing changes until they call
-    ///         acceptOwnership(), so a mistyped address can't take the collection.
+    /// @notice Step 1 of 2: propose a new owner (address(0) cancels a pending proposal).
+    ///         Nothing changes until the proposed owner calls acceptOwnership().
     function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert ZeroAddress();
         pendingOwner = newOwner;
         emit OwnershipTransferStarted(owner, newOwner);
     }
