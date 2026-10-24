@@ -177,6 +177,94 @@ function openSheet(html, onMount) {
   return close;
 }
 
+/** Summary rows for a transaction sheet: [label, value, className?]. */
+const txRows = (rows) => rows.map(([k, v, cls = '']) => `<div class="${cls}"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+const shortDate = (ms) => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short' });
+const cancelled = (e) => /reject|denied|cancel/i.test(String(e?.message || e));
+
+/** Claim sheet: lock for 100% or take it now with the burn, with the numbers side by side. */
+function openClaimSheet(amount, onDone) {
+  let mode = 'lock';
+  openSheet(`
+    <h2 class="sheet-title">Claim ${COIN}</h2>
+    <p class="muted">Move your verified earnings into your wallet as real tokens.</p>
+    <div class="tx-choice" role="radiogroup" aria-label="How to claim">
+      <button class="tx-opt on" data-mode="lock" role="radio" aria-checked="true"><b>Lock ${LOCK_DAYS} days</b><span>You get 100%</span></button>
+      <button class="tx-opt" data-mode="now" role="radio" aria-checked="false"><b>Take it now</b><span>${INSTANT_BURN * 100}% is burned</span></button>
+    </div>
+    <dl class="tx-sum" id="c-sum"></dl>
+    <p class="muted small" style="margin:0">If today's claim limit is nearly used up, you get part of it now and the rest stays in your balance for tomorrow. The network fee is paid in ETH.</p>
+    <div class="buy-status small" id="c-status" role="status"></div>
+    <button class="btn primary pill block" id="c-go"></button>
+    <button class="btn pill block" data-close>Cancel</button>`, (el, close) => {
+    const $ = (q) => el.querySelector(q);
+    const go = $('#c-go'), status = $('#c-status');
+    const say = (t, bad = false) => { status.innerHTML = t; status.classList.toggle('bad', bad); };
+    const render = () => {
+      const now = mode === 'now', burn = now ? amount * INSTANT_BURN : 0;
+      el.querySelectorAll('.tx-opt').forEach((o) => { const on = o.dataset.mode === mode; o.classList.toggle('on', on); o.setAttribute('aria-checked', on); });
+      $('#c-sum').innerHTML = txRows([
+        ['Claiming', `${fmtCoins(amount)} ${COIN}`],
+        ['Burned', now ? `−${fmtCoins(burn)} ${COIN}` : 'Nothing', now ? 'burn' : ''],
+        [now ? 'In your wallet' : 'Unlocks', now ? 'Right away' : `${shortDate(Date.now() + LOCK_DAYS * 864e5)} · or early for ${100 - INSTANT_BURN * 100}%`],
+        ['You get', `${fmtCoins(amount - burn)} ${COIN}`, 'total'],
+      ]);
+      go.textContent = now ? `Claim ${fmtCoins(amount - burn)} now` : `Lock & claim ${fmtCoins(amount)}`;
+    };
+    el.querySelector('.tx-choice').onclick = (e) => { const o = e.target.closest('.tx-opt'); if (o && !go.disabled) { mode = o.dataset.mode; render(); } };
+    go.onclick = async () => {
+      const instant = mode === 'now';
+      go.disabled = true;
+      try {
+        const { hash, amount: got, partial } = await claimRewards((t) => say(t), instant);
+        say('Sent — waiting for the network…');
+        await waitForReceipt(hash);
+        close();
+        onDone?.();
+        showReveal({ kicker: instant ? 'Claimed' : 'Locked', title: instant ? `${fmtCoins(got * (1 - INSTANT_BURN))} ${COIN} is in your wallet` : `${fmtCoins(got)} ${COIN} unlocks in ${LOCK_DAYS} days`, coins: instant ? got * (1 - INSTANT_BURN) : got, note: `${instant ? `${fmtCoins(got * INSTANT_BURN)} ${COIN} was burned. ` : `Release it from the Earn tab after ${LOCK_DAYS} days — or take it early for ${100 - INSTANT_BURN * 100}%. `}${partial ? "Today's claim limit is nearly used up, so this was a partial claim — the rest stays in your balance for tomorrow. " : ''}<a href="${tokenExplorerTx(hash)}" target="_blank" rel="noopener">View transaction</a>` });
+      } catch (e) {
+        say(cancelled(e) ? 'Cancelled — you can claim any time.' : esc(String(e?.message || e)), !cancelled(e));
+        go.disabled = false;
+      }
+    };
+    render();
+  });
+}
+
+/** Take every lock now: finished ones pay 100%, unfinished ones lose the burn. */
+function openEarlySheet(l, toast, onDone) {
+  const burn = l.locked * INSTANT_BURN;
+  openSheet(`
+    <h2 class="sheet-title">Take locked rewards now</h2>
+    <p class="muted">Finished locks pay 100%. Locks that haven't finished pay ${100 - INSTANT_BURN * 100}% — the rest is burned forever.</p>
+    <dl class="tx-sum">${txRows([
+      ...(l.unlocked ? [['Ready', `${fmtCoins(l.unlocked)} ${COIN}`]] : []),
+      ['Still locked', `${fmtCoins(l.locked)} ${COIN}`],
+      ['Burned', `−${fmtCoins(burn)} ${COIN}`, 'burn'],
+      ['You get', `${fmtCoins(l.unlocked + l.locked - burn)} ${COIN}`, 'total'],
+    ])}</dl>
+    <div class="buy-status small" id="e-status" role="status"></div>
+    <button class="btn primary pill block" id="e-go">Take ${fmtCoins(l.unlocked + l.locked - burn)} now</button>
+    <button class="btn pill block" data-close>Keep them locked</button>`, (el, close) => {
+    const go = el.querySelector('#e-go'), status = el.querySelector('#e-status');
+    go.onclick = async () => {
+      go.disabled = true;
+      try {
+        const hash = await releaseEarly();
+        status.textContent = 'Sent — waiting for the network…';
+        await waitForReceipt(hash);
+        close();
+        toast('Locked rewards taken');
+        onDone?.();
+      } catch (e) {
+        status.textContent = cancelled(e) ? 'Cancelled.' : String(e?.message || e);
+        status.classList.toggle('bad', !cancelled(e));
+        go.disabled = false;
+      }
+    };
+  });
+}
+
 function loadQrLib() {
   if (window.QRCode) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -224,7 +312,7 @@ function openWithdraw(toast) {
       <input id="w-to" placeholder="0x…" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
     <label class="field"><span class="lbl">Amount</span>
       <span class="amt-row"><input id="w-amt" inputmode="decimal" placeholder="0.00" autocomplete="off"><span class="amt-unit">ETH</span><button type="button" class="btn sm" id="w-max">Max</button></span></label>
-    <div class="w-meta" id="w-meta"></div>
+    <dl class="tx-sum" id="w-meta"></dl>
     <div class="w-err" id="w-err" role="alert"></div>
     <div class="note">Make sure the address is on <b>${CHAIN_NAME}</b>. Transfers can't be reversed.</div>
     <button class="btn primary pill block" id="w-send" disabled>Review & send</button>
@@ -236,7 +324,13 @@ function openWithdraw(toast) {
       const value = parseEth(amt.value);
       const toOk = isAddress(to.value);
       const feeTxt = fee == null ? 'estimating…' : `${formatEth(fee, 7)} ETH`;
-      meta.innerHTML = `Available: <b>${formatEth(balance, 6)} ETH</b> · Network fee ≈ ${feeTxt}`;
+      meta.innerHTML = txRows([
+        ['Available', `${formatEth(balance, 6)} ETH`],
+        ['To', toOk ? shortAddress(to.value.trim()) : '—'],
+        ['Amount', value != null && value > 0n ? `${formatEth(value, 6)} ETH` : '—'],
+        ['Network fee', fee == null ? feeTxt : `≈ ${feeTxt}`],
+        ['Total', value != null && value > 0n && fee != null ? `${formatEth(value + fee, 6)} ETH` : '—', 'total'],
+      ]);
       let msg = '';
       if (to.value && !toOk) msg = 'That doesn\'t look like a wallet address (0x followed by 40 characters).';
       else if (toOk && to.value.trim().toLowerCase() === from.toLowerCase()) msg = 'That\'s your own RUNNER wallet.';
@@ -401,11 +495,12 @@ function openShop(toast) {
       grid.innerHTML = ids.length ? ids.map((id) => {
         const t = traitsFor(id);
         return `<button class="coll-tile ${owned.has(id) ? 'owned' : ''} ${mintedCache.get(id) && !owned.has(id) ? 'sold' : ''}" data-token="${id}">
-          ${statusBadge(id, owned, mintedCache.get(id))}
-          ${sneakerSvg(t, 'sneaker-art sm')}
-          <b>#${id}</b>
-          <span class="muted small">${SNEAKER_TYPES[t.type].short} · ${MODELS[t.model].label}${t.edition !== 'standard' ? ` · <span class="ed-text ed-${t.edition}">${EDITIONS[t.edition].label}</span>` : ''}</span>
-          <span class="tile-price"><span class="badge r-${t.rarity}">${RARITIES[t.rarity].label}</span> ${PRICE_ETH[t.rarity]} ${ETH}</span>
+          <span class="studio">${statusBadge(id, owned, mintedCache.get(id))}${sneakerSvg(t, 'sneaker-art sm')}</span>
+          <span class="tile-meta">
+            <span class="tile-head"><b>#${id}</b><span class="tile-price">${PRICE_ETH[t.rarity]} ${ETH}</span></span>
+            <span class="muted small">${SNEAKER_TYPES[t.type].short} · ${MODELS[t.model].label}${t.edition !== 'standard' ? ` · <span class="ed-text ed-${t.edition}">${EDITIONS[t.edition].label}</span>` : ''}</span>
+            <span class="badge r-${t.rarity}">${RARITIES[t.rarity].label}</span>
+          </span>
         </button>`;
       }).join('') : '<p class="muted">No sneakers match.</p>';
       el.querySelector('#coll-page').textContent = `${nf(page * PER + 1)}–${nf(Math.min(total(), (page + 1) * PER))} of ${nf(total())}`;
@@ -468,6 +563,12 @@ function openSneakerDetail(id, toast, onBought) {
       <div><span class="lbl">Resilience</span><b>${t.base.resilience.toFixed(1)}</b></div>
       <div><span class="lbl">Price</span><b>${PRICE_ETH[t.rarity]} ${ETH}</b></div>
     </div>
+    ${isOwned ? '' : `<dl class="tx-sum" id="b-sum">${txRows([
+      ['Price', `${PRICE_ETH[t.rarity]} ${ETH}`],
+      ['Network fee', nftLive() ? 'estimating…' : '—'],
+      ['Resale royalty', '5%'],
+      ['You get', `${zone.label} #${id} in your wallet`, 'total'],
+    ])}</dl>`}
     <div class="buy-status small" id="buy-status" role="status"></div>
     ${isOwned ? '<button class="btn pill block" data-close>You own this sneaker</button>'
       : `<button class="btn primary pill block" id="b-buy" ${nftLive() ? '' : 'disabled'}>${nftLive() ? `Buy for ${PRICE_ETH[t.rarity]} ${ETH}` : 'Sales open soon'}</button>`}
@@ -476,6 +577,10 @@ function openSneakerDetail(id, toast, onBought) {
     const btn = el.querySelector('#b-buy');
     const say = (html, bad = false) => { status.innerHTML = html; status.classList.toggle('bad', bad); };
     if (nftLive() && !isOwned) {
+      mintFeeEstimate().then((fee) => {
+        const row = el.querySelector('#b-sum div:nth-child(2) dd');
+        if (row) row.textContent = `≈ ${formatEth(fee, 6)} ${ETH}`;
+      }).catch(() => { const row = el.querySelector('#b-sum div:nth-child(2) dd'); if (row) row.textContent = 'a few cents'; });
       mintedStatus([id]).then(([sold]) => { if (sold && btn) { btn.disabled = true; btn.textContent = 'Already sold'; } }).catch(() => {});
     }
     if (!btn) return;
@@ -538,11 +643,8 @@ function rewardsCard(st) {
     ${heldLine(st.server)}
     ${emissionLine(st.server?.emission)}
     <span class="small">In your wallet: <b>${claimInfo ? `${fmtCoins(claimInfo.wallet)} ${COIN}` : '…'}</b></span>
-    ${claimable ? `<span class="small"><b>Claim ${fmtCoins(claimable)} ${COIN}</b> — lock it ${LOCK_DAYS} days for 100%, or take it now and ${INSTANT_BURN * 100}% is burned:</span>
-    <div class="row" style="gap:8px;flex-wrap:wrap">
-      <button class="btn primary pill sm" data-act="rw-claim" data-instant="0">Lock ${LOCK_DAYS} days · get ${fmtCoins(claimable)}</button>
-      <button class="btn pill sm" data-act="rw-claim" data-instant="1">Now · get ${fmtCoins(claimable * (1 - INSTANT_BURN))}</button>
-    </div>` : '<button class="btn pill sm" disabled>Nothing to claim yet</button>'}
+    ${claimable ? `<span class="small">Ready to claim: <b>${fmtCoins(claimable)} ${COIN}</b> — lock it ${LOCK_DAYS} days for 100%, or take it now with ${INSTANT_BURN * 100}% burned.</span>
+    <div class="row"><button class="btn primary pill sm" data-act="rw-claim" data-amount="${claimable}">Claim ${fmtCoins(claimable)} ${COIN}</button></div>` : '<button class="btn pill sm" disabled>Nothing to claim yet</button>'}
     <span class="muted small" id="rw-status" role="status"></span>
     ${locksBlock()}
     ${holderRewardsBlock()}`;
@@ -558,7 +660,7 @@ function locksBlock() {
       ${l.locked ? `<span class="small">Locked: <b>${fmtCoins(l.locked)} ${COIN}</b>${when ? ` · next unlock ${when}` : ''}</span>` : ''}
       <div class="row" style="gap:8px;flex-wrap:wrap">
         ${l.unlocked ? `<button class="btn primary pill sm" data-act="lock-release">Release ${fmtCoins(l.unlocked)}</button>` : ''}
-        ${l.locked ? `<button class="btn pill sm" data-act="lock-early">Take all now (−${INSTANT_BURN * 100}% of locked)</button>` : ''}
+        ${l.locked ? `<button class="btn pill sm" data-act="lock-early">Take all now…</button>` : ''}
       </div>
     </div>`;
 }
@@ -701,10 +803,9 @@ export function renderEarn(view, { toast, onCleanup }) {
           <div class="sneaker-list">
             ${st.sneakers.map((x) => `
               <button class="sneaker-tile ${x.id === s?.id ? 'on' : ''}" data-act="select" data-id="${x.id}">
-                ${x.unspent ? `<i class="pt-dot" title="Unassigned points">${x.unspent}</i>` : ''}
-                ${sneakerSvg(x, 'sneaker-art sm')}
-                <b>${sneakerTitle(x)}</b>
-                <span class="muted small">${RARITIES[x.rarity].label} · Lv ${x.level} · ${Math.round(x.durability)}%</span>
+                <span class="studio">${x.unspent ? `<i class="pt-dot" title="Unassigned points">${x.unspent}</i>` : ''}${sneakerSvg(x, 'sneaker-art sm')}</span>
+                <span class="tile-meta"><b>${sneakerTitle(x)}</b>
+                <span class="muted small">${RARITIES[x.rarity].label} · Lv ${x.level} · ${Math.round(x.durability)}%</span></span>
               </button>`).join('')}
           </div>
         </div>` : ''}
@@ -756,36 +857,15 @@ export function renderEarn(view, { toast, onCleanup }) {
           await connectRewards();
           toast('Connected — your runs now earn real RUNNER');
           break;
-        case 'rw-claim': {
-          b.disabled = true;
-          const status = view.querySelector('#rw-status');
-          const say = (t) => { if (status) status.textContent = t; };
-          try {
-            const instant = b.dataset.instant === '1';
-            if (instant && !confirm(`Take it now? ${INSTANT_BURN * 100}% is burned forever. Locking for ${LOCK_DAYS} days gives you 100%.`)) { b.disabled = false; break; }
-            const { hash, amount, partial } = await claimRewards(say, instant);
-            say('Sent — waiting for the network…');
-            await waitForReceipt(hash);
-            say('');
-            showReveal({ kicker: instant ? 'Claimed' : 'Locked', title: instant ? `${fmtCoins(amount * (1 - INSTANT_BURN))} ${COIN} is in your wallet` : `${fmtCoins(amount)} ${COIN} unlocks in ${LOCK_DAYS} days`, coins: instant ? amount * (1 - INSTANT_BURN) : amount, note: `${instant ? `${fmtCoins(amount * INSTANT_BURN)} ${COIN} was burned. ` : 'Release it from the Earn tab after 7 days — or take it early for 80%. '}${partial ? "Today's claim limit is nearly used up, so this was a partial claim — the rest stays in your balance for tomorrow. " : ''}<a href="${tokenExplorerTx(hash)}" target="_blank" rel="noopener">View transaction</a>` });
-            claimInfo = null;
-            draw();
-          } catch (err) {
-            say('');
-            throw /reject|denied|cancel/i.test(String(err.message)) ? new Error('Claim cancelled — you can claim any time.') : err;
-          } finally { b.disabled = false; }
-          break;
-        }
-        case 'lock-release':
-        case 'lock-early': {
-          const early = b.dataset.act === 'lock-early';
-          if (early && !confirm(`Take all locked rewards now? Unfinished locks pay 80% — ${INSTANT_BURN * 100}% of them is burned.`)) break;
+        case 'rw-claim': openClaimSheet(Number(b.dataset.amount), () => { claimInfo = null; draw(); }); break;
+        case 'lock-early': if (claimInfo?.locks) openEarlySheet(claimInfo.locks, toast, () => { claimInfo = null; draw(); }); break;
+        case 'lock-release': {
           b.disabled = true;
           try {
-            const hash = await (early ? releaseEarly() : releaseRewards());
+            const hash = await releaseRewards();
             toast('Sent — waiting for the network…');
             await waitForReceipt(hash);
-            toast(early ? 'Locked rewards taken' : 'Released to your wallet');
+            toast('Released to your wallet');
           } catch (err) {
             throw /reject|denied|cancel/i.test(String(err.message)) ? new Error('Cancelled.') : err;
           } finally { claimInfo = null; draw(); }
