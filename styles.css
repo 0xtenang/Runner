@@ -689,7 +689,7 @@ body.no-scroll { overflow: hidden; }
   position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 5 / 4; border-radius: 16px; overflow: hidden;
   background: radial-gradient(120% 90% at 50% 30%, var(--studio-hi), var(--studio) 72%);
 }
-.studio::after { content: ""; position: absolute; left: 22%; right: 22%; bottom: 17%; height: 9%; border-radius: 50%; background: var(--studio-floor); filter: blur(6px); }
+
 .studio .sneaker-art { position: relative; z-index: 1; width: 78%; max-width: none; margin: 0; }
 .studio > .badge, .studio > .pt-dot { position: absolute; top: 8px; right: 8px; z-index: 2; }
 .coll-tile, .sneaker-tile {

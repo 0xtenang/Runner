@@ -3,6 +3,7 @@
 // what players see in RUNNER.
 import { COLLECTION, MODELS, EDITIONS, traitsFor, PRICE_ETH } from '../js/collection.js';
 import { sneakerSvg } from '../js/sneaker-art.js';
+import { wordmark, textPath, PALETTE } from '../brand/art.js';
 
 export const SITE = 'https://runearn.fun';
 const CLASS = {
@@ -43,21 +44,38 @@ export function tokenMetadata(id) {
   };
 }
 
-const RARITY_COLOR = { common: '#6b6b6b', uncommon: '#166534', rare: '#1e40af', epic: '#6b21a8' };
+const RARITY_COLOR = { common: '#5f5f5f', uncommon: '#15803d', rare: '#1d4ed8', epic: '#7e22ce' };
+// Studio backdrop per edition: [centre, edge, ink, muted].
+const STUDIO = {
+  standard: ['#fafaf8', '#dcdcd6', '#141414', '#6b6b6b'],
+  ghost: ['#ffffff', '#e3e8ee', '#1d2633', '#6b7a8c'],
+  gold: ['#fff9ea', '#e8d5a6', '#2b1f06', '#80662c'],
+  neon: ['#26262b', '#060607', '#f4f4f5', '#a1a1aa'],
+};
 
-/** Square 1000×1000 artwork for marketplaces. */
+/** Square 1000×1000 card for marketplaces: studio shot, Anton type, rarity pill. */
 export function tokenImage(id) {
   const t = traitsFor(id);
-  const art = sneakerSvg(t, 'art').replace('<svg ', '<svg x="90" y="250" width="820" height="403" ');
-  const h = t.hue;
+  const [c0, c1, ink, muted] = STUDIO[t.edition] || STUDIO.standard;
+  const art = sneakerSvg(t, 'art').replace('<svg ', '<svg x="60" y="262" width="880" height="433" ');
+  const wm = wordmark({ size: 46, fill: ink, tagline: false, id: 'cwm' });
+  const rar = RARITY[t.rarity].toUpperCase();
+  const pillW = 64 + rar.length * 19;
+  const facts = [CLASS[t.type].label, MODELS[t.model].label, t.edition !== 'standard' ? `${EDITIONS[t.edition].label} edition` : null].filter(Boolean).join('  ·  ');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
   <style>.sparkle{fill:#f5c518}</style>
-  <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${h} 70% 95%)"/><stop offset="1" stop-color="hsl(${(h + 40) % 360} 60% 86%)"/></linearGradient></defs>
+  <defs><radialGradient id="bg" cx=".5" cy=".46" r=".75"><stop offset="0" stop-color="${c0}"/><stop offset="1" stop-color="${c1}"/></radialGradient></defs>
   <rect width="1000" height="1000" fill="url(#bg)"/>
-  <text x="70" y="110" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="44" font-weight="900" fill="#111">RUNN<tspan fill="#3f7a0c">ER</tspan> <tspan font-weight="600" fill="#6b6b6b">GENESIS</tspan></text>
+  <rect x="70" y="70" width="44" height="8" rx="4" fill="${PALETTE.red}"/>
+  <g transform="translate(70 96)">${wm.svg}</g>
+  ${textPath('GENESIS', { size: 26, fill: muted, x: 82 + wm.width, y: 142, tracking: 5 })}
+  <rect x="${930 - pillW}" y="84" width="${pillW}" height="64" rx="32" fill="${RARITY_COLOR[t.rarity]}"/>
+  ${textPath(rar, { size: 30, fill: '#fff', x: 930 - pillW / 2, y: 131, anchor: 'middle', tracking: 3 })}
   ${art}
-  <text x="70" y="880" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="88" font-weight="900" fill="#111">#${id}</text>
-  <text x="70" y="935" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="${RARITY_COLOR[t.rarity]}">${RARITY[t.rarity]} · ${CLASS[t.type].label} · ${MODELS[t.model].label}${t.edition !== 'standard' ? ` · ${EDITIONS[t.edition].label}` : ''}</text>
+  ${textPath(`#${id}`, { size: 150, fill: ink, x: 70, y: 880 })}
+  ${textPath(facts, { size: 28, fill: muted, x: 74, y: 932, tracking: 2.5 })}
+  ${textPath('PACE ZONE', { size: 22, fill: muted, x: 930, y: 838, anchor: 'end', tracking: 4 })}
+  ${textPath(CLASS[t.type].zone.replace('/km', '/KM'), { size: 40, fill: ink, x: 930, y: 884, anchor: 'end', tracking: 1 })}
 </svg>`;
 }
 
@@ -74,7 +92,7 @@ export function collectionImage(kind = 'logo') {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${hgt}" width="${w}" height="${hgt}">
   <style>.sparkle{fill:#f5c518}</style>
   <rect width="${w}" height="${hgt}" fill="#0b0b0c"/>
-  ${kind === 'banner' ? '' : `<text x="500" y="300" text-anchor="middle" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="120" font-weight="900" fill="#fff">RUNN<tspan fill="#a3e635">ER</tspan></text>
+  ${kind === 'banner' ? '' : `<text x="500" y="300" text-anchor="middle" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="120" font-weight="900" fill="#fff">RUNN<tspan fill="#E8483B">ER</tspan></text>
   <text x="500" y="370" text-anchor="middle" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="48" font-weight="700" fill="#9c9ba3">GENESIS</text>`}
   ${arts}
 </svg>`;

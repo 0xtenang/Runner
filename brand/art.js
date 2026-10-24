@@ -49,6 +49,30 @@ export function wordmark({ size = 200, fill = P.paper, cut = true, tagline = tru
   return { svg: `<defs>${mask}</defs>${word}${tag}`, width: w, height: h + (tagline ? th + size * 0.1 : 0) };
 }
 
+// ------------------------------------------------------------------ Anton text as outlines
+/** Width of `str` set in Anton at `size` px (uppercase), with `tracking` px between letters. */
+export function textWidth(str, size = 40, tracking = 0) {
+  const C = glyphsJson.chars, k = size / C.size, chars = [...String(str).toUpperCase()];
+  return chars.reduce((w, ch) => w + (C.map[ch] || C.map[' ']).w * k, 0) + tracking * Math.max(0, chars.length - 1);
+}
+/**
+ * Text drawn as Anton outlines (no font needed — works inside SVG images on
+ * marketplaces). Uppercase letters, digits and # · / . , - – % : + only.
+ */
+export function textPath(str, { size = 40, fill = P.ink, x = 0, y = 0, anchor = 'start', tracking = 0, opacity = 1 } = {}) {
+  const C = glyphsJson.chars, k = size / C.size;
+  const w = textWidth(str, size, tracking);
+  const x0 = anchor === 'end' ? x - w : anchor === 'middle' ? x - w / 2 : x;
+  let cx = 0;
+  const parts = [];
+  for (const ch of String(str).toUpperCase()) {
+    const g = C.map[ch] || C.map[' '];
+    if (g.d) parts.push(`<path transform="translate(${(cx / k).toFixed(1)} 0)" d="${g.d}"/>`);
+    cx += g.w * k + tracking;
+  }
+  return `<g transform="translate(${x0.toFixed(1)} ${y}) scale(${k})" fill="${fill}"${opacity < 1 ? ` opacity="${opacity}"` : ''}>${parts.join('')}</g>`;
+}
+
 /** Big italic R with the speed cut (app icon mark). */
 export function rMark({ size = 300, fill = P.paper, id = 'rm' } = {}) {
   const k = size / G.r.size, h = -G.r.top * k, off = h * TAN12;
