@@ -1,4 +1,4 @@
-/* RUN EARN — clean, Strava-like layout: white surfaces, bold numbers,
+/* RUN EARN — clean layout: white surfaces, bold numbers,
    round icon buttons and a floating tab bar. Vermilion orange (from the logo) is the brand accent. */
 :root {
   --bg: #f2f2f2;
@@ -117,7 +117,7 @@ svg { stroke-linecap: round; stroke-linejoin: round; }
 .rec-banner .dot { width: 9px; height: 9px; border-radius: 50%; background: #dc2626; animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .3; } }
 
-/* Record screen is full-screen like Strava: no top bar or tab bar. */
+/* Record screen is full-screen: no top bar or tab bar. */
 body.immersive { padding: 0; }
 body.immersive .topbar, body.immersive .tabbar { display: none; }
 
@@ -529,7 +529,7 @@ body.no-scroll { overflow: hidden; }
 .w-done-ico { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; font-weight: 900; background: var(--good); color: #fff; }
 .w-done .btn { width: 100%; }
 
-/* ---------- record screen v2 (Strava-style) ---------- */
+/* ---------- record screen v2 ---------- */
 .rec { position: relative; height: 100dvh; overflow: hidden; display: block; background: var(--surface); }
 .rec .rec-map { position: absolute; inset: 0; z-index: 0; }
 .rec-bottom { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; display: grid; gap: 12px; pointer-events: none; }

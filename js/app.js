@@ -112,7 +112,7 @@ function fmtDate(t) {
   return `${d.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })} at ${time}`;
 }
 
-/** Strava-style duration: "38m 57s", "1h 05m". */
+/** Compact duration: "38m 57s", "1h 05m". */
 function fmtTime(sec) {
   sec = Math.max(0, Math.round(sec || 0));
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
@@ -485,7 +485,7 @@ function renderRecord() {
     : `<button class="pill-btn resume" data-ctl="resume">${ICON.play}<span>Resume</span></button>
        <button class="pill-btn finish" data-ctl="finish">${ICON.stop}<span>Finish</span></button>`);
 
-  // ----- before the run: Strava-style start sheet
+  // ----- before the run: start sheet
   const idleSheet = () => {
     const s = game.active;
     const z = s && SNEAKER_TYPES[s.type];

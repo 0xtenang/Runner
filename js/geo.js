@@ -1,7 +1,7 @@
 // Location source for the recorder. On the web this is navigator.geolocation,
 // which phones pause when the screen locks. Inside the RUNNER phone app
 // (Capacitor) it uses the native background-geolocation plugin instead, so GPS
-// keeps recording with the screen off — like Strava.
+// keeps recording with the screen off.
 
 const Cap = globalThis.Capacitor;
 export const isNative = Boolean(Cap?.isNativePlatform?.());

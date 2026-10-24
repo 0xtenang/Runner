@@ -2,7 +2,7 @@
 
 The website (https://runearn.fun) is plain static files with no build step. The
 phone apps wrap the same files with [Capacitor](https://capacitorjs.com) so GPS
-keeps recording with the screen locked, like Strava.
+keeps recording with the screen locked.
 
 | | Website | Phone app |
 |---|---|---|
