@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>RUNNER Whitepaper</title>
-  <meta name="description" content="How RUNNER works: run tracking, sneaker NFTs, the RUNNER token, the IMD trading fee and holder rewards, emission, fair play, controls, audits and risks. Draft for public review.">
+  <meta name="description" content="How RUNNER works: run tracking, sneaker NFTs, the RUNNER token (live on Robinhood Chain), the IMD trading fee and holder rewards, emission, fair play, controls, audits and risks.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="RUNNER">
   <meta property="og:title" content="RUNNER Whitepaper">
-  <meta property="og:description" content="How RUNNER works: run tracking, sneaker NFTs, the RUNNER token, the IMD trading fee and holder rewards, emission, fair play, controls, audits and risks. Draft for public review.">
+  <meta property="og:description" content="How RUNNER works: run tracking, sneaker NFTs, the RUNNER token (live on Robinhood Chain), the IMD trading fee and holder rewards, emission, fair play, controls, audits and risks.">
   <meta property="og:url" content="https://www.runearn.fun/whitepaper">
   <meta property="og:image" content="https://www.runearn.fun/og.png">
   <meta property="og:image:width" content="1200">
@@ -73,10 +73,10 @@
       <h1>RUNNER Whitepaper</h1>
       <p class="lead">A GPS running app with a run-to-earn layer on Robinhood Chain: own a sneaker NFT, run in its pace zone, earn the RUNNER token.</p>
       <div class="wp-meta">
-        <span class="tag draft">Draft v0.2 · for public review</span>
+        <span class="tag draft">v1.0 · launch edition</span>
         <span class="tag">25 October 2026</span>
         <span class="tag">Live on Robinhood Chain</span>
-        <span class="tag">Six IMD audit rounds · final re-check pending</span>
+        <span class="tag">Six IMD audit rounds</span>
         <a class="tag" href="/download" style="text-decoration:none;color:var(--accent-strong)">Get the Android app →</a>
       </div>
     </header>
@@ -107,19 +107,20 @@
         <ul>
           <li><b>RUNNER Genesis</b> — 9,999 sneaker NFTs. Owning one lets you earn.</li>
           <li><b>RUNNER token</b> — a fixed supply of 1,000,000,000. 80% is reserved for runners and released on a halving schedule.</li>
-          <li><b>Paired with IMD</b> — RUNNER trades against IMD in one Uniswap v4 pool with liquidity locked forever. Every trade pays a 4% fee in IMD: 2% to the protocol, 2% shared by holders.</li>
+          <li><b>Paired with IMD</b> — RUNNER trades against IMD in a Uniswap v4 pool with liquidity locked forever. Every trade there pays a 4% fee in IMD: 2% to the protocol, 2% shared by holders.</li>
           <li><b>Verified runs</b> — every run is re-checked by a server with the same rules as the app, plus fair-play checks, before it earns anything.</li>
         </ul>
-        <div class="warn"><b>Status:</b> the contracts are live on Robinhood Chain (addresses in section 10) after six audit rounds by IMD. Numbers below are the current design and may change before launch. Nothing here is investment advice or a promise of value.</div>
+        <div class="note"><b>Launched 25 October 2026.</b> The sneaker sale is open, RUNNER trades against IMD (the pool opened at a market cap of about 642 IMD with its liquidity locked forever), and run rewards are on: emission started the same day at 10,000,000 RUNNER per day. Contract addresses are in section 10.</div>
+        <div class="warn">Nothing here is investment advice or a promise of value. Read the risks in section 12.</div>
       </section>
 
       <section class="wp-sec" id="app">
         <h2><span>2</span>The app</h2>
-        <p>Available at <a class="inline" href="/">runearn.fun</a> and as an <b>Android app</b> you install straight from <a class="inline" href="/download">runearn.fun/download</a> (an APK, no Play Store needed; the phone app keeps recording with the screen locked). An iPhone app follows later. Sign in with Google, Apple or email and a Robinhood Chain wallet is created for you (via Privy) — no seed phrase to manage. On the website you can instead sign in with your own wallet (MetaMask, Phantom, WalletConnect, Coinbase Wallet and others). Guests can track runs without signing in.</p>
+        <p>Available at <a class="inline" href="/">runearn.fun</a> (add it to your home screen) and as an <b>Android app</b> installed straight from <a class="inline" href="/download">runearn.fun/download</a> — an APK, no Play Store needed; the phone app keeps recording with the screen locked. An iPhone app follows later. Sign in with Google, Apple or email and a Robinhood Chain wallet is created for you (via Privy) — no seed phrase to manage. On the website you can instead sign in with your own wallet (MetaMask, Phantom, WalletConnect, Coinbase Wallet, Rainbow, OKX and others). Guests can track runs without signing in.</p>
         <ul>
           <li>Record runs with a live map, distance, pace, splits, elevation and heart rate (Bluetooth sensors supported).</li>
           <li><b>Only runs recorded live with GPS in the app earn.</b></li>
-          <li>The <b>Earn</b> tab shows your sneakers, energy, balance, run-reward claims and the current emission.</li>
+          <li>The <b>Earn</b> tab shows your sneakers, energy, balance, run-reward claims and the current emission, and sells Genesis sneakers with ETH.</li>
           <li>The <b>Rewards</b> tab is for RUNNER holders: whether you qualify today, what each of the last 7 days paid you in IMD, and a button to claim it. You can also connect another wallet that holds RUNNER — WalletConnect, MetaMask, Coinbase Wallet and others — or look up any address.</li>
         </ul>
       </section>
@@ -158,7 +159,7 @@
 
       <section class="wp-sec" id="nft">
         <h2><span>4</span>Sneaker NFTs — RUNNER Genesis</h2>
-        <p>9,999 ERC-721 sneakers on Robinhood Chain. An open sale with no reveal: buyers pick the exact sneaker they want. A token's number fixes its rarity, class, starting stats and look, using the same formula in the app and in the contract.</p>
+        <p>9,999 ERC-721 sneakers on Robinhood Chain, <b>on sale now</b> (contract <a class="inline mono" href="https://robinhoodchain.blockscout.com/address/0x7ded256c6646630dFcf15317aeB7cF40027932CC" target="_blank" rel="noopener">0x7ded…32CC</a>). An open sale with no reveal: buyers pick the exact sneaker they want. A token's number fixes its rarity, class, starting stats and look, using the same formula in the app and in the contract.</p>
         <div class="tbl"><table>
           <tr><th>Rarity</th><th class="num">Supply</th><th class="num">Price</th><th>Starting Efficiency / Resilience</th></tr>
           <tr><td>Common</td><td class="num">7,097</td><td class="num">0.005 ETH</td><td>4–8</td></tr>
@@ -175,7 +176,7 @@
 
       <section class="wp-sec" id="token">
         <h2><span>5</span>The RUNNER token</h2>
-        <p>An ERC-20 token on Robinhood Chain with a fixed supply of <b>1,000,000,000 RUNNER</b>, all created when the contract is deployed. There is no mint function; burns can only reduce supply.</p>
+        <p>An ERC-20 token on Robinhood Chain (<a class="inline mono" href="https://robinhoodchain.blockscout.com/address/0x52cE7fC26a4Bb4B8aFef02C1b00486FDF4Bb804e" target="_blank" rel="noopener">0x52cE…804e</a>) with a fixed supply of <b>1,000,000,000 RUNNER</b>, all created when the contract was deployed. There is no mint function; burns can only reduce supply.</p>
         <div class="bars" aria-label="Allocation">
           <div class="bar"><span>Run rewards</span><i style="width:80%"></i><span>80%</span></div>
           <div class="bar"><span>Liquidity</span><i style="width:10%"></i><span>10%</span></div>
@@ -184,7 +185,7 @@
         <div class="tbl"><table>
           <tr><th>Share</th><th class="num">Amount</th><th>Where it goes</th></tr>
           <tr><td>Run rewards</td><td class="num">800,000,000</td><td>Locked in the token contract. Paid out only to runners through verified claims, following the emission schedule. Nobody, including the owner, can withdraw it otherwise.</td></tr>
-          <tr><td>Liquidity</td><td class="num">100,000,000</td><td>Locked forever in the RUNNER/IMD Uniswap v4 pool by its hook, starting at a market cap of about 635 IMD.</td></tr>
+          <tr><td>Liquidity</td><td class="num">100,000,000</td><td>Locked forever in the RUNNER/IMD Uniswap v4 pool by its hook. The pool opened on 25 October 2026 at a market cap of about 642 IMD (the 635 IMD target on the pool's price grid).</td></tr>
           <tr><td>Team</td><td class="num">100,000,000</td><td>Team wallet <span class="mono">0x0f4FE718eb8492533E600b30F3287E2f04087332</span>.</td></tr>
         </table></div>
         <p><b>Where RUNNER is used:</b> level-ups and repairs in the app, trading on exchanges, and holding for holder rewards (section 7). <b>Where it's removed:</b> instant claims and early releases burn 20% (section 6).</p>
@@ -193,18 +194,20 @@
       <section class="wp-sec" id="emission">
         <h2><span>6</span>Emission &amp; claims</h2>
         <h3>Halving emission</h3>
-        <p>The run-reward pool releases at most a set amount per UTC day. The launch schedule: <b>10,000,000 RUNNER per day, halving every 30 days, never below 100,000 per day</b>. It starts on launch day, when the dev wallet starts it on-chain.</p>
+        <p>The run-reward pool releases at most a set amount per UTC day: <b>10,000,000 RUNNER per day, halving every 30 days, never below 100,000 per day</b>. Emission <b>started on 25 October 2026</b>.</p>
         <div class="tbl"><table>
-          <tr><th>Days from launch</th><th class="num">Daily maximum</th><th class="num">Earn rate</th></tr>
-          <tr><td>1–30</td><td class="num">10,000,000</td><td class="num">100%</td></tr>
-          <tr><td>31–60</td><td class="num">5,000,000</td><td class="num">50%</td></tr>
-          <tr><td>61–90</td><td class="num">2,500,000</td><td class="num">25%</td></tr>
-          <tr><td>91–120</td><td class="num">1,250,000</td><td class="num">12.5%</td></tr>
-          <tr><td>…</td><td class="num">halves every 30 days</td><td class="num">…</td></tr>
-          <tr><td>From about month 8</td><td class="num">100,000 (floor)</td><td class="num">1%</td></tr>
+          <tr><th>Dates (UTC)</th><th class="num">Daily maximum</th><th class="num">Earn rate</th></tr>
+          <tr><td>25 Oct – 23 Nov 2026</td><td class="num">10,000,000</td><td class="num">100%</td></tr>
+          <tr><td>24 Nov – 23 Dec 2026</td><td class="num">5,000,000</td><td class="num">50%</td></tr>
+          <tr><td>24 Dec 2026 – 22 Jan 2027</td><td class="num">2,500,000</td><td class="num">25%</td></tr>
+          <tr><td>23 Jan – 21 Feb 2027</td><td class="num">1,250,000</td><td class="num">12.5%</td></tr>
+          <tr><td>22 Feb – 23 Mar 2027</td><td class="num">625,000</td><td class="num">6.25%</td></tr>
+          <tr><td>24 Mar – 22 Apr 2027</td><td class="num">312,500</td><td class="num">3.1%</td></tr>
+          <tr><td>23 Apr – 22 May 2027</td><td class="num">156,250</td><td class="num">1.6%</td></tr>
+          <tr><td>From 23 May 2027</td><td class="num">100,000 (floor)</td><td class="num">1%</td></tr>
         </table></div>
         <p>If every day's maximum were used, about 38% of the pool would be released in month 1, 66% by month 3 and 75% by month 7, after which 100,000 per day continues for about 5.5 years. In practice runners only earn what energy, pace zones and fair-play checks allow; with 100 active runners, about 2.9M RUNNER per day would be emitted in month 1.</p>
-        <p>The dev wallet can set a new schedule (daily amount, halving period, floor). A change never affects the current day — it starts the next UTC day — and can <b>never exceed 20,000,000 per day</b>. Runners' earn rates follow the schedule automatically.</p>
+        <p>The dates above assume the schedule isn't changed. The dev wallet can set a new schedule (daily amount, halving period, floor). A change never affects the current day — it starts the next UTC day — and can <b>never exceed 20,000,000 per day</b>. Runners' earn rates follow the schedule automatically.</p>
         <h3>From earnings to tokens</h3>
         <ol>
           <li>Finish a run. The server checks it and credits your in-app balance. New earnings become usable <b>24 hours</b> after the run.</li>
@@ -217,7 +220,7 @@
       <section class="wp-sec" id="holders">
         <h2><span>7</span>Trading fee &amp; holder rewards (in IMD)</h2>
         <ul>
-          <li><b>RUNNER trades against IMD</b> in one Uniswap v4 pool on Robinhood Chain. Its liquidity (the 100M allocation) is <b>locked forever</b>: the pool's hook added it and has no way to take it out.</li>
+          <li><b>RUNNER's main pool is RUNNER/IMD</b> on Uniswap v4 (Robinhood Chain), run by the RunnerHook. Its liquidity (the 100M allocation) is <b>locked forever</b>: the pool's hook added it and has no way to take it out.</li>
           <li><b>4% fee on every trade, paid in IMD</b>, fixed in the hook: <b>2% to the protocol</b> wallet and <b>2% to holders</b>. The token itself has no transfer tax — wallet-to-wallet transfers and run-reward claims move exactly what you send.</li>
           <li><b>Holder rewards, in IMD:</b> each UTC day's 2% is shared by every wallet that held at least <b>300,000 RUNNER for the whole day</b>, in proportion to the lowest balance it held that day. Buying just before the day ends doesn't count — you need to hold through a full day.</li>
           <li>Each day's share can be claimed for <b>7 days</b> in the app's <b>Rewards</b> tab (or on the token contract directly); after that, anything unclaimed goes to the protocol wallet. Fees from trades through other routers wait in the hook until anyone sends them on — the Rewards tab has a button for that.</li>
@@ -227,7 +230,13 @@
           <li>The fee is always exactly 4% of what traded: a swap that wouldn't fill completely, or would move nothing, is refused instead of charged. It rounds up, so even tiny trades pay; the odd wei of a fee goes to holders.</li>
           <li>Donations to the pool are refused (they would be lost to the locked position). Don't send tokens to the hook's address: it has no way to return them.</li>
         </ul>
-        <div class="note">Buy and sell with IMD, or with ETH in one step (it routes through the IMD/ETH pool). Trades through other pools someone might create elsewhere pay no fee and earn holders nothing.</div>
+        <h3>Where to trade</h3>
+        <div class="tbl"><table>
+          <tr><th>Pool</th><th>Fee</th><th>Who gets it</th></tr>
+          <tr><td>RUNNER/IMD (Uniswap v4, RunnerHook)</td><td>4% in IMD</td><td>2% protocol, 2% holders. Liquidity locked forever. Buy with IMD, or with ETH in one step through the RUNNER ETH router (it routes through the IMD/ETH pool).</td></tr>
+          <tr><td>RUNNER/ETH (Uniswap v4, no hook)</td><td>10% LP fee</td><td>The liquidity providers (the protocol added the first position). These trades don't pay the 4% split; holders earn nothing from them.</td></tr>
+        </table></div>
+        <div class="note">Trades through any other pool someone creates pay no RUNNER fee and earn holders nothing. Price differences between the pools are kept in line by arbitrage, which trades through the RUNNER/IMD pool and so pays the 4%.</div>
       </section>
 
       <section class="wp-sec" id="fair">
@@ -236,7 +245,7 @@
         <ul>
           <li><b>The server decides, not the phone.</b> Every uploaded GPS track is re-scored with the same rules as the app. Sneaker ownership is read from the chain; replayed or overlapping runs, and one sneaker used by two wallets at once, are rejected.</li>
           <li><b>Trust score (0–100).</b> Real GPS is messy; scripts and spoofers tend to be too clean. Points are lost for perfectly regular fix timing, constant speed, identical segments, perfectly straight routes, unchanging GPS accuracy, a fake-GPS app, steps that don't match the pace, or a route copied from another upload.</li>
-          <li><b>Phone app checks.</b> The phone apps send the step counter (bikes, scooters and cars give almost no steps) and a device proof (Google Play Integrity / Apple App Attest) showing the run came from the genuine app on an unmodified phone. Real-token earning can be limited to the phone apps.</li>
+          <li><b>Phone app checks.</b> The phone apps send the step counter (bikes, scooters and cars give almost no steps) and a device proof (Google Play Integrity / Apple App Attest) showing the run came from the genuine app on an unmodified phone. Real-token earning can be limited to the phone apps; at launch, runs from the website earn too.</li>
         </ul>
         <div class="tbl"><table>
           <tr><th>Trust score</th><th>Outcome</th></tr>
@@ -249,7 +258,7 @@
 
       <section class="wp-sec" id="controls">
         <h2><span>9</span>Controls &amp; limits</h2>
-        <p>The project keeps a few controls so the economy can be corrected after launch. Each has a hard limit set in code. The owner of both contracts is the dev wallet.</p>
+        <p>The project keeps a few controls so the economy can be corrected after launch. Each has a hard limit set in code. At launch, the owner of the token, the pool hook and the NFT is the dev wallet <span class="mono">0x0f39…f1B4</span>; the rewards server signs claims as <span class="mono">0x22be…ac00</span>.</p>
         <div class="tbl"><table>
           <tr><th>Control</th><th>What it does</th><th>Limit</th></tr>
           <tr><td>Emission schedule</td><td>New daily amount, halving period and floor</td><td>From the next UTC day; ≤ 20M/day</td></tr>
@@ -262,13 +271,13 @@
         </table></div>
         <p>The emission cap is per UTC day and resets at midnight UTC, so in the worst case (a stolen owner key) two days' maximum — 40M RUNNER, 5% of the pool — could be claimed within minutes of each other.</p>
         <p><b>Nobody — including the owner — can:</b> change the 4% fee, remove the pool's liquidity, mint new tokens, exceed 20M RUNNER of emission per UTC day, change today's emission, or take tokens out of the run-reward pool, locked claims or the holder-reward bucket.</p>
-        <div class="note">Before launch, ownership is planned to move to a multisig wallet so no single key controls these settings.</div>
+        <div class="note">Ownership will move from the single dev wallet to a multisig wallet, so no single key controls these settings. Ownership moves in two steps (propose, then accept), so a mistyped address can't take it.</div>
       </section>
 
       <section class="wp-sec" id="security">
         <h2><span>10</span>Security &amp; audits</h2>
         <ul>
-          <li><b>IMD audits:</b> six rounds by IMD's multi-agent auditors (each reproduces findings with tests). Every finding was fixed or documented, and the latest rounds found nothing above low severity. A final re-check of the last fixes comes before any mainnet deployment.</li>
+          <li><b>IMD audits:</b> six rounds by IMD's multi-agent auditors, each reproducing its findings with tests. Every finding was fixed or documented; the last rounds found nothing above low severity. The fixes from the sixth round were not re-audited before launch.</li>
           <li><b>Internal review</b> of the contracts and the rewards server, with every finding, fix and owner power in <a class="inline" href="https://github.com/0xtenang/Runner/blob/main/AUDIT.md" target="_blank" rel="noopener">AUDIT.md</a>.</li>
           <li><b>Automated tests:</b> 383 checks — 40 Foundry tests of the hook against a real Uniswap v4 PoolManager (3 of them on a Robinhood Chain mainnet fork with the real IMD), 177 for the token (including a randomized 45-day model of the holder-reward bookkeeping), 56 for the NFT and 110 for the rewards server. 71 deliberately planted bugs, including every audit fix undone, are all caught.</li>
           <li><b>Contract addresses</b> (Robinhood Chain, chain 4663) — each checked byte for byte against the audited build:
@@ -280,18 +289,16 @@
               <li>RUNNER Genesis NFT: <a class="inline mono" href="https://robinhoodchain.blockscout.com/address/0x7ded256c6646630dFcf15317aeB7cF40027932CC" target="_blank" rel="noopener">0x7ded256c6646630dFcf15317aeB7cF40027932CC</a></li>
             </ul>
           </li>
-          <li><b>Verifiable builds:</b> the deploy page refuses to deploy any contract whose bytecode differs from the reviewed build. Source code is public at <a class="inline" href="https://github.com/0xtenang/Runner" target="_blank" rel="noopener">github.com/0xtenang/Runner</a>.</li>
+          <li><b>Verifiable builds:</b> the deploy page refuses to deploy any contract whose bytecode differs from the reviewed build, and each deployed contract was compared byte for byte afterwards. Source verification on Blockscout follows. Source code is public at <a class="inline" href="https://github.com/0xtenang/Runner" target="_blank" rel="noopener">github.com/0xtenang/Runner</a>.</li>
         </ul>
       </section>
 
       <section class="wp-sec" id="roadmap">
         <h2><span>11</span>Roadmap</h2>
-        <p>Order, not dates — each step starts when the previous one is ready.</p>
         <ol>
-          <li><b>Now — open beta.</b> Run tracking live at runearn.fun and in the Android app; earning in local test mode; contracts through six IMD audit rounds.</li>
-          <li><b>Hardening.</b> IMD's final re-check, multisig ownership, device checks for the phone apps, an iPhone app.</li>
-          <li><b>Launch.</b> Deploy the NFT, the pool hook and the token; open the sneaker sale; open the RUNNER/IMD pool (liquidity locked forever); start emission.</li>
-          <li><b>After launch.</b> Watch auto-sync (Garmin and others), future sneaker collections with earning boosts, more ways to use RUNNER in the app.</li>
+          <li><b>Done — launch (25 October 2026).</b> Six IMD audit rounds; NFT, pool hook and token deployed and checked byte for byte; sneaker sale open; RUNNER/IMD pool open with liquidity locked forever; RUNNER/ETH pool added; rewards server live and emission started; Rewards tab for holders; wallet sign-in and WalletConnect.</li>
+          <li><b>Next — hardening.</b> Source verification on Blockscout, multisig ownership, the Android app on runearn.fun/download, phone-app-only earning with Google Play Integrity, an iPhone app.</li>
+          <li><b>Later.</b> Watch auto-sync (Garmin and others), future sneaker collections with earning boosts, more ways to use RUNNER in the app.</li>
         </ol>
       </section>
 
@@ -301,10 +308,10 @@
           <li><b>No guaranteed value.</b> RUNNER and the sneakers may lose value or become illiquid. Earnings in dollars depend on the market price, which nobody controls. At a low market cap, daily earnings are worth only cents.</li>
           <li><b>Front-loaded emission.</b> Most rewards can be released in the first months, which can create heavy selling pressure.</li>
           <li><b>Smart-contract risk.</b> Bugs are possible despite reviews and tests. Contracts are not upgradeable.</li>
-          <li><b>Centralization.</b> The dev wallet holds the controls in section 9 until ownership moves to a multisig; the rewards server decides which runs earn.</li>
+          <li><b>Centralization.</b> A single dev wallet holds the controls in section 9 until ownership moves to a multisig; the rewards server decides which runs earn.</li>
           <li><b>Cheating.</b> Fair-play checks reduce but cannot eliminate cheating.</li>
           <li><b>IMD dependency.</b> Holder rewards are paid in IMD, whose issuer can block addresses. If IMD transfers to or from the token contract stopped working, holder claims would wait; trading through RUNNER's routers would not stop.</li>
-          <li><b>Thin early liquidity</b> means large price swings, made larger by the 4% fee. RUNNER's price is in IMD, so it also moves with IMD's own price.</li>
+          <li><b>Thin early liquidity</b> means large price swings, made larger by the fees (4% in the RUNNER/IMD pool, 10% in the RUNNER/ETH pool). RUNNER's main price is in IMD, so it also moves with IMD's own price.</li>
           <li><b>Regulation.</b> Rules for tokens differ by country (in Indonesia, for example, OJK oversight applies). Check what applies to you.</li>
         </ul>
         <div class="warn">This document describes software and a game economy. It is not an offer to sell securities, not financial advice and not a promise of returns.</div>
@@ -312,7 +319,7 @@
 
       <section class="wp-sec" id="review">
         <h2><span>13</span>Review this paper</h2>
-        <p>This is a draft published so people can check it before launch. If something is unclear, wrong or looks unfair, please say so:</p>
+        <p>If something here is unclear, wrong or looks unfair, please say so:</p>
         <ul>
           <li>Open an issue: <a class="inline" href="https://github.com/0xtenang/Runner/issues/new" target="_blank" rel="noopener">github.com/0xtenang/Runner/issues</a></li>
           <li>Read the code and the internal review: <a class="inline" href="https://github.com/0xtenang/Runner" target="_blank" rel="noopener">source</a> · <a class="inline" href="https://github.com/0xtenang/Runner/blob/main/AUDIT.md" target="_blank" rel="noopener">AUDIT.md</a></li>
@@ -320,7 +327,7 @@
         </ul>
       </section>
 
-      <p class="foot">RUNNER Whitepaper · Draft v0.2 · Contract addresses: section 10.</p>
+      <p class="foot">RUNNER Whitepaper · v1.0 · 25 October 2026 · Contract addresses: section 10.</p>
     </article>
   </div>
 </body>
