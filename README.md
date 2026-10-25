@@ -6,7 +6,7 @@ A simple GPS running app with a run-to-earn layer: own a **RUNNER Genesis** snea
 
 **Try it:** https://runearn.fun
 
-> Beta: sneaker NFTs are on **Robinhood Chain Testnet** (free test ETH, not real money). RUNNER is an in-app token with no cash value yet.
+> RUNNER Genesis sneakers are live on **Robinhood Chain** (`0x7ded256c6646630dFcf15317aeB7cF40027932CC`), bought with real ETH. The RUNNER token launches next.
 
 ## Install on your phone
 

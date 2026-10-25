@@ -58,7 +58,7 @@ export const ROBINHOOD_TESTNET = {
 // RUNNER). After deploying from /admin.html, paste the contract address here.
 // Empty address = shop shows "sales open soon".
 export const NFT_CHAIN = ROBINHOOD_CHAIN;
-export const NFT_CONTRACT = '';
+export const NFT_CONTRACT = '0x7ded256c6646630dFcf15317aeB7cF40027932CC';
 // Fingerprint of the audited build (solc 0.8.24, optimizer 200 runs, evm "paris").
 // /admin.html refuses to deploy bytecode that doesn't match.
 export const NFT_CREATION_CODE_KECCAK = '0x270c71d725f5555873c1391b02799879056d7d4923759ab75fe6cd3d9c32ed9e';
