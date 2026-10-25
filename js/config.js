@@ -89,6 +89,6 @@ export const IMD_ETH_POOL = { fee: 10_000, tickSpacing: 100, hooks: '0x000000000
 export const CREATE2_DEPLOYER = '0x4e59b44847b379578588920cA78FbF26c0B4956C';
 export const HOOK_FLAGS = 0x28ec; // beforeInitialize, beforeAddLiquidity, before/afterSwap (+ return deltas), beforeDonate
 export const HOOK_START_TICK = 142_600; // tick of RUNNER-per-IMD: about 642 IMD starting market cap (635 IMD rounded to the tick spacing)
-export const HOOK_CONTRACT = DEV_CHAIN?.hook || '';
+export const HOOK_CONTRACT = DEV_CHAIN?.hook || '0x962c745D5feC4BC0Fd6dE15D47fc17C40C4c68EC';
 // Fingerprint of contracts/build/RunnerHook.json (solc 0.8.26, via-IR, optimizer 200, cancun).
 export const HOOK_CREATION_CODE_KECCAK = '0xddf207aa61c7b1007ccd63352897f2233604cb48ca3cdbeace1e26d6e5eb4c2c';
