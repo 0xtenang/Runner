@@ -37,7 +37,7 @@ import {
 } from '../js/rules.js';
 import { addressOfKey, claimDigest, signDigest, personalDigest, recoverAddress, keccak, toHex, isAddress } from './_lib/eth.js';
 import * as store from './_lib/store.js';
-import { ownedTokenIds, emissionSchedule, claimState, heldContracts, totalClaimed } from './_lib/chain.js';
+import { ownedTokenIds, emissionSchedule, claimState, heldContracts, totalClaimed, genesisHolders } from './_lib/chain.js';
 import { trustScore, trackFingerprint, cleanSteps } from './_lib/trust.js';
 import { checkDevice, androidConfigured, iosConfigured } from './_lib/attest.js';
 
@@ -494,22 +494,29 @@ async function adminOp(admin, body) {
 // ------------------------------------------------------------------ public stats (front page)
 let statsCache = null; // { at, value }
 /**
- * Runners who have earned, verified runs that earned, RUNNER credited to runners (the sum of the
- * daily emission counters since emission started) and RUNNER claimed to wallets (on-chain).
+ * Runners (wallets holding a RUNNER Genesis sneaker, on-chain), sneakers minted, wallets that have
+ * earned, verified runs that earned, RUNNER credited to runners (the sum of the daily emission
+ * counters since emission started) and RUNNER claimed to wallets (on-chain).
  */
 async function publicStats() {
   if (statsCache && Date.now() - statsCache.at < 60e3) return statsCache.value;
-  let runners = 0, runs = 0, earnedMicro = 0;
+  let earners = 0, runs = 0, earnedMicro = 0;
   if (store.storeConfigured() && sch?.startDay) {
     const days = [];
     for (let d = sch.startDay; d <= utcDay(); d++) days.push(`rw:budget:${d}`);
     const [r, n, ...budgets] = await store.mget(['rw:stats:runners', 'rw:stats:runs', ...days]);
-    runners = Number(r) || 0;
+    earners = Number(r) || 0;
     runs = Number(n) || 0;
     earnedMicro = budgets.reduce((sum, b) => sum + (Number(b) || 0), 0);
   }
-  const claimed = contractsSet() ? await totalClaimed(TOKEN_CONTRACT).catch(() => null) : null;
-  const value = { runners, runs, earned: earnedMicro / MICRO, claimed, since: sch?.startDay || null, updatedAt: Date.now() };
+  const [claimed, nft] = await Promise.all([
+    contractsSet() ? totalClaimed(TOKEN_CONTRACT).catch(() => null) : null,
+    NFT_CONTRACT ? genesisHolders(NFT_CONTRACT).catch(() => null) : null,
+  ]);
+  const value = {
+    runners: nft?.holders ?? 0, sneakers: nft?.sneakers ?? 0, earners, runs,
+    earned: earnedMicro / MICRO, claimed, since: sch?.startDay || null, updatedAt: Date.now(),
+  };
   statsCache = { at: Date.now(), value };
   return value;
 }

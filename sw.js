@@ -1,5 +1,5 @@
 // Network-first app shell cache so the app opens offline (e.g. on a run with no signal).
-const CACHE = 'runner-v56';
+const CACHE = 'runner-v57';
 const SHELL = [
   './', 'index.html', 'styles.css', 'icon.svg', 'manifest.webmanifest', 'fonts/anton-latin.woff2',
   'js/app.js', 'js/db.js', 'js/stats.js', 'js/recorder.js', 'js/ble.js', 'js/game.js', 'js/earn-view.js', 'js/onboarding.js', 'js/auth.js', 'js/config.js', 'js/wallet.js', 'js/collection.js', 'js/sneaker-art.js', 'js/geo.js', 'js/nft.js', 'js/rewards.js', 'js/rewards-view.js', 'js/stripe-stub.js', 'js/email-signin.js',

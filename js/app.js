@@ -335,7 +335,7 @@ async function fillCommunityStats() {
   el.innerHTML = `
     <div><b>${Number(s.runners || 0).toLocaleString()}</b><span>Runners</span></div>
     <div><b>${fmtBig(Number(s.earned || 0))}</b><span>$${COIN} earned</span></div>
-    ${s.claimed != null ? `<p>${fmtBig(Number(s.claimed))} claimed to wallets · since ${new Date(s.since * 864e5).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</p>` : ''}`;
+    <p>${Number(s.sneakers || 0).toLocaleString()} Genesis sneakers owned${s.claimed != null ? ` · ${fmtBig(Number(s.claimed))} ${COIN} claimed to wallets` : ''}</p>`;
   el.hidden = false;
 }
 

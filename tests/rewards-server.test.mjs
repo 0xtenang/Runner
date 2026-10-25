@@ -486,9 +486,9 @@ process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO] });
   const fake = JSON.parse(process.env.REWARDS_FAKE_TOKEN);
   const keys = []; for (let d = fake.startDay; d <= rules.utcDay(); d++) keys.push(`rw:budget:${d}`);
   const expected = (await storeMod.mget(keys)).reduce((t, v) => t + (Number(v) || 0), 0) / 1e6;
-  ok('stats: runners who earned, runs that earned, RUNNER credited (= the daily emission counters)', sv.code === 200 && sv.runners >= 2 && sv.runs >= sv.runners && sv.earned > 0 && Math.abs(sv.earned - expected) < 1e-6 && sv.since === fake.startDay, JSON.stringify(sv));
-  const again = await call({ action: 'stats' }, 'GET');
-  ok('stats: a runner counts once however many runs they make', again.runners === sv.runners && sv.runs > sv.runners, `${sv.runners} runners, ${sv.runs} runs`);
+  const owned = Object.values(JSON.parse(process.env.REWARDS_FAKE_OWNED));
+  ok('stats: runners = wallets holding a Genesis sneaker; RUNNER credited = the daily emission counters', sv.code === 200 && sv.runners === owned.filter((ids) => ids.length).length && sv.sneakers === owned.reduce((n, ids) => n + ids.length, 0) && sv.earned > 0 && Math.abs(sv.earned - expected) < 1e-6 && sv.since === fake.startDay, JSON.stringify(sv));
+  ok('stats: a wallet that earned counts once however many runs it makes', sv.earners >= 2 && sv.runs > sv.earners, `${sv.earners} earners, ${sv.runs} runs`);
 }
 // concurrency lock
 const [a, b] = await Promise.all([call({ action: 'state', session: S }), call({ action: 'state', session: S })]);

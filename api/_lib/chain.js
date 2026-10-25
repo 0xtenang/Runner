@@ -36,6 +36,48 @@ const tokenUint = async (token, data) => {
   return BigInt(!r || r === '0x' ? 0 : r);
 };
 
+/** Several eth_calls in one JSON-RPC batch (falls back to one by one). Returns the results in order. */
+async function callBatch(chain, calls) {
+  for (const url of chain.rpcUrls.default.http) {
+    try {
+      const body = calls.map((c, id) => ({ jsonrpc: '2.0', id, method: 'eth_call', params: [c, 'latest'] }));
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!Array.isArray(j) || j.some((x) => x.error)) throw new Error('batch failed');
+      return j.sort((x, y) => x.id - y.id).map((x) => x.result);
+    } catch { /* next endpoint */ }
+  }
+  const out = [];
+  for (const c of calls) out.push(await rpc(chain, 'eth_call', [c, 'latest']));
+  return out;
+}
+
+/**
+ * RUNNER Genesis holders: { holders (unique wallets), sneakers (minted) }. Finds the minted ids with
+ * mintedBatch() in chunks (stopping once all totalSupply are found), then their owners with ownerOf().
+ */
+export async function genesisHolders(nft = NFT_CONTRACT) {
+  if (TESTING && env.REWARDS_FAKE_OWNED) {
+    const owned = Object.values(JSON.parse(env.REWARDS_FAKE_OWNED));
+    return { holders: owned.filter((ids) => ids.length).length, sneakers: owned.reduce((n, ids) => n + ids.length, 0) };
+  }
+  const supply = Number(BigInt(await rpc(NFT_CHAIN, 'eth_call', [{ to: nft, data: '0x18160ddd' }, 'latest']) || 0)); // totalSupply()
+  const minted = [];
+  const CHUNK = 2000, MAX = 9999;
+  for (let start = 1; start <= MAX && minted.length < supply; start += CHUNK) {
+    const ids = []; for (let i = start; i < Math.min(start + CHUNK, MAX + 1); i++) ids.push(i);
+    const data = `0x8b96caed${word(32)}${word(ids.length)}${ids.map(word).join('')}`; // mintedBatch(uint256[])
+    const out = String(await rpc(NFT_CHAIN, 'eth_call', [{ to: nft, data }, 'latest'])).replace(/^0x/, '');
+    ids.forEach((id, i) => { if (out.slice(128 + i * 64 + 63, 128 + i * 64 + 64) === '1') minted.push(id); });
+  }
+  const owners = new Set();
+  for (let i = 0; i < minted.length; i += 200) {
+    const res = await callBatch(NFT_CHAIN, minted.slice(i, i + 200).map((id) => ({ to: nft, data: `0x6352211e${word(id)}` }))); // ownerOf
+    res.forEach((r) => { if (r && r.length >= 66) owners.add(`0x${r.slice(-40)}`.toLowerCase()); });
+  }
+  return { holders: owners.size, sneakers: minted.length };
+}
+
 /** RUNNER paid out by claim() so far (whole tokens), read from the token. */
 export async function totalClaimed(token = TOKEN_CONTRACT) {
   return Number((await tokenUint(token, '0xd54ad2a1')) / 10n ** 12n) / 1e6; // totalClaimed()
