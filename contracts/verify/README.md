@@ -13,6 +13,25 @@ deployed code byte for byte (immutables aside).
 | RunnerRouter | `0x55866De8BD1e5Fbf79433Ee2526D3405F64692Ba` | v0.8.26+commit.8a97fa7a | `RunnerHook.standard-input.json` (same file) | `RunnerRouter` | `RunnerRouter.constructor-args.txt` |
 | RunnerEthRouter | `0xcAc6938E8309Dc9687C82DFb745B21950Fe0F6A1` | v0.8.26+commit.8a97fa7a | `RunnerHook.standard-input.json` (same file) | `RunnerEthRouter` | `RunnerEthRouter.constructor-args.txt` |
 
+## Status (25 October 2026)
+
+All five are verified on [Sourcify](https://sourcify.dev), which Blockscout reads: the token and the
+NFT as `exact_match` (metadata included), the hook and both routers as `match` (built without a
+metadata hash, so `match` is the best possible). Submitted with the files in this folder through
+Sourcify's API (`POST /server/v2/verify/4663/<address>`). Blockscout's own form answered 500/429 to
+an automated browser (its reCAPTCHA), so it wasn't used.
+
+| Contract | Sourcify |
+|---|---|
+| RUNNER token | [exact match](https://repo.sourcify.dev/4663/0x52cE7fC26a4Bb4B8aFef02C1b00486FDF4Bb804e) |
+| RUNNER Genesis NFT | [exact match](https://repo.sourcify.dev/4663/0x7ded256c6646630dFcf15317aeB7cF40027932CC) |
+| RunnerHook | [match](https://repo.sourcify.dev/4663/0x962c745D5feC4BC0Fd6dE15D47fc17C40C4c68EC) |
+| RunnerRouter | [match](https://repo.sourcify.dev/4663/0x55866De8BD1e5Fbf79433Ee2526D3405F64692Ba) |
+| RunnerEthRouter | [match](https://repo.sourcify.dev/4663/0xcAc6938E8309Dc9687C82DFb745B21950Fe0F6A1) |
+
+If Blockscout still shows a contract as unverified, its **Verify & publish** page has a
+**Sourcify** method that imports the result, or use the manual steps below.
+
 ## Steps (for each contract)
 
 1. Open `https://robinhoodchain.blockscout.com/address/<address>` → **Contract** tab → **Verify & publish**.
