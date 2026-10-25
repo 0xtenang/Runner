@@ -6,7 +6,7 @@
 // is read straight from the token contract; claiming sends claimHolderRewards()
 // from the holder's own wallet (the in-app wallet, or any wallet connected with
 // "Connect wallet": WalletConnect, MetaMask, Coinbase Wallet…).
-import { auth, shortAddress, explorerUrl } from './auth.js';
+import { auth, shortAddress, explorerUrl, isIosHomeScreen } from './auth.js';
 import { TOKEN_CHAIN, TOKEN_CONTRACT, HOOK_CONTRACT, IMD_TOKEN } from './config.js';
 import { waitForReceipt } from './nft.js';
 import { COIN } from './game.js';
@@ -136,7 +136,7 @@ export function renderRewards(view, { toast, onCleanup }) {
         <div><span class="lbl">${who}</span>${a ? `<a class="mono small" href="${explorerUrl(a)}" target="_blank" rel="noopener">${shortAddress(a)}</a>` : '<span class="muted small">Sign in, connect a wallet, or look up an address.</span>'}</div>
         <div class="row" style="gap:8px;flex-wrap:wrap">
           ${!auth.signedIn && !auth.state.externalWallets.length ? '<button class="btn pill sm" data-act="signin">Sign in</button>' : ''}
-          <button class="btn pill sm" data-act="connect">${auth.state.externalWallets.length ? 'Connect another' : 'Connect wallet'}</button>
+          ${isIosHomeScreen ? '' : `<button class="btn pill sm" data-act="connect">${auth.state.externalWallets.length ? 'Connect another' : 'Connect wallet'}</button>`}
           ${kind?.kind === 'external' ? '<button class="btn pill sm ghost" data-act="disconnect">Disconnect</button>' : ''}
           ${override ? '<button class="btn pill sm ghost" data-act="clear">Back</button>' : ''}
         </div>
@@ -146,7 +146,8 @@ export function renderRewards(view, { toast, onCleanup }) {
         ${auth.signedIn && (!a || a.toLowerCase() !== auth.state.address.toLowerCase()) ? `<button class="btn sm ghost" data-act="pick" data-addr="${auth.state.address}">RUNNER wallet ${shortAddress(auth.state.address)}</button>` : ''}
         ${others.map((w) => `<button class="btn sm ghost" data-act="pick" data-addr="${w.address}">${esc(w.name)} ${shortAddress(w.address)}</button>`).join('')}
       </div>` : ''}
-      <span class="muted small">Connect wallet works with WalletConnect (scan the QR code with your phone wallet, or open the wallet app on your phone), MetaMask, Coinbase Wallet, Rainbow and more.</span>
+      ${isIosHomeScreen ? '<span class="muted small">To claim from another wallet (MetaMask, WalletConnect…), open <a href="https://www.runearn.fun/#/rewards" target="_blank" rel="noopener">runearn.fun</a> in your browser.</span>' : ''}
+      <span class="muted small" ${isIosHomeScreen ? 'hidden' : ''}>Connect wallet works with WalletConnect (scan the QR code with your phone wallet, or open the wallet app on your phone), MetaMask, Coinbase Wallet, Rainbow and more.</span>
       <form class="rw-lookup" data-form="lookup">
         <input name="addr" placeholder="Check any address: 0x…" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(override || (!auth.signedIn && !auth.state.externalWallets.length ? lookup : ''))}">
         <button class="btn sm">Check</button>

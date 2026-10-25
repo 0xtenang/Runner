@@ -137,6 +137,8 @@ class Auth extends EventTarget {
       });
       const { logout } = Privy.useLogout();
       const { exportWallet } = Privy.useExportWallet();
+      // Email sign-in without Privy's window (used in the iPhone home-screen app; see email-signin.js).
+      const { sendCode, loginWithCode } = Privy.useLoginWithEmail();
       const { connectWallet } = Privy.useConnectWallet({
         onError: (err) => { if (err && err !== 'generic_connect_wallet_error' && err !== 'exited_auth_flow') auth._set({ error: `Couldn't connect the wallet: ${err}` }); },
       });
@@ -151,7 +153,7 @@ class Auth extends EventTarget {
       const walletName = walletKind === 'external' ? (own?.meta?.name || user?.wallet?.walletClientType || 'Wallet') : null;
       const external = wallets.filter((w) => w !== primary && w.walletClientType !== 'privy');
       const externalKey = external.map((w) => w.address).join(',');
-      React.useEffect(() => { auth._api = { login, logout, exportWallet, connectWallet }; auth._wallet = primary; auth._external = external; });
+      React.useEffect(() => { auth._api = { login, logout, exportWallet, connectWallet, sendCode, loginWithCode }; auth._wallet = primary; auth._external = external; });
       React.useEffect(() => {
         auth._set({ externalWallets: external.map((w) => ({ address: w.address, name: w.meta?.name || w.walletClientType || 'Wallet' })) });
       }, [externalKey]);
@@ -203,7 +205,9 @@ class Auth extends EventTarget {
           walletChainType: 'ethereum-only',
           walletList: ['detected_ethereum_wallets', 'metamask', 'phantom', 'wallet_connect_qr', 'coinbase_wallet', 'rainbow', 'okx_wallet', 'rabby_wallet'],
         },
-        embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },
+        // In the iPhone home-screen app Privy's windows draw blank, so its confirmation windows are off there;
+        // the app asks for confirmation itself before every transaction.
+        embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' }, ...(isIosHomeScreen ? { showWalletUIs: false } : {}) },
         // "Connect wallet" (Rewards tab, admin page): WalletConnect shows a QR code on a computer and opens
         // the wallet app on a phone; browser wallets (MetaMask etc.) are listed when installed.
         ...(WALLETCONNECT_PROJECT_ID ? { walletConnectCloudProjectId: WALLETCONNECT_PROJECT_ID } : {}),
@@ -220,10 +224,27 @@ class Auth extends EventTarget {
    * asynchronously — listen for 'change' and check state.authenticated/address.
    */
   async login() {
+    if (isIosHomeScreen) { // Privy's window draws blank in the iPhone home-screen app: use the app's own email sheet
+      if (this.state.authenticated && this.state.address) return;
+      const { openEmailSignIn } = await import('./email-signin.js');
+      openEmailSignIn(this);
+      return;
+    }
     if (!(await this.load())) throw new Error(this.state.error || 'Sign-in isn\'t set up yet.');
     if (this.state.authenticated && this.state.address) return;
     this._set({ error: null });
     this._api.login();
+  }
+
+  /** Headless email sign-in, step 1: sends the 6-digit code. */
+  async sendEmailCode(email) {
+    if (!(await this.load())) throw new Error(this.state.error || 'Sign-in couldn\'t start. Open runearn.fun in your browser to sign in.');
+    await withTimeout(this._api.sendCode({ email }), 30000, 'Couldn\'t send the code. Check your connection and try again — or sign in at runearn.fun in your browser.');
+  }
+
+  /** Headless email sign-in, step 2: checks the code and signs in (the wallet is created automatically). */
+  async loginWithEmailCode(code) {
+    await withTimeout(this._api.loginWithCode({ code }), 45000, 'Signing in is taking too long. Try again — or sign in at runearn.fun in your browser.');
   }
 
   get signedIn() { return this.state.authenticated && Boolean(this.state.address); }
@@ -323,6 +344,11 @@ class Auth extends EventTarget {
 }
 
 export const auth = new Auth();
+
+function withTimeout(promise, ms, message) {
+  let t;
+  return Promise.race([promise, new Promise((_, reject) => { t = setTimeout(() => reject(new Error(message)), ms); })]).finally(() => clearTimeout(t));
+}
 
 // In the phone app, Google/Apple sign-in opens in Safari/Chrome (Google blocks
 // sign-in inside apps). Afterwards runearn.fun/redirect sends the browser back

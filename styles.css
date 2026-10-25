@@ -449,6 +449,11 @@ body.immersive .topbar, body.immersive .tabbar { display: none; }
 
 /* ---------- onboarding ---------- */
 body.no-scroll { overflow: hidden; }
+/* App-drawn email sign-in (iPhone home-screen app, js/email-signin.js): above the welcome screen. */
+.sheet-overlay.email-signin { z-index: 3400; }
+.sheet-overlay.email-signin, .email-signin .sheet-panel { animation: none; } /* shown at once: no chance of a stuck fade */
+.es-input { min-height: 52px; border: 1.5px solid var(--line); border-radius: 14px; padding: 0 14px; background: var(--surface); color: var(--text); font: inherit; font-size: 17px; }
+.es-code { letter-spacing: .4em; font-size: 22px; text-align: center; font-variant-numeric: tabular-nums; }
 /* Privy's sign-in window must never be covered (see auth.js: body.privy-open). */
 body.privy-open .onboard, body.privy-open .sheet-overlay, body.privy-open .reveal { visibility: hidden; }
 #headlessui-portal-root { position: relative; z-index: 2147483000; }
