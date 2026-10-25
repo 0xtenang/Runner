@@ -598,36 +598,43 @@ async function refreshEthPool() {
       ${ethPool.created ? `<tr><td>This pool's price</td><td style="text-align:right">${Math.round(price).toLocaleString()} RUNNER per ETH (${gap.toFixed(1)}% apart)</td></tr>` : ''}
       <tr><td>Dev wallet holds</td><td style="text-align:right">${fmtWei(ethPool.runner, 0)} RUNNER · ${fmtWei(ethPool.eth)} ETH</td></tr>
     </table>${ethPool.created && gap > 3 ? '<p class="bad small" style="margin:6px 0 0">The pool already exists at a price far from the main pool. Adding liquidity there would be arbitraged away — the button is disabled. Trades will bring it back in line first.</p>' : ''}`;
-    quoteEthPool();
   } catch (e) {
+    ethPool = null;
     out.innerHTML = `<span class="bad">${esc(String(e.message || e).slice(0, 200))}</span>`;
   }
+  return quoteEthPool();
 }
 
+/** Updates the quote and the button; returns null when ready to send, else the reason it isn't. */
 async function quoteEthPool() {
   const btn = $('#b-ethpool'), q = $('#ethpool-quote');
-  btn.disabled = true;
-  if (!ethPool) return;
+  const block = (why) => { btn.disabled = true; q.innerHTML = why; return why; };
+  if (!ethPool) return block('Couldn\'t read the pools — press Refresh.');
   const xp = await import('./extra-pool.js');
   const runnerWei = parseUnits18($('#ethpool-runner').value);
-  if (!runnerWei) { q.textContent = 'Enter how much RUNNER to add.'; return; }
+  if (!runnerWei) return block('Enter how much RUNNER to add.');
   const sqrtP = ethPool.created ? ethPool.poolSqrtPrice : ethPool.impliedSqrtPrice;
   const quote = xp.fullRangeQuote(runnerWei, sqrtP);
   const ethMax = quote.ethWei + quote.ethWei / 100n + 1n;
   const short = runnerWei > ethPool.runner ? `<span class="bad">The dev wallet has only ${fmtWei(ethPool.runner, 0)} RUNNER — buy some in the RUNNER/IMD pool or send it from the team wallet first.</span>`
     : ethMax + 10n ** 15n > ethPool.eth ? `<span class="bad">Not enough ETH (needs about ${fmtWei(ethMax)} plus gas).</span>` : '';
   q.innerHTML = `Adds ${fmtWei(runnerWei, 0)} RUNNER + about <b>${fmtWei(quote.ethWei)} ETH</b> (sends up to ${fmtWei(ethMax)}; the rest comes back) as one full-range position. ${short}`;
-  btn.disabled = Boolean(short) || (ethPool.created && xp.priceGapPct(ethPool) > 3);
   btn.textContent = ethPool.created ? 'Add liquidity (dev wallet)' : 'Create RUNNER/ETH pool + add liquidity (dev wallet)';
+  const why = short || (ethPool.created && xp.priceGapPct(ethPool) > 3 ? '<span class="bad">The pool\'s price is more than 3% away from the main pool.</span>' : '');
+  btn.disabled = Boolean(why);
+  return why || null;
 }
 
 $('#ethpool-runner').addEventListener('input', () => quoteEthPool());
 $('#b-ethpool-refresh').onclick = () => refreshEthPool();
 $('#b-ethpool').onclick = async () => {
   const xp = await import('./extra-pool.js');
-  await refreshEthPool(); // fresh price right before sending
+  const out = $('#ethpool-out');
+  out.textContent = 'Checking the latest price…';
+  const why = await refreshEthPool(); // fresh price and balances right before sending
+  if (why) { out.innerHTML = why; return; }
+  out.textContent = '';
   const runnerWei = parseUnits18($('#ethpool-runner').value);
-  if (!runnerWei || !ethPool || $('#b-ethpool').disabled) return;
   const sqrtP = ethPool.created ? ethPool.poolSqrtPrice : ethPool.impliedSqrtPrice;
   const tx = await xp.mintTx({ owner: DEV_WALLET, runnerWei, sqrtP, create: !ethPool.created });
   if (!confirm(`${ethPool.created ? 'Add liquidity to' : 'Create'} the RUNNER/ETH pool (Uniswap v4, 10% fee)?\n\nFull-range position owned by the dev wallet:\n${fmtWei(runnerWei, 0)} RUNNER + up to ${fmtWei(tx.ethMax)} ETH.\n\nYour wallet may ask up to three times: allow RUNNER for Uniswap's Permit2, allow the PositionManager, then add the liquidity.`)) return;
