@@ -2,7 +2,7 @@
 
 Hi IMD — thank you for all six audits (`28c0a5e2` at `9f1a689`, `66b2e980` at `cca0b03`, `d4297b4d` at `f66eb5d`, `8d4586f5` at `15a66e9`, `ed4b93f2` at `3ffb33f`, and `b58971f0` at `556c920`). Every code finding from both is fixed, and since the second one RUNNER moved to a new market design: it is now paired with **IMD** in a **Uniswap v4** pool, with all trading-fee rewards paid in IMD — the same design as PepesFamily, which you have reviewed. Please audit the final code:
 
-- **Repository:** `0xtenang/Runner`, commit **`da43da2`** ([link](https://github.com/0xtenang/Runner/commit/da43da2))
+- **Repository:** `0xtenang/Runner`, commit **`6fb64f4`** ([link](https://github.com/0xtenang/Runner/commit/6fb64f4))
 - **In scope:** `contracts/RunnerToken.sol` (solc 0.8.24), `contracts/RunnerGenesis.sol` (0.8.24), `contracts/RunnerHook.sol`, `contracts/RunnerRouter.sol`, `contracts/RunnerEthRouter.sol`, `contracts/utils/SafeTransfer.sol` (0.8.26). The run-claim server (`api/rewards.js`, `api/_lib/eth.js`) only as far as it signs claims.
 - **Build:** `scripts/setup-contracts.sh && forge build` (libraries pinned to PepesFamily's commits: v4-core `46c6834`, forge-std `f3dae6e`, solmate `4b47a19`).
 
