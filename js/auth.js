@@ -17,6 +17,14 @@ export const shortAddress = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : ''
 export const explorerUrl = (a) => `${ROBINHOOD_CHAIN.blockExplorers.default.url}/address/${a}`;
 export const CHAIN_NAME = ROBINHOOD_CHAIN.name;
 
+// The website added to an iPhone/iPad home screen (from Safari or Chrome). Google/Apple sign-in opens in a
+// separate browser view there and can't hand the result back to the app, so only email and wallets are offered.
+export const isIosHomeScreen = typeof navigator !== 'undefined' && !isNative
+  && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1))
+  && (navigator.standalone === true || matchMedia('(display-mode: standalone)').matches);
+/** How to describe the sign-in options in the app's own text. */
+export const SIGN_IN_METHODS = isIosHomeScreen ? 'email or a wallet' : 'Google, Apple or email';
+
 function summarize(user) {
   if (!user) return null;
   const method = user.google ? 'Google' : user.apple ? 'Apple' : user.email ? 'Email' : 'Wallet';
@@ -171,19 +179,27 @@ class Auth extends EventTarget {
     const host = document.createElement('div');
     host.id = 'privy-root';
     document.body.appendChild(host);
+    // While Privy's window is open, mark the page so our own full-screen layers step aside: on iPhone (WebKit)
+    // a scrolling fixed layer like the welcome screen can be drawn over it despite its higher z-index.
+    new MutationObserver(() => {
+      const open = Boolean(document.getElementById('privy-modal-content'));
+      if (document.body.classList.contains('privy-open') !== open) document.body.classList.toggle('privy-open', open);
+    }).observe(document.body, { childList: true, subtree: true });
     createRoot(host).render(h(Boundary, null, h(Privy.PrivyProvider, {
       appId: PRIVY_APP_ID,
       ...(PRIVY_CLIENT_ID ? { clientId: PRIVY_CLIENT_ID } : {}),
       config: {
         // Own wallets (MetaMask, Phantom, WalletConnect…) on the website; the phone app keeps Google/Apple/email
         // (wallet apps can't hand a connection back into the app reliably yet).
-        loginMethods: isNative ? ['google', 'apple', 'email'] : ['email', 'google', 'apple', 'wallet'],
+        loginMethods: isNative ? ['google', 'apple', 'email'] : isIosHomeScreen ? ['email', 'wallet'] : ['email', 'google', 'apple', 'wallet'],
         appearance: {
           theme: dark ? 'dark' : 'light',
           accentColor: '#E8483B',
           logo: isNative ? 'https://www.runearn.fun/icon.svg' : new URL('icon.svg', location.href).href,
           landingHeader: 'Sign in to RUNNER',
-          loginMessage: isNative ? 'Your wallet is created automatically — no seed phrase needed.' : 'Email, Google or Apple creates a wallet for you — or connect your own.',
+          loginMessage: isNative ? 'Your wallet is created automatically — no seed phrase needed.'
+            : isIosHomeScreen ? 'Email creates a wallet for you — or connect your own. Google and Apple sign-in work in your browser at runearn.fun.'
+              : 'Email, Google or Apple creates a wallet for you — or connect your own.',
           walletChainType: 'ethereum-only',
           walletList: ['detected_ethereum_wallets', 'metamask', 'phantom', 'wallet_connect_qr', 'coinbase_wallet', 'rainbow', 'okx_wallet', 'rabby_wallet'],
         },

@@ -449,6 +449,9 @@ body.immersive .topbar, body.immersive .tabbar { display: none; }
 
 /* ---------- onboarding ---------- */
 body.no-scroll { overflow: hidden; }
+/* Privy's sign-in window must never be covered (see auth.js: body.privy-open). */
+body.privy-open .onboard, body.privy-open .sheet-overlay, body.privy-open .reveal { visibility: hidden; }
+#headlessui-portal-root { position: relative; z-index: 2147483000; }
 .onboard { position: fixed; inset: 0; z-index: 3000; background: var(--surface); overflow-y: auto; animation: fade .25s ease; }
 .ob-card { max-width: 520px; min-height: 100dvh; margin: 0 auto; padding: calc(16px + env(safe-area-inset-top)) 20px calc(20px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 18px; }
 .ob-top { display: flex; align-items: center; justify-content: space-between; min-height: 34px; }

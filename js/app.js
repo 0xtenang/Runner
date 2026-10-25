@@ -6,7 +6,7 @@ import { annotate, computeSplits, downsample, speedSeries, units, fmtDist, fmtDu
 import { game, EarnSession, SNEAKER_TYPES, earnPerEnergy, COIN } from './game.js';
 import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange, addressAvatar, syncOwnedSneakers } from './earn-view.js';
 import { PRICE_ETH } from './collection.js';
-import { auth, shortAddress, explorerUrl } from './auth.js';
+import { auth, shortAddress, explorerUrl, SIGN_IN_METHODS } from './auth.js';
 import { runOnboarding } from './onboarding.js';
 import { settleRun, syncRewards } from './rewards.js';
 import { renderRewards } from './rewards-view.js';
@@ -1042,7 +1042,7 @@ function renderSettings() {
         <div class="setting">
           <div class="row">${ICON.user}<div><b>Account</b><div class="muted small">${auth.signedIn
             ? `${esc(auth.state.user?.method || '')}${auth.state.user?.email ? ` · ${esc(auth.state.user.email)}` : ''} · wallet ${shortAddress(auth.state.address)}`
-            : 'Guest — sign in with Google, Apple or email to get your wallet'}</div></div></div>
+            : `Guest — sign in with ${SIGN_IN_METHODS} to get your wallet`}</div></div></div>
           <button class="btn sm ${auth.signedIn ? '' : 'primary'}" id="b-account">${auth.signedIn ? 'Sign out' : 'Sign in'}</button>
         </div>` : ''}
         <div class="setting">

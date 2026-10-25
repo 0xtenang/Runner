@@ -1,7 +1,7 @@
 // "Earn" tab: wallet, RUNNER balance, energy, owned sneaker NFTs (levels,
 // attribute points, repair) and the RUNNER Genesis shop (buy NFTs with ETH).
 import { units, fmtPace } from './stats.js';
-import { auth, shortAddress, explorerUrl, CHAIN_NAME } from './auth.js';
+import { auth, shortAddress, explorerUrl, CHAIN_NAME, SIGN_IN_METHODS } from './auth.js';
 import { COLLECTION, MODELS, EDITIONS, traitsFor, collectionStats, rarityOf, priceOf, PRICE_ETH } from './collection.js';
 import { getBalance, getEthUsd, toUsd, getTransfers, estimateFee, parseEth, formatEth, isAddress, txUrl } from './wallet.js';
 import { nftLive, ownedTokens, mintedStatus, totalMinted, salesPaused, mintData, nativeBalance, mintFeeEstimate, waitForReceipt, nftExplorerTx } from './nft.js';
@@ -158,7 +158,7 @@ function walletCard() {
   return `
     <div class="card wallet-id guest">
       <b>Get your own wallet</b>
-      <p class="muted small">Sign in with Google, Apple or email and a ${CHAIN_NAME} wallet is created for you — no seed phrase or private key to import. You need it to own sneaker NFTs and earn ${COIN}.</p>
+      <p class="muted small">Sign in with ${SIGN_IN_METHODS} and a ${CHAIN_NAME} wallet is created for you — no seed phrase or private key to import. You need it to own sneaker NFTs and earn ${COIN}.</p>
       ${st.error ? `<p class="small" style="color:var(--bad);margin:0">${esc(st.error)}</p>` : ''}
       <button class="btn primary pill" data-act="signin" ${st.loading && !st.ready ? 'disabled' : ''}>${st.loading && !st.ready ? 'Loading sign-in…' : 'Sign in'}</button>
     </div>`;

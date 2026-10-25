@@ -2,7 +2,7 @@
 // name, units, location and heart-rate setup. Sneakers are NFTs bought in the
 // Earn tab — there is no free starter.
 import { game, MINUTES_PER_ENERGY, COIN } from './game.js';
-import { auth, shortAddress } from './auth.js';
+import { auth, shortAddress, SIGN_IN_METHODS } from './auth.js';
 import { sneakerSvg } from './earn-view.js';
 import { traitsFor, PRICE_ETH } from './collection.js';
 import { units } from './stats.js';
@@ -83,7 +83,7 @@ export function runOnboarding() {
           <div class="ob-body">${screens[step]()}</div>
           ${offerSignIn() ? `
             <div class="ob-auth">
-              <button class="btn primary ob-signin" data-ob="signin">Continue with Google, Apple or email</button>
+              <button class="btn primary ob-signin" data-ob="signin">Continue with ${SIGN_IN_METHODS}</button>
               <button class="btn ob-guest" data-ob="next">Continue as guest</button>
               <span class="muted small">Signing in creates your own Robinhood Chain wallet — no seed phrase or private key to import. You need it to own sneakers and earn.</span>
               ${globalThis.Capacitor?.isNativePlatform?.() ? '' : '<a class="small ob-app" href="/download" target="_blank" rel="noopener">On Android? Get the app — it keeps recording with the screen locked →</a>'}
