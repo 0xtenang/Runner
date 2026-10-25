@@ -75,7 +75,7 @@
       <div class="wp-meta">
         <span class="tag draft">Draft v0.2 · for public review</span>
         <span class="tag">25 October 2026</span>
-        <span class="tag">Contracts not deployed yet</span>
+        <span class="tag">Live on Robinhood Chain</span>
         <span class="tag">Six IMD audit rounds · final re-check pending</span>
         <a class="tag" href="/download" style="text-decoration:none;color:var(--accent-strong)">Get the Android app →</a>
       </div>
@@ -110,7 +110,7 @@
           <li><b>Paired with IMD</b> — RUNNER trades against IMD in one Uniswap v4 pool with liquidity locked forever. Every trade pays a 4% fee in IMD: 2% to the protocol, 2% shared by holders.</li>
           <li><b>Verified runs</b> — every run is re-checked by a server with the same rules as the app, plus fair-play checks, before it earns anything.</li>
         </ul>
-        <div class="warn"><b>Status:</b> this is a draft. The smart contracts are written, tested and through six audit rounds by IMD (section 10), but not deployed yet. Numbers below are the current design and may change before launch. Nothing here is investment advice or a promise of value.</div>
+        <div class="warn"><b>Status:</b> the contracts are live on Robinhood Chain (addresses in section 10) after six audit rounds by IMD. Numbers below are the current design and may change before launch. Nothing here is investment advice or a promise of value.</div>
       </section>
 
       <section class="wp-sec" id="app">
@@ -271,6 +271,15 @@
           <li><b>IMD audits:</b> six rounds by IMD's multi-agent auditors (each reproduces findings with tests). Every finding was fixed or documented, and the latest rounds found nothing above low severity. A final re-check of the last fixes comes before any mainnet deployment.</li>
           <li><b>Internal review</b> of the contracts and the rewards server, with every finding, fix and owner power in <a class="inline" href="https://github.com/0xtenang/Runner/blob/main/AUDIT.md" target="_blank" rel="noopener">AUDIT.md</a>.</li>
           <li><b>Automated tests:</b> 383 checks — 40 Foundry tests of the hook against a real Uniswap v4 PoolManager (3 of them on a Robinhood Chain mainnet fork with the real IMD), 177 for the token (including a randomized 45-day model of the holder-reward bookkeeping), 56 for the NFT and 110 for the rewards server. 71 deliberately planted bugs, including every audit fix undone, are all caught.</li>
+          <li><b>Contract addresses</b> (Robinhood Chain, chain 4663) — each checked byte for byte against the audited build:
+            <ul>
+              <li>RUNNER token: <a class="inline mono" href="https://robinhoodchain.blockscout.com/address/0x52cE7fC26a4Bb4B8aFef02C1b00486FDF4Bb804e" target="_blank" rel="noopener">0x52cE7fC26a4Bb4B8aFef02C1b00486FDF4Bb804e</a></li>
+              <li>RunnerHook (RUNNER/IMD pool, 4% fee): <a class="inline mono" href="https://robinhoodchain.blockscout.com/address/0x962c745D5feC4BC0Fd6dE15D47fc17C40C4c68EC" target="_blank" rel="noopener">0x962c745D5feC4BC0Fd6dE15D47fc17C40C4c68EC</a></li>
+              <li>RunnerRouter (IMD): <a class="inline mono" href="https://robinhoodchain.blockscout.com/address/0x55866De8BD1e5Fbf79433Ee2526D3405F64692Ba" target="_blank" rel="noopener">0x55866De8BD1e5Fbf79433Ee2526D3405F64692Ba</a></li>
+              <li>RunnerEthRouter (ETH): <a class="inline mono" href="https://robinhoodchain.blockscout.com/address/0xcAc6938E8309Dc9687C82DFb745B21950Fe0F6A1" target="_blank" rel="noopener">0xcAc6938E8309Dc9687C82DFb745B21950Fe0F6A1</a></li>
+              <li>RUNNER Genesis NFT: <a class="inline mono" href="https://robinhoodchain.blockscout.com/address/0x7ded256c6646630dFcf15317aeB7cF40027932CC" target="_blank" rel="noopener">0x7ded256c6646630dFcf15317aeB7cF40027932CC</a></li>
+            </ul>
+          </li>
           <li><b>Verifiable builds:</b> the deploy page refuses to deploy any contract whose bytecode differs from the reviewed build. Source code is public at <a class="inline" href="https://github.com/0xtenang/Runner" target="_blank" rel="noopener">github.com/0xtenang/Runner</a>.</li>
         </ul>
       </section>
@@ -311,7 +320,7 @@
         </ul>
       </section>
 
-      <p class="foot">RUNNER Whitepaper · Draft v0.2 · Contract addresses will be published here at launch.</p>
+      <p class="foot">RUNNER Whitepaper · Draft v0.2 · Contract addresses: section 10.</p>
     </article>
   </div>
 </body>

@@ -6,7 +6,18 @@ A simple GPS running app with a run-to-earn layer: own a **RUNNER Genesis** snea
 
 **Try it:** https://runearn.fun
 
-> RUNNER Genesis sneakers are live on **Robinhood Chain** (`0x7ded256c6646630dFcf15317aeB7cF40027932CC`), bought with real ETH. The RUNNER token is deployed (`0x52cE7fC26a4Bb4B8aFef02C1b00486FDF4Bb804e`); trading starts when the RUNNER/IMD pool opens.
+> **Live on Robinhood Chain (25 October 2026).** RUNNER trades against IMD in its Uniswap v4 pool (liquidity locked forever); RUNNER Genesis sneakers are on sale with real ETH. Run-reward claims open once the rewards server and emission are switched on.
+
+| Contract | Address |
+|---|---|
+| RUNNER token | [`0x52cE7fC26a4Bb4B8aFef02C1b00486FDF4Bb804e`](https://robinhoodchain.blockscout.com/address/0x52cE7fC26a4Bb4B8aFef02C1b00486FDF4Bb804e) |
+| RunnerHook (RUNNER/IMD pool, 4% fee) | [`0x962c745D5feC4BC0Fd6dE15D47fc17C40C4c68EC`](https://robinhoodchain.blockscout.com/address/0x962c745D5feC4BC0Fd6dE15D47fc17C40C4c68EC) |
+| RunnerRouter (IMD) | [`0x55866De8BD1e5Fbf79433Ee2526D3405F64692Ba`](https://robinhoodchain.blockscout.com/address/0x55866De8BD1e5Fbf79433Ee2526D3405F64692Ba) |
+| RunnerEthRouter (ETH) | [`0xcAc6938E8309Dc9687C82DFb745B21950Fe0F6A1`](https://robinhoodchain.blockscout.com/address/0xcAc6938E8309Dc9687C82DFb745B21950Fe0F6A1) |
+| RUNNER Genesis NFT | [`0x7ded256c6646630dFcf15317aeB7cF40027932CC`](https://robinhoodchain.blockscout.com/address/0x7ded256c6646630dFcf15317aeB7cF40027932CC) |
+| IMD | [`0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127`](https://robinhoodchain.blockscout.com/address/0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127) |
+
+Each deployed contract was checked byte for byte against the audited build.
 
 ## Install on your phone
 
