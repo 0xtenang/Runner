@@ -10,6 +10,7 @@ import { auth, shortAddress, explorerUrl } from './auth.js';
 import { runOnboarding } from './onboarding.js';
 import { settleRun, syncRewards } from './rewards.js';
 import { renderRewards } from './rewards-view.js';
+import { DEV_WALLET } from './config.js';
 
 // RUNNER is run-only: every activity is a run, recorded or imported.
 
@@ -1072,6 +1073,10 @@ function renderSettings() {
           <div class="row">${ICON.heart}<div><b>Heart-rate sensor</b><div class="muted small">Chest straps and watches that broadcast heart rate</div></div></div>
           ${ICON.chev}
         </a>
+        ${auth.signedIn && auth.state.address.toLowerCase() === DEV_WALLET.toLowerCase() ? `<a class="setting" href="${SITE}/admin.html?c=token" target="_blank" rel="noopener">
+          <div class="row">${ICON.gear}<div><b>Admin</b><div class="muted small">Dev wallet only — deploy, launch, protocol rewards, game settings</div></div></div>
+          ${ICON.chev}
+        </a>` : ''}
         ${isNative ? '' : `<a class="setting" href="/download" target="_blank" rel="noopener">
           <div class="row">${ICON.phone}<div><b>Android app</b><div class="muted small">Keeps recording with the screen locked — install it from runearn.fun</div></div></div>
           ${ICON.chev}
