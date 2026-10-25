@@ -21,6 +21,9 @@ function loadCharacter() {
 const ch = loadCharacter();
 // Two Pepes in PepesFamily outfits, from IMD's sprite frames (brand/assets/imd-frame-*.png)
 const pair = fs.existsSync(here('assets/imd-frame-10.png')) ? runnerPepes(here('assets/')) : null;
+// For round avatars (DexScreener crops the token logo to a circle): the R moved from right of centre to the
+// middle and scaled a little, so nothing is cut off.
+const centeredIcon = (svg) => svg.replace(/(<rect width="512" height="512"[^>]*\/>)([\s\S]*)<\/svg>\s*$/, '$1<g transform="translate(256 256) scale(0.86) translate(-331 -256)">$2</g></svg>');
 fs.mkdirSync(here('out/'), { recursive: true });
 const files = {
   'icon.svg': iconSvg(512),
@@ -36,6 +39,9 @@ const files = {
   'poster-pepes.svg': posterSvg(1000, { ch: pair }),
   'banner-opensea-pepes.svg': bannerSvg(1400, 350, { ch: pair }),
   'og-pepes.svg': bannerSvg(1200, 630, { ch: pair }),
+  // DexScreener token profile: header 3:1 (1500×500) and a square icon
+  'banner-dexscreener.svg': bannerSvg(1500, 500, { ch: pair }),
+  'icon-dexscreener.svg': centeredIcon(iconSvg(512)),
 };
 for (const [name, svg] of Object.entries(files)) fs.writeFileSync(here(`out/${name}`), svg);
 console.log(`${Object.keys(files).length} files in brand/out/ — IMD character: ${ch ? 'embedded' : 'placeholder (add brand/assets/character.png)'}`);
