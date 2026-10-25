@@ -86,6 +86,7 @@ export function runOnboarding() {
               <button class="btn primary ob-signin" data-ob="signin">Continue with Google, Apple or email</button>
               <button class="btn ob-guest" data-ob="next">Continue as guest</button>
               <span class="muted small">Signing in creates your own Robinhood Chain wallet — no seed phrase or private key to import. You need it to own sneakers and earn.</span>
+              ${globalThis.Capacitor?.isNativePlatform?.() ? '' : '<a class="small ob-app" href="/download" target="_blank" rel="noopener">On Android? Get the app — it keeps recording with the screen locked →</a>'}
             </div>` : `
             <button class="btn primary ob-next" data-ob="next">${last ? 'Start running' : step === 0 ? 'Get started' : 'Next'}</button>`}
         </div>`;

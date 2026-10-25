@@ -334,6 +334,13 @@ body.immersive .topbar, body.immersive .tabbar { display: none; }
 .wallet { display: grid; gap: 16px; }
 .holder-rewards { display: grid; gap: 6px; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
 
+/* ---------- Android app banner (website only) ---------- */
+.app-banner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; background: var(--surface); border-radius: var(--radius); padding: 14px 12px 14px 16px; }
+.app-banner-icon svg { width: 28px; height: 28px; fill: none; stroke: var(--accent-strong); stroke-width: 2; }
+.app-banner b { display: block; }
+.app-banner .icon-btn { min-width: 32px; min-height: 32px; font-size: 20px; line-height: 1; color: var(--muted); background: transparent; border: 0; cursor: pointer; }
+.ob-app { color: var(--accent-strong); font-weight: 700; text-align: center; }
+
 /* ---------- rewards tab ---------- */
 .rw-hero { display: grid; gap: 8px; justify-items: start; }
 .rw-big { font-size: 34px; font-weight: 900; margin: 0; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }

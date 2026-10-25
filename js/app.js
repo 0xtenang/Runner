@@ -306,6 +306,7 @@ async function renderHome() {
           <a class="btn primary pill" href="#/record">Record now</a>
         </div>
       </div>
+      ${appBanner()}
       ${runs.length ? runs.map(post).join('') : `
         <div class="post empty">
           ${ICON.route}
@@ -317,6 +318,23 @@ async function renderHome() {
         </div>`}
     </section>`;
   lazyMaps(runs.filter((a) => a.preview?.length > 1));
+  view.querySelector('[data-act="hide-app-banner"]')?.addEventListener('click', () => {
+    try { localStorage.setItem(APP_BANNER_KEY, '1'); } catch { /* ignore */ }
+    view.querySelector('.app-banner')?.remove();
+  });
+}
+
+// Website only: point people to the Android app, which keeps recording with the screen locked.
+const APP_BANNER_KEY = 'runner.appBanner.hidden';
+function appBanner() {
+  if (isNative) return '';
+  try { if (localStorage.getItem(APP_BANNER_KEY)) return ''; } catch { /* show it */ }
+  return `<div class="app-banner">
+      <span class="app-banner-icon">${ICON.phone}</span>
+      <div><b>Get the Android app</b><span class="muted small">Keeps recording your run with the screen locked.</span></div>
+      <a class="btn primary pill sm" href="/download">Download</a>
+      <button class="icon-btn sm" data-act="hide-app-banner" aria-label="Hide">×</button>
+    </div>`;
 }
 
 // ---------------------------------------------------------------- map styles
