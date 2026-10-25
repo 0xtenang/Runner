@@ -302,8 +302,13 @@ async function setup() {
   for (let i = 0; i < 30; i++) { total += E18; if (!(await claimAs(C, C, total)).ok) okAll = false; }
   ok('30 active locks allowed', okAll && u(await view('locksOf', C), 3) === 30n);
   ok('31st lock rejected until some finish', reverts(await claimAs(C, C, total + E18), 'TooManyLocks'));
-  ok('instant claims still work at the limit', (await claimAs(C, C, total + E18, true)).ok);
+  // Sixth audit, #2: claimable() matches claim() for the payout choice and the lock limit.
+  ok('claimable is 0 for a locked claim at the lock limit, like claim()', u(await view('claimable', C, total + E18, false)) === 0n);
+  ok('…and 80% for an instant claim (20% burned), what it actually pays', u(await view('claimable', C, total + E18, true)) === E18 * 8n / 10n);
+  const cBefore = await bal(C);
+  ok('instant claims still work at the limit', (await claimAs(C, C, total + E18, true)).ok && await bal(C) - cBefore === E18 * 8n / 10n);
   c.addTime(7 * DAY + 1);
+  ok('claimable counts only unfinished locks (claim() releases finished ones first)', u(await view('claimable', C, total + 2n * E18, false)) === E18);
   ok('after locks finish, locking works again', (await claimAs(C, C, total + 2n * E18)).ok && u(await view('locksOf', C), 3) === 1n);
   // accounting
   const burned = u(await view('totalBurnedInstant'));
@@ -525,15 +530,15 @@ async function setup() {
   const SKEY = secp256k1.utils.randomPrivateKey();
   const SIGNER = `0x${keccakHex(secp256k1.getPublicKey(SKEY, false).slice(1)).slice(24)}`;
   const A = W(1);
-  ok('claimable is 0 before emission starts', u(await view('claimable', A, 100n * E18)) === 0n);
+  ok('claimable is 0 before emission starts', u(await view('claimable', A, 100n * E18, false)) === 0n);
   await call(DEV, 'startEmission');
-  ok('claimable is 0 with no signer set', u(await view('claimable', A, 100n * E18)) === 0n);
+  ok('claimable is 0 with no signer set', u(await view('claimable', A, 100n * E18, false)) === 0n);
   await call(DEV, 'setSigner', SIGNER);
-  ok('claimable = the difference once claims are on', u(await view('claimable', A, 100n * E18)) === 100n * E18);
-  ok('claimable is 0 when the full amount doesn\'t fit today (claims are all-or-nothing; third audit #4)', u(await view('claimable', A, 30_000_000n * E18)) === 0n);
-  ok('…and the full amount when it does fit', u(await view('claimable', A, 10_000_000n * E18)) === 10_000_000n * E18);
+  ok('claimable = the difference once claims are on', u(await view('claimable', A, 100n * E18, false)) === 100n * E18);
+  ok('claimable is 0 when the full amount doesn\'t fit today (claims are all-or-nothing; third audit #4)', u(await view('claimable', A, 30_000_000n * E18, false)) === 0n);
+  ok('…and the full amount when it does fit', u(await view('claimable', A, 10_000_000n * E18, false)) === 10_000_000n * E18);
   await call(DEV, 'setClaimsPaused', true);
-  ok('claimable is 0 while claims are paused', u(await view('claimable', A, 100n * E18)) === 0n);
+  ok('claimable is 0 while claims are paused', u(await view('claimable', A, 100n * E18, false)) === 0n);
   // Finding 3: a pending ownership proposal can be cancelled.
   await call(DEV, 'transferOwnership', W(5));
   ok('owner can cancel a proposal with address(0)', (await call(DEV, 'transferOwnership', ZERO)).ok && (await view('pendingOwner')).slice(26) === '0'.repeat(40));
@@ -543,6 +548,12 @@ async function setup() {
   // Finding 4: the protocol wallet can't be the token itself.
   ok('protocol wallet can\'t be the token contract', reverts(await call(DEV, 'setProtocolWallet', tok), 'BadAddress'));
   // Fourth audit #2, #9: nor the pool manager or the hook; no zero-address burns.
+  {
+    // Sixth audit, #1: the owner is the first protocol wallet, so the constructor applies the same rule.
+    const c2 = await chain();
+    const imd2 = (await c2.send(DEPLOYER, null, I.ctor())).created;
+    ok('constructor refuses the pool manager or the hook as owner / protocol wallet', reverts(await c2.send(DEPLOYER, null, T.ctor(PM, HOOK, TEAM, imd2, PM)), 'BadAddress') && reverts(await c2.send(DEPLOYER, null, T.ctor(HOOK, HOOK, TEAM, imd2, PM)), 'BadAddress'));
+  }
   ok('protocol wallet can\'t be the pool manager or the hook', reverts(await call(DEV, 'setProtocolWallet', PM), 'BadAddress') && reverts(await call(DEV, 'setProtocolWallet', HOOK), 'BadAddress'));
   ok('burnFrom(address(0), 0) is refused', reverts(await call(W(3), 'burnFrom', ZERO, 0n), 'ZeroAddress'));
   // Fourth audit #8: sweepExpired(max) means "all expired days".

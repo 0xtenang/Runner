@@ -1,6 +1,6 @@
 # Re-audit request — RUNNER contracts
 
-Hi IMD — thank you for all five audits (`28c0a5e2` at `9f1a689`, `66b2e980` at `cca0b03`, `d4297b4d` at `f66eb5d`, `8d4586f5` at `15a66e9`, and `ed4b93f2` at `3ffb33f`). Every code finding from both is fixed, and since the second one RUNNER moved to a new market design: it is now paired with **IMD** in a **Uniswap v4** pool, with all trading-fee rewards paid in IMD — the same design as PepesFamily, which you have reviewed. Please audit the final code:
+Hi IMD — thank you for all six audits (`28c0a5e2` at `9f1a689`, `66b2e980` at `cca0b03`, `d4297b4d` at `f66eb5d`, `8d4586f5` at `15a66e9`, `ed4b93f2` at `3ffb33f`, and `b58971f0` at `556c920`). Every code finding from both is fixed, and since the second one RUNNER moved to a new market design: it is now paired with **IMD** in a **Uniswap v4** pool, with all trading-fee rewards paid in IMD — the same design as PepesFamily, which you have reviewed. Please audit the final code:
 
 - **Repository:** `0xtenang/Runner`, commit **`da43da2`** ([link](https://github.com/0xtenang/Runner/commit/da43da2))
 - **In scope:** `contracts/RunnerToken.sol` (solc 0.8.24), `contracts/RunnerGenesis.sol` (0.8.24), `contracts/RunnerHook.sol`, `contracts/RunnerRouter.sol`, `contracts/RunnerEthRouter.sol`, `contracts/utils/SafeTransfer.sol` (0.8.26). The run-claim server (`api/rewards.js`, `api/_lib/eth.js`) only as far as it signs claims.
@@ -36,6 +36,15 @@ Hi IMD — thank you for all five audits (`28c0a5e2` at `9f1a689`, `66b2e980` at
 ## 2. Fixes since your audits
 
 **First audit (`28c0a5e2`):** #1 self-transfer, #2 retroactive exclusion, #3 signed payout choice, #5 deploy-day shares, #6 safe mint, #7 two-step ownership — fixed at `938a178` (details in `AUDIT.md`). #4 and #8 acknowledged.
+
+**Sixth audit (`b58971f0`):**
+
+| # | Severity | Finding | What changed |
+|---|---|---|---|
+| 1 | Low | The hook's constructor accepted the PoolManager or the hook itself as `feeRecipient` (which `setFeeRecipient` refuses); protocol IMD collected before a fix would be lost. The token's constructor had the same gap for the owner, who is also the first protocol wallet. | **Fixed:** the hook constructor refuses both (`ZeroAddress`, as the setter); the token constructor refuses the token itself, the PoolManager and the hook as owner (`BadAddress`, as `setProtocolWallet`). Tests: deploying the hook with the PoolManager or its own address as fee recipient reverts; deploying the token with the PoolManager or hook as owner reverts. |
+| 2 | Low | `claimable()` promised "what claim() would pay" but ignored the 20% instant burn and the 30-lock limit. | **Fixed:** `claimable(account, totalEarned, instant)` returns 80% for an instant claim and 0 for a locked claim that would exceed `MAX_ACTIVE_LOCKS` (counting only unfinished locks, since `claim()` releases finished ones first). The app computes its figure server-side, so nothing else changes. Tests: at the lock limit the locked view is 0 and the instant view equals what the claim pays; after locks finish the view is the full amount again. |
+| 3 | Info | A 1-wei fee goes entirely to holders (the protocol half rounds down). | **Documented, by design:** the protocol half of the fee rounds down, so the odd wei of any fee goes to holders; at most 1 wei per swap, and the total is always exact. |
+| 4 | Info | `buyWithEth` refunded the router's whole ETH balance, not only the buyer's unspent ETH. | **Fixed:** the callback returns the ETH the IMD/ETH pool took, and only `msg.value - ethIn` is refunded. Test: with 1 stray wei in the router, a 1 ETH buy costs exactly 1 ETH and the stray wei stays. |
 
 **Fifth audit (`ed4b93f2`):**
 
@@ -112,14 +121,14 @@ The hook is deployed through the standard CREATE2 deployer (`0x4e59…956C`) at 
 
 ## 5. Tests and build fingerprints
 
-- Foundry: 35 tests (incl. a 256-run fuzz) against a real v4 PoolManager, plus 3 on a Robinhood Chain mainnet fork (real PoolManager, IMD and IMD/ETH pool): `FORK_RPC=https://robinhood.drpc.org forge test`.
-- `tests/`: token 173 checks (incl. all five audits' reproductions and a randomized model), NFT 56, server 110.
-- Mutation checks: 64 of 64 planted bugs caught, including every fix above undone.
+- Foundry: 37 tests (incl. a 256-run fuzz) against a real v4 PoolManager, plus 3 on a Robinhood Chain mainnet fork (real PoolManager, IMD and IMD/ETH pool): `FORK_RPC=https://robinhood.drpc.org forge test`.
+- `tests/`: token 177 checks (incl. all six audits' reproductions and a randomized model), NFT 56, server 110.
+- Mutation checks: 71 of 71 planted bugs caught, including every fix above undone.
 
 | Contract | Creation-code keccak |
 |---|---|
-| RunnerToken | `0x5dd29313d079ac0da0e91228161e0d2ac15badf3529e38a25705938f158414c6` |
+| RunnerToken | `0x75d8d27c4c1220ebabaf525493933771ca45bab43110bb52f09fa74ce0d226d5` |
 | RunnerGenesis | `0x270c71d725f5555873c1391b02799879056d7d4923759ab75fe6cd3d9c32ed9e` |
-| RunnerHook | `0xa19ac5773841d46411339cf0809c6ba2cd95ea673a9ca18e4230955e2f8d5398` (`contracts/build/RunnerHook.json`) |
+| RunnerHook | `0xddf207aa61c7b1007ccd63352897f2233604cb48ca3cdbeace1e26d6e5eb4c2c` (`contracts/build/RunnerHook.json`) |
 
 Thank you!

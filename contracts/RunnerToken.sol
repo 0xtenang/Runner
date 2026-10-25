@@ -185,6 +185,8 @@ contract RunnerToken {
     /// @param hook_ the RunnerHook (deployed first); it receives the liquidity allocation and locks it in the pool
     constructor(address initialOwner, address hook_, address teamWallet, address rewardToken_, address poolManager_) {
         if (initialOwner == address(0) || hook_ == address(0) || teamWallet == address(0) || rewardToken_ == address(0) || poolManager_ == address(0)) revert ZeroAddress();
+        // The owner is also the first protocol wallet: same rule as setProtocolWallet (sixth audit, #1).
+        if (initialOwner == address(this) || initialOwner == poolManager_ || initialOwner == hook_) revert BadAddress();
         rewardToken = rewardToken_;
         hook = hook_;
         poolManager = poolManager_;
@@ -340,11 +342,13 @@ contract RunnerToken {
         return balanceOf[address(this)] - totalLocked;
     }
 
-    /// @notice What claim() would pay right now with a server signature for `totalEarned`: the
-    ///         difference to what was already claimed, or 0 while claims are paused, emission hasn't
-    ///         started, no signer is set, or the difference doesn't fit in today's remaining
-    ///         emission or the run-reward pool (claims are all-or-nothing).
-    function claimable(address account, uint256 totalEarned) external view returns (uint256 amount) {
+    /// @notice What claim() would pay right now with a server signature for `totalEarned` and the
+    ///         payout choice `instant`: the difference to what was already claimed (80% of it when
+    ///         instant, the rest is burned; 100% when locked, paid after 7 days), or 0 while claims
+    ///         are paused, emission hasn't started, no signer is set, the difference doesn't fit in
+    ///         today's remaining emission or the run-reward pool (claims are all-or-nothing), or a
+    ///         locked claim would exceed MAX_ACTIVE_LOCKS (sixth audit, #2).
+    function claimable(address account, uint256 totalEarned, bool instant) external view returns (uint256 amount) {
         if (claimsPaused || emissionStartDay == 0 || signer == address(0)) return 0;
         uint256 done = claimed[account];
         if (totalEarned <= done) return 0;
@@ -353,6 +357,12 @@ contract RunnerToken {
         uint256 limit = emissionOn(day);
         uint256 leftToday = limit > claimedOnDay[day] ? limit - claimedOnDay[day] : 0;
         if (amount > leftToday || amount > rewardsRemaining()) return 0;
+        if (instant) return amount - amount * INSTANT_BURN_BPS / BPS;
+        // claim() releases finished locks first, so only unfinished ones take a slot.
+        Lock[] storage locks = _locks[account];
+        uint256 active;
+        for (uint256 i = _lockHead[account]; i < locks.length; i++) if (locks[i].unlockAt > block.timestamp) active++;
+        if (active >= MAX_ACTIVE_LOCKS) return 0;
     }
 
     /// @notice Pay `account` its verified run earnings, either

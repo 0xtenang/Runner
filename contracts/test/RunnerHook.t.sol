@@ -715,6 +715,27 @@ contract RunnerHookTest is Test {
         assertTrue(seen, "Trade emitted");
     }
 
+    // ------------------------------------------------------------ sixth audit
+
+    /// @dev #1: the constructor refuses the fee recipients setFeeRecipient refuses (the PoolManager, the hook).
+    function test_constructor_rejectsPoolManagerOrSelfAsFeeRecipient() public {
+        vm.expectRevert(RunnerHook.ZeroAddress.selector);
+        new RunnerHook(pm, address(imd), owner, address(pm), int24(142_600), RunnerHook.ImdEthPool(10_000, 100, address(0)));
+        address next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        vm.expectRevert(RunnerHook.ZeroAddress.selector);
+        new RunnerHook(pm, address(imd), owner, next, int24(142_600), RunnerHook.ImdEthPool(10_000, 100, address(0)));
+    }
+
+    /// @dev #4: an ETH buy refunds only the buyer's unspent ETH, never ETH the router got some other way.
+    function test_ethBuy_refundsOnlyTheBuyersEth() public {
+        vm.deal(address(ethRouter), 1 wei); // e.g. a self-destruct beneficiary
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        ethRouter.buyWithEth{value: 1 ether}(address(runner), 0, block.timestamp);
+        assertEq(before - alice.balance, 1 ether, "alice paid exactly 1 ETH");
+        assertEq(address(ethRouter).balance, 1 wei, "the stray wei is not handed to the buyer");
+    }
+
     // ------------------------------------------------------------ fuzz
 
     /// @dev Any sequence of buys and sells: the hook's IMD claims always cover what it owes, the fee split is

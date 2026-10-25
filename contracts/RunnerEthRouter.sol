@@ -76,11 +76,12 @@ contract RunnerEthRouter is IUnlockCallback {
     {
         if (msg.value == 0) revert BadAmount();
         _checkImdPair(token);
-        tokensOut = abi.decode(
-            poolManager.unlock(abi.encode(Route(msg.sender, token, true, msg.value, minTokensOut))), (uint256)
+        uint256 ethIn;
+        (tokensOut, ethIn) = abi.decode(
+            poolManager.unlock(abi.encode(Route(msg.sender, token, true, msg.value, minTokensOut))), (uint256, uint256)
         );
-        // Refund ETH the IMD/ETH pool didn't take (only if it ran out of liquidity).
-        if (address(this).balance > 0) address(0).transferOut(msg.sender, address(this).balance);
+        // Refund only this buyer's ETH the IMD/ETH pool didn't take (only if it ran out of liquidity; sixth audit, #4).
+        if (msg.value > ethIn) address(0).transferOut(msg.sender, msg.value - ethIn);
     }
 
     /// @notice Sell RUNNER for ETH. Approve this contract for `tokenAmount` first.
@@ -91,8 +92,8 @@ contract RunnerEthRouter is IUnlockCallback {
     {
         if (tokenAmount == 0 || tokenAmount > uint256(type(int256).max)) revert BadAmount();
         _checkImdPair(token);
-        ethOut = abi.decode(
-            poolManager.unlock(abi.encode(Route(msg.sender, token, false, tokenAmount, minEthOut))), (uint256)
+        (ethOut,) = abi.decode(
+            poolManager.unlock(abi.encode(Route(msg.sender, token, false, tokenAmount, minEthOut))), (uint256, uint256)
         );
     }
 
@@ -108,10 +109,11 @@ contract RunnerEthRouter is IUnlockCallback {
         bool imdIs0 = Currency.unwrap(tokenKey.currency0) == IMD;
 
         uint256 out;
+        uint256 ethIn;
         if (r.isBuy) {
             // ETH -> IMD
             BalanceDelta d1 = _swap(imdEthKey(), true, r.amountIn, "");
-            uint256 ethIn = uint256(int256(-d1.amount0()));
+            ethIn = uint256(int256(-d1.amount0()));
             uint256 imdOut = uint256(int256(d1.amount1()));
             // IMD -> RUNNER (the RunnerHook takes its fee here)
             BalanceDelta d2 = _swap(tokenKey, imdIs0, imdOut, abi.encode(r.user));
@@ -146,7 +148,7 @@ contract RunnerEthRouter is IUnlockCallback {
             if (imdLeft > 0) poolManager.take(Currency.wrap(IMD), r.user, imdLeft);
             poolManager.take(Currency.wrap(address(0)), r.user, out);
         }
-        return abi.encode(out);
+        return abi.encode(out, ethIn);
     }
 
     /// @dev `hookData` carries the user on the RUNNER pool's swap, so the hook credits the right trader.

@@ -176,6 +176,8 @@ contract RunnerHook is IHooks, IUnlockCallback {
         if (address(poolManager_) == address(0) || imd == address(0) || owner_ == address(0) || feeRecipient_ == address(0)) {
             revert ZeroAddress();
         }
+        // Same rule as setFeeRecipient: IMD sent to the hook is stuck, sent to the PoolManager it vanishes (sixth audit, #1).
+        if (feeRecipient_ == address(this) || feeRecipient_ == address(poolManager_)) revert ZeroAddress();
         int24 limit = TickMath.maxUsableTick(TICK_SPACING) - TICK_SPACING;
         if (startTick_ % TICK_SPACING != 0 || startTick_ > limit || startTick_ < -limit) revert BadTick();
         // The launch liquidity must fit in a v4 tick whichever way the pair sorts (RUNNER's address isn't known
@@ -355,6 +357,7 @@ contract RunnerHook is IHooks, IUnlockCallback {
     /// @dev The hook is credited `fee` by the swap; minting claims of the same size settles that credit.
     function _chargeFee(address t, uint256 fee) internal {
         if (fee == 0) return;
+        // The protocol half rounds down, so an odd wei goes to holders (a 1-wei fee is all holders'; sixth audit, #3).
         uint256 protocolFee = (fee * PROTOCOL_FEE_BPS) / FEE_BPS;
         pendingProtocolFees[IMD] += protocolFee;
         pendingHolderFees[t] += fee - protocolFee;
