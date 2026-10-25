@@ -78,7 +78,6 @@ rec.addEventListener('tick', () => {
 
 let cleanup = [];
 const onCleanup = (fn) => cleanup.push(fn);
-let wakeLock = null;
 
 function toast(msg, ms = 2600) {
   const el = document.createElement('div');
@@ -393,34 +392,18 @@ function fmtClock(sec, long = false) {
   return long ? `${p(h)}:${p(m)}:${p(x)}` : h ? `${h}:${p(m)}:${p(x)}` : `${p(m)}:${p(x)}`;
 }
 
-// Screen wake: Wake Lock API where available, otherwise a tiny muted inline
-// video (helps older iPhone home-screen apps). Best effort — browsers still
-// suspend the page if the user locks the phone.
+// Screen wake while recording on the website: the browser's Wake Lock API only (no hidden media, which
+// could take over the phone's media controls or pause music). Best effort — browsers without it, or a
+// user locking the phone, still suspend the page; the phone app records with the screen off.
 const keepAwake = {
-  lock: null, video: null, timer: null,
+  lock: null,
   async on() {
-    if (isNative) return; // the phone app keeps recording with the screen off
-    try { if (navigator.wakeLock) { this.lock = await navigator.wakeLock.request('screen'); return; } } catch { /* fall back */ }
-    try {
-      if (!this.video) {
-        const c = Object.assign(document.createElement('canvas'), { width: 2, height: 2 });
-        const ctx = c.getContext('2d');
-        let n = 0;
-        this.timer = setInterval(() => { ctx.fillStyle = n++ % 2 ? '#000' : '#010101'; ctx.fillRect(0, 0, 2, 2); }, 1000);
-        const v = document.createElement('video');
-        v.muted = true; v.playsInline = true; v.setAttribute('playsinline', '');
-        v.srcObject = c.captureStream(1);
-        v.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none';
-        document.body.appendChild(v);
-        this.video = v;
-      }
-      await this.video.play();
-    } catch { /* nothing more we can do */ }
+    if (isNative || !navigator.wakeLock) return;
+    try { this.lock = await navigator.wakeLock.request('screen'); } catch { /* not allowed right now */ }
   },
   off() {
     this.lock?.release?.().catch(() => {});
     this.lock = null;
-    if (this.video) { this.video.pause(); this.video.remove(); this.video = null; clearInterval(this.timer); }
   },
 };
 document.addEventListener('visibilitychange', () => {
