@@ -1,8 +1,8 @@
 # Re-audit request — RUNNER contracts
 
-Hi IMD — thank you for both audits (`28c0a5e2` at `9f1a689`, and `66b2e980` at `cca0b03`). Every code finding from both is fixed, and since the second one RUNNER moved to a new market design: it is now paired with **IMD** in a **Uniswap v4** pool, with all trading-fee rewards paid in IMD — the same design as PepesFamily, which you have reviewed. Please audit the final code:
+Hi IMD — thank you for all three audits (`28c0a5e2` at `9f1a689`, `66b2e980` at `cca0b03`, and `d4297b4d` at `f66eb5d`). Every code finding from both is fixed, and since the second one RUNNER moved to a new market design: it is now paired with **IMD** in a **Uniswap v4** pool, with all trading-fee rewards paid in IMD — the same design as PepesFamily, which you have reviewed. Please audit the final code:
 
-- **Repository:** `0xtenang/Runner`, commit **`264465c`** ([link](https://github.com/0xtenang/Runner/commit/264465c))
+- **Repository:** `0xtenang/Runner`, commit **`9382eb2`** ([link](https://github.com/0xtenang/Runner/commit/9382eb2))
 - **In scope:** `contracts/RunnerToken.sol` (solc 0.8.24), `contracts/RunnerGenesis.sol` (0.8.24), `contracts/RunnerHook.sol`, `contracts/RunnerRouter.sol`, `contracts/RunnerEthRouter.sol`, `contracts/utils/SafeTransfer.sol` (0.8.26). The run-claim server (`api/rewards.js`, `api/_lib/eth.js`) only as far as it signs claims.
 - **Build:** `scripts/setup-contracts.sh && forge build` (libraries pinned to PepesFamily's commits: v4-core `46c6834`, forge-std `f3dae6e`, solmate `4b47a19`).
 
@@ -36,6 +36,17 @@ Hi IMD — thank you for both audits (`28c0a5e2` at `9f1a689`, and `66b2e980` at
 ## 2. Fixes since your audits
 
 **First audit (`28c0a5e2`):** #1 self-transfer, #2 retroactive exclusion, #3 signed payout choice, #5 deploy-day shares, #6 safe mint, #7 two-step ownership — fixed at `938a178` (details in `AUDIT.md`). #4 and #8 acknowledged.
+
+**Third audit (`d4297b4d`, which covered the v4 hook):**
+
+| # | Severity | Finding | What changed |
+|---|---|---|---|
+| 1 | **Medium** | The hook fixed the fee from the *requested* IMD before the swap and never checked the fill: partial fills (a price limit, or an exact-out sell beyond the pool's IMD) were charged 4% of the whole request, and large exact-out sells reverted with an opaque underflow. | **Fixed:** in `afterSwap`, for the two directions where IMD is specified, the hook checks the pool moved exactly the expected IMD (exact-in buy: amount − fee; exact-out sell: amount + fee) and otherwise reverts `PartialFill`. The fee is always exactly 4% of what traded. Tests: both partial-fill cases refused with nothing charged; full fills still pay exactly 4%. |
+| 2 | **Medium** | `openPool` required exactly 100M in the hook and exactly 1B supply, so 1 wei sent to the hook or burned before launch bricked the launch. | **Fixed:** requires at least 100M (any extra is burned with the rounding buffer); the supply check is dropped (the token mints exactly 100M to its immutable hook). Tests: dust sent to the hook, and a pre-launch burn, no longer stop the pool. |
+| 3 | Low | The constructor accepted start ticks whose launch liquidity can't fit in a v4 tick. | **Fixed:** the constructor computes the launch liquidity for both pair orderings and reverts `BadTick` above `Pool.tickSpacingToMaxLiquidityPerTick`. Test: −400,000 is rejected; large positive ticks (low prices) stay valid. |
+| 4 | Low | `claimable()` clamped to what's left today while `claim()` is all-or-nothing. | **Fixed:** returns 0 when the full difference doesn't fit in today's emission or the pool. |
+| 5 | Low | `transferFrom(address(0), to, 0)` emitted a fake mint event. | **Fixed:** transfers from the zero address revert `ZeroAddress`. |
+| 6 | Info | Owner trust (signer + emission up to the daily cap). | Acknowledged — multisig owner before launch. |
 
 **Second audit (`66b2e980`):**
 
@@ -72,14 +83,14 @@ The hook is deployed through the standard CREATE2 deployer (`0x4e59…956C`) at 
 
 ## 5. Tests and build fingerprints
 
-- Foundry: 19 tests (incl. a 256-run fuzz) against a real v4 PoolManager, plus 3 on a Robinhood Chain mainnet fork (real PoolManager, IMD and IMD/ETH pool): `FORK_RPC=https://robinhood.drpc.org forge test`.
-- `tests/`: token 164 checks (incl. both audits' reproductions and a randomized model), NFT 55, server 110.
-- Mutation checks: 42 of 42 planted bugs caught, including every fix above undone.
+- Foundry: 24 tests (incl. a 256-run fuzz) against a real v4 PoolManager, plus 3 on a Robinhood Chain mainnet fork (real PoolManager, IMD and IMD/ETH pool): `FORK_RPC=https://robinhood.drpc.org forge test`.
+- `tests/`: token 166 checks (incl. all three audits' reproductions and a randomized model), NFT 55, server 110.
+- Mutation checks: 46 of 46 planted bugs caught, including every fix above undone.
 
 | Contract | Creation-code keccak |
 |---|---|
-| RunnerToken | `0xf41742bf37a9c80554b062bed6203c838465c6cdc8a93a6339635dab3d946776` |
+| RunnerToken | `0x5a4b422b7a37b9e422a1ca914a41bfbd31f48f7b5d52ddc833a0a9ef6f6796e5` |
 | RunnerGenesis | `0xbb23f94439cb6717558d87b83cb1e9d922d54210975a2e75b2aa9405e3ca08fa` |
-| RunnerHook | `0x0cf2983a039f19ed3bae0315d53edd86550d9b079a95009937f05706656826ca` (`contracts/build/RunnerHook.json`) |
+| RunnerHook | `0x5d1eb826c266290616cb978cea860e856c6d10f057e3cafccdef0b282ceaaf3c` (`contracts/build/RunnerHook.json`) |
 
 Thank you!
