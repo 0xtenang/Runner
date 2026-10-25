@@ -272,7 +272,7 @@ contract RunnerToken {
     function sweepExpired(uint256 maxDays) external nonReentrant returns (uint256 total) {
         uint256 today = _today();
         uint256 d = nextSweepDay;
-        uint256 end = d + maxDays;
+        uint256 end = maxDays > type(uint256).max - d ? type(uint256).max : d + maxDays; // max = "all" (fourth audit, #8)
         while (d + CLAIM_WINDOW_DAYS < today && d < end) {
             Day storage day = _days[d];
             uint256 left = uint256(day.rewards) - day.paidOut;
@@ -489,7 +489,8 @@ contract RunnerToken {
 
     function setProtocolWallet(address wallet) external onlyOwner {
         if (wallet == address(0)) revert ZeroAddress();
-        if (wallet == address(this)) revert BadAddress(); // swept IMD would stay here and be re-booked
+        // Swept IMD would stay here (re-booked), be skimmable in the PoolManager, or stuck in the hook (fourth audit, #2).
+        if (wallet == address(this) || wallet == poolManager || wallet == hook) revert BadAddress();
         protocolWallet = wallet;
         emit ProtocolWalletChanged(wallet);
     }
@@ -720,6 +721,7 @@ contract RunnerToken {
     }
 
     function _burn(address from, uint256 value) private {
+        if (from == address(0)) revert ZeroAddress(); // no forged events from the zero address (fourth audit, #9)
         uint256 bal = balanceOf[from];
         if (bal < value) revert InsufficientBalance();
         uint256 today = _today();

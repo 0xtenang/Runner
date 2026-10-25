@@ -63,7 +63,7 @@ export const DEV_WALLET = '0x0f397E46e4e810313dBC782CDb0236347157f1B4';
 export const TOKEN_CHAIN = ROBINHOOD_CHAIN;
 export const TOKEN_CONTRACT = '';
 export const TEAM_WALLET = '0x0f4FE718eb8492533E600b30F3287E2f04087332';
-export const TOKEN_CREATION_CODE_KECCAK = '0x5a4b422b7a37b9e422a1ca914a41bfbd31f48f7b5d52ddc833a0a9ef6f6796e5';
+export const TOKEN_CREATION_CODE_KECCAK = '0x25a43088dbb18c33c11e56e302903717cf84301d17801c6f82ea70ab5de52e5b';
 
 // RUNNER/IMD pool on Robinhood Chain's Uniswap v4 (the same PoolManager, IMD and IMD/ETH pool
 // PepesFamily uses). The RunnerHook (contracts/RunnerHook.sol) is deployed first, through the
@@ -77,4 +77,4 @@ export const HOOK_FLAGS = 0x28cc; // beforeInitialize, beforeAddLiquidity, befor
 export const HOOK_START_TICK = 142_600; // tick of RUNNER-per-IMD: about 642 IMD starting market cap (635 IMD rounded to the tick spacing)
 export const HOOK_CONTRACT = '';
 // Fingerprint of contracts/build/RunnerHook.json (solc 0.8.26, via-IR, optimizer 200, cancun).
-export const HOOK_CREATION_CODE_KECCAK = '0x5d1eb826c266290616cb978cea860e856c6d10f057e3cafccdef0b282ceaaf3c';
+export const HOOK_CREATION_CODE_KECCAK = '0x5c219725272d98e95b9b5bf08e76463ee008bf33e078deb3f42a8f57a2e022bf';

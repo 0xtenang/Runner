@@ -529,6 +529,12 @@ async function setup() {
   ok('transferFrom(address(0), …, 0) is refused', reverts(await call(W(3), 'transferFrom', ZERO, W(4), 0n), 'ZeroAddress'));
   // Finding 4: the protocol wallet can't be the token itself.
   ok('protocol wallet can\'t be the token contract', reverts(await call(DEV, 'setProtocolWallet', tok), 'BadAddress'));
+  // Fourth audit #2, #9: nor the pool manager or the hook; no zero-address burns.
+  ok('protocol wallet can\'t be the pool manager or the hook', reverts(await call(DEV, 'setProtocolWallet', PM), 'BadAddress') && reverts(await call(DEV, 'setProtocolWallet', HOOK), 'BadAddress'));
+  ok('burnFrom(address(0), 0) is refused', reverts(await call(W(3), 'burnFrom', ZERO, 0n), 'ZeroAddress'));
+  // Fourth audit #8: sweepExpired(max) means "all expired days".
+  c.addTime(20 * DAY);
+  ok('sweepExpired(type(uint256).max) sweeps everything instead of overflowing', (await call(W(9), 'sweepExpired', (1n << 256n) - 1n)).ok && u(await view('nextSweepDay')) > 20_500n);
 }
 
 // =================================================================== randomized model check

@@ -111,7 +111,7 @@ contract RunnerRouter is IUnlockCallback {
         poolManager.settle();
 
         // Credit holders before the buyer receives tokens (and after the seller's tokens left).
-        pad.flush(d.token);
+        try pad.flush(d.token) {} catch {} // reward delivery never blocks a trade (fourth audit, #5)
 
         poolManager.take(cOut, d.user, out);
         return abi.encode(out);

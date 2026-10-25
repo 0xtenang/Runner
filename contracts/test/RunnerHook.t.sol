@@ -531,6 +531,84 @@ contract RunnerHookTest is Test {
         }
     }
 
+    // ------------------------------------------------------------ fourth IMD audit (8d4586f5)
+
+    /// @dev #1: a sell that moves nothing (the pool holds no IMD right after launch) is refused.
+    function test_emptySwap_isRefused() public {
+        PoolKey memory key = _key();
+        bool imdIs0 = Currency.unwrap(key.currency0) == address(imd);
+        uint256 cap = hook.marketCap(address(runner));
+        address griefer = makeAddr("griefer");
+        vm.prank(griefer);
+        vm.expectRevert();
+        extRouter.swap(key, SwapParams(!imdIs0, -1, _limit(!imdIs0)), settings, "");
+        assertEq(hook.marketCap(address(runner)), cap, "price untouched");
+    }
+
+    /// @dev #1: after a sell drains the pool's IMD, the price views report the launch price, not 0.
+    function test_oversell_priceViewsReportLaunchPrice() public {
+        uint256 launchCap = hook.marketCap(address(runner));
+        (,,,,,,,,,, uint160 launchSqrt,,,) = _info();
+        uint256 got = _buy(alice, 1_000e18);
+        vm.prank(team);
+        runner.transfer(alice, 5_000_000e18);
+        _sell(alice, got + 5_000_000e18);
+        assertEq(hook.marketCap(address(runner)), launchCap, "market cap back at the launch price, not 0");
+        (,,,,,,,,,, uint160 sq,,,) = _info();
+        assertEq(sq, launchSqrt);
+    }
+
+    function _info()
+        internal
+        view
+        returns (address, string memory, string memory, string memory, address, address, uint64, uint64, bool, bytes32, uint160, uint256, uint256, uint256)
+    {
+        RunnerHook.TokenInfo memory i = hook.getTokenInfo(address(runner));
+        return (i.token, i.name, i.symbol, i.metadata, i.quote, i.creator, i.createdAt, i.createdBlock, i.quoteIsCurrency0, bytes32(0), i.sqrtPriceX96, i.marketCap, i.pendingHolderFees, i.totalDividendsDistributed);
+    }
+
+    /// @dev #3: the fee recipient can't be the PoolManager.
+    function test_feeRecipient_cantBePoolManager() public {
+        vm.prank(owner);
+        vm.expectRevert(RunnerHook.ZeroAddress.selector);
+        hook.setFeeRecipient(address(pm));
+    }
+
+    /// @dev #5: if IMD's issuer blocks the token contract, trades through our routers still work; the holder share
+    ///      just waits in the hook.
+    function test_routerTrades_surviveBlockedRewardDelivery() public {
+        imd.setBlocked(address(runner), true);
+        uint256 got = _buy(alice, 1_000e18);
+        assertGt(got, 0, "buy still works");
+        assertEq(hook.pendingHolderFees(address(runner)), 20e18, "holder share waits in the hook");
+        assertEq(runner.holderRewardsHeld(), 0);
+        _sell(alice, got / 2);
+        vm.prank(alice);
+        ethRouter.buyWithEth{value: 1 ether}(address(runner), 0, block.timestamp);
+        imd.setBlocked(address(runner), false);
+        uint256 pending = hook.pendingHolderFees(address(runner));
+        hook.flush(address(runner));
+        assertEq(runner.holderRewardsHeld(), pending, "delivered once unblocked");
+    }
+
+    /// @dev #6: market cap uses the live supply, so burns count.
+    function test_marketCap_usesLiveSupply() public {
+        uint256 cap = hook.marketCap(address(runner));
+        vm.prank(team);
+        (bool ok,) = address(runner).call(abi.encodeWithSignature("burn(uint256)", 50_000_000e18));
+        assertTrue(ok);
+        assertApproxEqRel(hook.marketCap(address(runner)), (cap * 95) / 100, 1e12);
+    }
+
+    /// @dev #7: the fee rounds up, so even a 24-wei trade pays.
+    function test_tinyTrade_paysRoundedUpFee() public {
+        PoolKey memory key = _key();
+        bool imdIs0 = Currency.unwrap(key.currency0) == address(imd);
+        uint256 before = _pendingTotal();
+        extRouter.swap(key, SwapParams(imdIs0, -24, _limit(imdIs0)), settings, "");
+        assertEq(_pendingTotal() - before, 1);
+    }
+
     // ------------------------------------------------------------ fuzz
 
     /// @dev Any sequence of buys and sells: the hook's IMD claims always cover what it owes, the fee split is

@@ -23,6 +23,22 @@ Unchanged: the run-reward pool, signed claims (with the payout choice signed), l
 
 **Known and accepted:** trades through any other RUNNER pool someone creates pay no fee (the owner can exclude such a pool from holder rewards); fees from non-RunnerRouter swaps wait in the hook until someone calls `flush` (anyone can), and are booked on that day; the 300k threshold is per address (IMD #4).
 
+## Fourth IMD audit (25 October 2026)
+
+IMD audited commit `15a66e9` — [report](https://imd-explorer.up.railway.app/jobs/8d4586f5-6af3-4ebb-a492-75f941aa0e4f). Result: **4 low, 5 informational, no medium or higher.**
+
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| 1 | Low | A swap that moved nothing (a sell when the pool holds no IMD, e.g. right after launch) succeeded and parked the price at the tick limit: `marketCap()` read 0 and `Trade` showed an extreme price. | **Fixed:** `afterSwap` reverts `EmptySwap` when no IMD or no RUNNER moved; `marketCap`, `getTokenInfo` and `Trade` report the launch price whenever the pool price is past the launch position (the pool holds no IMD). Tests: an empty sell is refused with the price untouched; after a sell drains the pool, the views show the launch price. |
+| 2 | Low | `setProtocolWallet` accepted the PoolManager (swept IMD skimmable by anyone) or the hook (stuck). | **Fixed:** both revert `BadAddress`. |
+| 3 | Low | `setFeeRecipient` accepted the PoolManager (protocol fees vanish). | **Fixed:** reverts `ZeroAddress`. |
+| 4 | Low | A run-reward backlog larger than one day's emission can't be claimed with its full total. | **Documented, by design:** claims are all-or-nothing on-chain; the rewards server signs staged totals that fit today's remaining emission (`api/rewards.js`: `min(total, claimed + leftToday)`, returned as `partial`), so a backlog is paid over consecutive days. `claimable()` returns 0 for a total that doesn't fit, matching `claim()`. |
+| 5 | Info | If IMD's issuer blocks the token contract (or the PoolManager), our routers' trades reverted inside the holder-fee flush. | **Fixed:** `RunnerRouter` and `RunnerEthRouter` flush in `try/catch`, so trading never depends on IMD's transfer policy; the holder share waits in the hook until `flush` succeeds. Holder claims still need IMD transfers to work (documented trust assumption on IMD). Test: with the token blocked, buys, sells and ETH buys work and the share is delivered after unblocking. |
+| 6 | Info | `marketCap()` used the fixed 1B supply. | **Fixed:** uses the live `totalSupply()`. |
+| 7 | Info | Fees under 25 wei of IMD rounded to 0. | **Fixed:** the fee rounds up (the `PartialFill` check reuses the same value). |
+| 8 | Info | `sweepExpired(type(uint256).max)` overflowed. | **Fixed:** the range end is capped, so max means "all". |
+| 9 | Info | `burnFrom(address(0), 0)` emitted a zero-address event. | **Fixed:** burns from the zero address revert. |
+
 ## Third IMD audit (25 October 2026)
 
 IMD audited commit `f66eb5d` (including the v4 hook) — [report](https://imd-explorer.up.railway.app/jobs/d4297b4d-7c6d-4a0f-815f-2b0840ead21e). Result: **2 medium, 3 low, 1 informational**; no earlier finding reappeared.
@@ -69,9 +85,9 @@ IMD audited both contracts at commit `9f1a689` ([report](https://imd-explorer.up
 
 | Contract | File | Creation-code keccak (solc 0.8.24, optimizer 200, EVM paris) |
 |---|---|---|
-| RUNNER token (ERC-20, no transfer tax + daily holder rewards in IMD + run-reward claims) | `contracts/RunnerToken.sol` | `0x5a4b422b7a37b9e422a1ca914a41bfbd31f48f7b5d52ddc833a0a9ef6f6796e5` |
+| RUNNER token (ERC-20, no transfer tax + daily holder rewards in IMD + run-reward claims) | `contracts/RunnerToken.sol` | `0x25a43088dbb18c33c11e56e302903717cf84301d17801c6f82ea70ab5de52e5b` |
 | RUNNER Genesis NFT (ERC-721, ERC-2981, ERC-721C hook) | `contracts/RunnerGenesis.sol` | `0xbb23f94439cb6717558d87b83cb1e9d922d54210975a2e75b2aa9405e3ca08fa` |
-| RunnerHook (Uniswap v4 hook + pool owner; deploys RunnerRouter and RunnerEthRouter) | `contracts/RunnerHook.sol`, `RunnerRouter.sol`, `RunnerEthRouter.sol`, `utils/SafeTransfer.sol` | `0x5d1eb826c266290616cb978cea860e856c6d10f057e3cafccdef0b282ceaaf3c` (creation code in `contracts/build/RunnerHook.json`: solc 0.8.26, via-IR, optimizer 200, EVM cancun, no metadata hash; v4-core `46c6834`) |
+| RunnerHook (Uniswap v4 hook + pool owner; deploys RunnerRouter and RunnerEthRouter) | `contracts/RunnerHook.sol`, `RunnerRouter.sol`, `RunnerEthRouter.sol`, `utils/SafeTransfer.sol` | `0x5c219725272d98e95b9b5bf08e76463ee008bf33e078deb3f42a8f57a2e022bf` (creation code in `contracts/build/RunnerHook.json`: solc 0.8.26, via-IR, optimizer 200, EVM cancun, no metadata hash; v4-core `46c6834`) |
 | Rewards server (signs run-reward claims) | `api/rewards.js`, `api/_lib/*`, `js/rules.js` | — |
 
 `/admin.html` refuses to deploy any build whose fingerprint differs from the table, so the reviewed code is what gets deployed.
@@ -81,10 +97,10 @@ IMD audited both contracts at commit `9f1a689` ([report](https://imd-explorer.up
 1. Line-by-line manual review of both contracts and the server: access control, arithmetic, reentrancy, signature handling, accounting invariants, owner powers, and DEX/marketplace interactions.
 2. **Slither 0.10.4** static analysis (93 detectors). The triage is below.
 3. Tests run against the official compiler build in a local EVM (`tests/`):
-   - `token.test.mjs`: 166 checks (token in isolation; the hook is an address and IMD a mock), including the IMD audit reproductions, including emission-schedule changes (limits, next-day start, fresh halving clock, the server's decoder), the 7-day locks and instant burns, the halving schedule (checked day by day against the JavaScript mirror for 400 days) and a **randomized model test**. It runs 600 random actions (buys, sells, transfers, claims, sweeps, burns, and time jumps) over 45 days. Every 5 steps it compares every balance, every daily eligible balance, the daily totals and the holder-reward bucket against an independent JavaScript model.
+   - `token.test.mjs`: 169 checks (token in isolation; the hook is an address and IMD a mock), including the IMD audit reproductions, including emission-schedule changes (limits, next-day start, fresh halving clock, the server's decoder), the 7-day locks and instant burns, the halving schedule (checked day by day against the JavaScript mirror for 400 days) and a **randomized model test**. It runs 600 random actions (buys, sells, transfers, claims, sweeps, burns, and time jumps) over 45 days. Every 5 steps it compares every balance, every daily eligible balance, the daily totals and the holder-reward bucket against an independent JavaScript model.
    - `nft.test.mjs`: 55 checks, including safe minting into contracts and two-step ownership, including the rarity and price of all 9,999 tokens against the app, and a malicious re-entering validator.
    - `rewards-server.test.mjs`: 110 checks covering device attestation and step cadence, the trust score (realistic vs scripted tracks, copied routes), the automatic fair-play rules (full, half and no pay, strikes, automatic suspensions and their expiry, forfeiting held earnings), the 24-hour hold, manual bans, rate limits, admin-signed game settings, NFT boosts, the per-runner daily max, on-chain schedule changes, sign-in, run scoring, anti-cheat, spending, claims, halving rates and costs, the energy table, level costs, the global daily budget and partial claims. A server-signed claim was also accepted by the token contract on chain id 4663.
-   - **Foundry (`forge test`)**: `contracts/test/RunnerHook.t.sol`, 24 tests including a 256-run fuzz test, against a real Uniswap v4 PoolManager: liquidity locked (pool + burned dust = exactly 100M, ~642 IMD start), nobody else can add liquidity or reuse the hook, 4% fee in IMD in all four swap directions through an external router, the 2%/2% split, holder IMD booked and claimed in IMD then swept, flash-borrowed pool tokens can't trigger a mid-unlock flush, the ETH router, slippage/deadline, two-step hook ownership. `contracts/test/RunnerHook.fork.t.sol` (3 tests, `FORK_RPC=https://robinhood.drpc.org`) runs on a Robinhood Chain mainnet fork with the real PoolManager, real IMD and real IMD/ETH pool: buy and sell with ETH, fees arrive in real IMD, a holder claims real IMD.
+   - **Foundry (`forge test`)**: `contracts/test/RunnerHook.t.sol`, 30 tests including a 256-run fuzz test, against a real Uniswap v4 PoolManager: liquidity locked (pool + burned dust = exactly 100M, ~642 IMD start), nobody else can add liquidity or reuse the hook, 4% fee in IMD in all four swap directions through an external router, the 2%/2% split, holder IMD booked and claimed in IMD then swept, flash-borrowed pool tokens can't trigger a mid-unlock flush, the ETH router, slippage/deadline, two-step hook ownership. `contracts/test/RunnerHook.fork.t.sol` (3 tests, `FORK_RPC=https://robinhood.drpc.org`) runs on a Robinhood Chain mainnet fork with the real PoolManager, real IMD and real IMD/ETH pool: buy and sell with ETH, fees arrive in real IMD, a holder claims real IMD.
 4. **Mutation checks.** Bugs were planted on purpose to make sure the tests catch them:
 
    | Planted bug | Result |
@@ -109,6 +125,7 @@ IMD audited both contracts at commit `9f1a689` ([report](https://imd-explorer.up
    | *v4/IMD design (24 Oct), hook (Foundry):* fee 4%→3%, protocol share 2%→3%, holder IMD flushed but never booked, anyone can flush mid-unlock, protocol fees sent to the caller, `openPool` skips the reward-token check, single-step hook ownership, exact-in sells not charged | All caught |
    | *Second IMD audit fixes undone (24 Oct):* paid days not frozen on exclusion, `claimable` ignores pause/start/signer, `claimable` ignores today's emission, proposal can't be cancelled (token, NFT, hook), protocol wallet may be the token, treasury / royalty receiver may be the NFT, fee recipient may be the hook | All caught |
    | *Third IMD audit fixes undone (25 Oct):* partial fills accepted, `openPool` needs exactly 100M again, unsafe start ticks accepted, `claimable` clamps instead of matching `claim()`, transfers from address(0) allowed | All caught |
+   | *Fourth IMD audit fixes undone (25 Oct):* empty swaps accepted, price views not clamped, fee recipient may be the PoolManager, router reward delivery blocks trades, market cap uses the fixed supply, fee rounds down, protocol wallet may be the PoolManager/hook, sweep range overflows, burns from address(0) allowed | All caught (55 of 55 planted bugs across all rows) |
    | *Classic bugs (24 Oct):* holder tax 2%→3%, threshold `>=`→`>`, daily cap not enforced, claim replay, signer check removed, instant claim burns nothing, locks release early, sweep window off by one, 20M ceiling unchecked, anyone sets the signer, excluded wallets earn, NFT price unchecked, NFT double mint | All caught (the threshold one after adding an exact-300,000 test) |
 
 ## Findings

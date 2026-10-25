@@ -124,7 +124,7 @@ contract RunnerEthRouter is IUnlockCallback {
             uint256 imdLeft = imdOut - uint256(int256(-imdDelta));
             if (imdLeft > 0) poolManager.take(Currency.wrap(IMD), r.user, imdLeft);
 
-            pad.flush(r.token); // credit holders before the buyer receives tokens
+            try pad.flush(r.token) {} catch {} // credit holders before the buyer receives tokens; never blocks the trade
             poolManager.take(Currency.wrap(r.token), r.user, out);
         } else {
             // RUNNER -> IMD
@@ -136,7 +136,7 @@ contract RunnerEthRouter is IUnlockCallback {
             poolManager.sync(Currency.wrap(r.token));
             r.token.transferFrom(r.user, address(poolManager), tokIn);
             poolManager.settle();
-            pad.flush(r.token); // seller's tokens have left; credit holders
+            try pad.flush(r.token) {} catch {} // seller's tokens have left; credit holders (never blocks the trade)
 
             // IMD -> ETH
             BalanceDelta d2 = _swap(imdEthKey(), false, imdOut, "");

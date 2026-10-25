@@ -61,6 +61,7 @@ contract RunnerHook is IHooks, IUnlockCallback {
     error ZeroAddress();
     error HookNotAllowed();
     error PartialFill();
+    error EmptySwap();
 
     event PoolOpened(address indexed token, PoolId poolId, int24 startTick);
     /// @param quoteAmount IMD paid by the buyer / received by the seller, fee included
@@ -289,7 +290,7 @@ contract RunnerHook is IHooks, IUnlockCallback {
         }
         uint256 amount = exactIn ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
         // exact-in buy: 4% of what the buyer pays. exact-out sell: 4% of the gross the pool pays out.
-        uint256 fee = exactIn ? (amount * FEE_BPS) / BPS : (amount * FEE_BPS) / (BPS - FEE_BPS);
+        uint256 fee = _feeOf(amount, exactIn);
         _chargeFee(t, fee);
         assembly ("memory-safe") {
             tstore(FEE_SLOT, fee)
@@ -312,6 +313,9 @@ contract RunnerHook is IHooks, IUnlockCallback {
         uint256 poolQuote = uint256(int256(q < 0 ? -q : q));
         uint256 tokenAmount = uint256(int256(tk < 0 ? -tk : tk));
 
+        // A swap that moved nothing (e.g. a sell when the pool holds no IMD) would only push the price to the
+        // tick limit for free; refuse it (fourth audit, #1).
+        if (poolQuote == 0 || tokenAmount == 0) revert EmptySwap();
         uint256 fee;
         if ((exactIn == params.zeroForOne) == quoteIs0) {
             assembly ("memory-safe") {
@@ -326,7 +330,7 @@ contract RunnerHook is IHooks, IUnlockCallback {
         } else {
             // IMD is the unspecified side. exact-in sell: 4% of the pool's output.
             // exact-out buy: 4% of what the buyer pays in total.
-            fee = exactIn ? (poolQuote * FEE_BPS) / BPS : (poolQuote * FEE_BPS) / (BPS - FEE_BPS);
+            fee = _feeOf(poolQuote, exactIn);
             _chargeFee(t, fee);
             hookDelta = fee.toInt128();
         }
@@ -334,9 +338,15 @@ contract RunnerHook is IHooks, IUnlockCallback {
         bool isBuy = params.zeroForOne == quoteIs0;
         address trader =
             (sender == router || sender == ethRouter) && hookData.length == 32 ? abi.decode(hookData, (address)) : tx.origin;
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(key.toId());
-        emit Trade(t, trader, isBuy, isBuy ? poolQuote + fee : poolQuote - fee, tokenAmount, fee, sqrtPriceX96);
+        emit Trade(t, trader, isBuy, isBuy ? poolQuote + fee : poolQuote - fee, tokenAmount, fee, _price(t));
         return (IHooks.afterSwap.selector, hookDelta);
+    }
+
+    /// @dev 4% of the IMD side, rounded up so even the smallest trade pays (fourth audit, #7). Exact-in: 4% of
+    ///      the amount; exact-out: 4% of the gross, i.e. amount * 4 / 96.
+    function _feeOf(uint256 amount, bool exactIn) internal pure returns (uint256) {
+        uint256 den = exactIn ? BPS : BPS - FEE_BPS;
+        return (amount * FEE_BPS + den - 1) / den;
     }
 
     /// @dev The hook is credited `fee` by the swap; minting claims of the same size settles that credit.
@@ -410,7 +420,8 @@ contract RunnerHook is IHooks, IUnlockCallback {
     // ---------------------------------------------------------------- Admin
 
     function setFeeRecipient(address feeRecipient_) external onlyOwner {
-        if (feeRecipient_ == address(0) || feeRecipient_ == address(this)) revert ZeroAddress(); // IMD sent here would be stuck
+        // IMD sent to the hook would be stuck, and sent to the PoolManager it would vanish (fourth audit, #3).
+        if (feeRecipient_ == address(0) || feeRecipient_ == address(this) || feeRecipient_ == address(poolManager)) revert ZeroAddress();
         feeRecipient = feeRecipient_;
         emit FeeRecipientUpdated(feeRecipient_);
     }
@@ -449,18 +460,29 @@ contract RunnerHook is IHooks, IUnlockCallback {
         });
     }
 
-    /// @notice Fully diluted market cap in IMD wei at the current pool price.
+    /// @notice Pool price (sqrtPriceX96). When sells have pushed the price past the launch position (the pool
+    ///         holds no IMD), the real price is the launch price, so that is reported (fourth audit, #1).
+    function _price(address t) internal view returns (uint160 sqrtP) {
+        int24 tick;
+        (sqrtP, tick,,) = poolManager.getSlot0(poolKey(t).toId());
+        bool quoteIs0 = launches[t].quoteIsCurrency0;
+        int24 launchTick = quoteIs0 ? startTick : -startTick;
+        if (quoteIs0 ? tick > launchTick : tick < launchTick) sqrtP = TickMath.getSqrtPriceAtTick(launchTick);
+    }
+
+    /// @notice Fully diluted market cap in IMD wei at the current pool price, using the live supply (burns count).
     function marketCap(address t) public view returns (uint256) {
-        (uint160 sqrtP,,,) = poolManager.getSlot0(poolKey(t).toId());
+        uint160 sqrtP = _price(t);
+        uint256 supply = IRunnerToken(t).totalSupply();
         return launches[t].quoteIsCurrency0
-            ? FullMath.mulDiv(FullMath.mulDiv(TOTAL_SUPPLY, Q96, sqrtP), Q96, sqrtP)
-            : FullMath.mulDiv(FullMath.mulDiv(TOTAL_SUPPLY, sqrtP, Q96), sqrtP, Q96);
+            ? FullMath.mulDiv(FullMath.mulDiv(supply, Q96, sqrtP), Q96, sqrtP)
+            : FullMath.mulDiv(FullMath.mulDiv(supply, sqrtP, Q96), sqrtP, Q96);
     }
 
     function getTokenInfo(address t) public view returns (TokenInfo memory info) {
         Launch storage l = launches[t];
         PoolId id = poolKey(t).toId();
-        (uint160 sqrtP,,,) = poolManager.getSlot0(id);
+        uint160 sqrtP = _price(t);
         IRunnerToken r = IRunnerToken(t);
         info = TokenInfo({
             token: t,
