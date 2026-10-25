@@ -37,7 +37,7 @@ import {
 } from '../js/rules.js';
 import { addressOfKey, claimDigest, signDigest, personalDigest, recoverAddress, keccak, toHex, isAddress } from './_lib/eth.js';
 import * as store from './_lib/store.js';
-import { ownedTokenIds, emissionSchedule, claimState, heldContracts } from './_lib/chain.js';
+import { ownedTokenIds, emissionSchedule, claimState, heldContracts, totalClaimed } from './_lib/chain.js';
 import { trustScore, trackFingerprint, cleanSteps } from './_lib/trust.js';
 import { checkDevice, androidConfigured, iosConfigured } from './_lib/attest.js';
 
@@ -363,6 +363,10 @@ async function submitRun(address, { run }) {
       const over = Math.min(micro, Math.max(0, total - budget));
       if (over > 0) { await store.incrBy(`rw:budget:${day}`, -over); micro -= over; capped = true; }
     }
+    if (micro > 0) { // public stats: verified runs that earned, and unique runners
+      await store.incrBy('rw:stats:runs', 1);
+      if (await store.setNX(`rw:runner:${address}`, 1, 10 * 365 * 864e5)) await store.incrBy('rw:stats:runners', 1);
+    }
 
     u.energy = Math.max(0, u.energy - used);
     u.lastEnd = end;
@@ -487,6 +491,29 @@ async function adminOp(admin, body) {
 }
 
 // ------------------------------------------------------------------ handler
+// ------------------------------------------------------------------ public stats (front page)
+let statsCache = null; // { at, value }
+/**
+ * Runners who have earned, verified runs that earned, RUNNER credited to runners (the sum of the
+ * daily emission counters since emission started) and RUNNER claimed to wallets (on-chain).
+ */
+async function publicStats() {
+  if (statsCache && Date.now() - statsCache.at < 60e3) return statsCache.value;
+  let runners = 0, runs = 0, earnedMicro = 0;
+  if (store.storeConfigured() && sch?.startDay) {
+    const days = [];
+    for (let d = sch.startDay; d <= utcDay(); d++) days.push(`rw:budget:${d}`);
+    const [r, n, ...budgets] = await store.mget(['rw:stats:runners', 'rw:stats:runs', ...days]);
+    runners = Number(r) || 0;
+    runs = Number(n) || 0;
+    earnedMicro = budgets.reduce((sum, b) => sum + (Number(b) || 0), 0);
+  }
+  const claimed = contractsSet() ? await totalClaimed(TOKEN_CONTRACT).catch(() => null) : null;
+  const value = { runners, runs, earned: earnedMicro / MICRO, claimed, since: sch?.startDay || null, updatedAt: Date.now() };
+  statsCache = { at: Date.now(), value };
+  return value;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   // The phone app calls from its own origin. Sessions travel in the body (no cookies), so * is safe.
@@ -499,6 +526,11 @@ export default async function handler(req, res) {
     const action = body.action;
     if (contractsSet()) sch = await emissionSchedule(TOKEN_CONTRACT).catch(() => sch);
     if (store.storeConfigured()) settings = { ...DEFAULT_SETTINGS, ...((await store.get(SETTINGS_KEY).catch(() => null)) || {}) };
+    if (action === 'stats') {
+      res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+      res.status(200).json(await publicStats());
+      return;
+    }
     if (action === 'status') {
       res.status(200).json({ live: isLive(), signer: signerAddress(), store: store.storeConfigured(), token: TOKEN_CONTRACT || null, nft: NFT_CONTRACT || null, chainId: TOKEN_CHAIN.id, emission: sch?.startDay ? emissionView() : null, settings, attestation: { android: androidConfigured(), ios: iosConfigured() } });
       return;

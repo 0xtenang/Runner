@@ -334,6 +334,14 @@ body.immersive .topbar, body.immersive .tabbar { display: none; }
 .wallet { display: grid; gap: 16px; }
 .holder-rewards { display: grid; gap: 6px; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
 
+/* ---------- community stats (Home) ---------- */
+.community-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; background: var(--surface); border-radius: var(--radius); padding: 16px; }
+.community-stats[hidden] { display: none; }
+.community-stats div { display: grid; gap: 2px; }
+.community-stats b { font-size: 26px; font-weight: 900; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.community-stats span { font-size: 13px; color: var(--muted); font-weight: 700; }
+.community-stats p { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--muted); }
+
 /* ---------- Android app banner (website only) ---------- */
 .app-banner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; background: var(--surface); border-radius: var(--radius); padding: 14px 12px 14px 16px; }
 .app-banner-icon svg { width: 28px; height: 28px; fill: none; stroke: var(--accent-strong); stroke-width: 2; }

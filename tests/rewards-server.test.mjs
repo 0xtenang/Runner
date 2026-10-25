@@ -31,7 +31,7 @@ const { default: handler, sessionMessage, settingsMessage, adminMessage } = awai
 let ipCounter = 0;
 const call = async (body, method = 'POST', ip = `10.0.${Math.floor(ipCounter / 250)}.${ipCounter++ % 250}`) => {
   let code = 200, out;
-  await handler({ method, body, query: {}, headers: { 'x-forwarded-for': ip } }, { setHeader() {}, status(c) { code = c; return this; }, end() {}, json(o) { out = o; } });
+  await handler({ method, body, query: method === 'GET' ? { action: body.action } : {}, headers: { 'x-forwarded-for': ip } }, { setHeader() {}, status(c) { code = c; return this; }, end() {}, json(o) { out = o; } });
   return { code, ...out };
 };
 const results = []; const ok = (n, c, x = '') => results.push(`${c ? 'PASS' : 'FAIL'} ${n}${x ? ' — ' + x : ''}`);
@@ -480,6 +480,16 @@ r = await call({ action: 'run', session: SA, run: { tokenId: K[2], points: track
 ok('requireAttestation off → website runs earn again (unverified)', r.code === 200 && r.run.attested === null && r.run.device === null, JSON.stringify(r.run || r));
 delete process.env.APPLE_TEAM_ID; delete process.env.REWARDS_FAKE_INTEGRITY; delete process.env.REWARDS_TEST_APPLE_ROOT;
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO] });
+// public stats for the front page
+{
+  const sv = await call({ action: 'stats' }, 'GET');
+  const fake = JSON.parse(process.env.REWARDS_FAKE_TOKEN);
+  const keys = []; for (let d = fake.startDay; d <= rules.utcDay(); d++) keys.push(`rw:budget:${d}`);
+  const expected = (await storeMod.mget(keys)).reduce((t, v) => t + (Number(v) || 0), 0) / 1e6;
+  ok('stats: runners who earned, runs that earned, RUNNER credited (= the daily emission counters)', sv.code === 200 && sv.runners >= 2 && sv.runs >= sv.runners && sv.earned > 0 && Math.abs(sv.earned - expected) < 1e-6 && sv.since === fake.startDay, JSON.stringify(sv));
+  const again = await call({ action: 'stats' }, 'GET');
+  ok('stats: a runner counts once however many runs they make', again.runners === sv.runners && sv.runs > sv.runners, `${sv.runners} runners, ${sv.runs} runs`);
+}
 // concurrency lock
 const [a, b] = await Promise.all([call({ action: 'state', session: S }), call({ action: 'state', session: S })]);
 ok('parallel requests: one waits (409) or both ok, never corrupt', [a.code, b.code].includes(200));

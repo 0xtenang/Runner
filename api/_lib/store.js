@@ -16,6 +16,14 @@ async function redis(...args) {
   return j.result;
 }
 
+/** Values of several keys in one round trip (null where missing). */
+export async function mget(keys) {
+  if (!keys.length) return [];
+  if (memory) return Promise.all(keys.map(get));
+  const vs = await redis('MGET', ...keys);
+  return vs.map((v) => (v == null ? null : JSON.parse(v)));
+}
+
 export async function get(key) {
   if (memory) { const e = memory.get(key); return e && (!e.exp || e.exp > Date.now()) ? JSON.parse(e.v) : null; }
   const v = await redis('GET', key);

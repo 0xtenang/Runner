@@ -8,7 +8,7 @@ import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange, addressAvatar, sy
 import { PRICE_ETH } from './collection.js';
 import { auth, shortAddress, explorerUrl, SIGN_IN_METHODS } from './auth.js';
 import { runOnboarding } from './onboarding.js';
-import { settleRun, syncRewards } from './rewards.js';
+import { settleRun, syncRewards, publicStats } from './rewards.js';
 import { renderRewards } from './rewards-view.js';
 import { DEV_WALLET } from './config.js';
 
@@ -306,6 +306,7 @@ async function renderHome() {
           <a class="btn primary pill" href="#/record">Record now</a>
         </div>
       </div>
+      <div class="community-stats" id="community-stats" hidden></div>
       ${appBanner()}
       ${runs.length ? runs.map(post).join('') : `
         <div class="post empty">
@@ -318,10 +319,24 @@ async function renderHome() {
         </div>`}
     </section>`;
   lazyMaps(runs.filter((a) => a.preview?.length > 1));
+  fillCommunityStats();
   view.querySelector('[data-act="hide-app-banner"]')?.addEventListener('click', () => {
     try { localStorage.setItem(APP_BANNER_KEY, '1'); } catch { /* ignore */ }
     view.querySelector('.app-banner')?.remove();
   });
+}
+
+/** Front-page totals: runners who have earned and RUNNER earned by runners (from the rewards server). */
+const fmtBig = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e4 ? `${(n / 1e3).toFixed(1)}K` : Math.round(n).toLocaleString());
+async function fillCommunityStats() {
+  const s = await publicStats();
+  const el = document.getElementById('community-stats');
+  if (!el || !s || s.since == null) return;
+  el.innerHTML = `
+    <div><b>${Number(s.runners || 0).toLocaleString()}</b><span>Runners</span></div>
+    <div><b>${fmtBig(Number(s.earned || 0))}</b><span>$${COIN} earned</span></div>
+    ${s.claimed != null ? `<p>${fmtBig(Number(s.claimed))} claimed to wallets · since ${new Date(s.since * 864e5).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</p>` : ''}`;
+  el.hidden = false;
 }
 
 // Website only: point people to the Android app, which keeps recording with the screen locked.

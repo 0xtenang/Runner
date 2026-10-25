@@ -46,6 +46,18 @@ export async function claimedOnChain(address = auth.state.address) {
 }
 export { checkStatus as checkRewardsStatus };
 
+let statsCache = null; // { at, value }
+/** Public totals for the front page: { runners, runs, earned, claimed }, or null if unavailable. Cached 1 min. */
+export async function publicStats() {
+  if (statsCache && Date.now() - statsCache.at < 60e3) return statsCache.value;
+  try {
+    const r = await fetch(`${API}?action=stats`);
+    const value = r.ok ? await r.json() : null;
+    statsCache = { at: Date.now(), value };
+    return value;
+  } catch { return statsCache?.value ?? null; }
+}
+
 function storedSession(address) {
   try { return localStorage.getItem(SESSION_KEY(address)); } catch { return null; }
 }

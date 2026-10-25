@@ -36,6 +36,11 @@ const tokenUint = async (token, data) => {
   return BigInt(!r || r === '0x' ? 0 : r);
 };
 
+/** RUNNER paid out by claim() so far (whole tokens), read from the token. */
+export async function totalClaimed(token = TOKEN_CONTRACT) {
+  return Number((await tokenUint(token, '0xd54ad2a1')) / 10n ** 12n) / 1e6; // totalClaimed()
+}
+
 let scheduleCache = null; // { at, value }
 /**
  * The token's emission schedule in whole RUNNER: { startDay, current, next } (see
