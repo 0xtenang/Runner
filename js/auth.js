@@ -36,6 +36,8 @@ class Auth extends EventTarget {
       loading: false, ready: false, authenticated: false,
       user: null, address: null, error: null, stage: 'idle',
       externalWallets: [], // wallets connected with "Connect wallet" (WalletConnect, MetaMask…): [{ address, name }]
+      walletKind: null, // 'embedded' (created by Privy at sign-in) or 'external' (signed in with MetaMask, Phantom…)
+      walletName: null,
     };
     this._api = null;
     this._mounted = false;
@@ -131,19 +133,26 @@ class Auth extends EventTarget {
         onError: (err) => { if (err && err !== 'generic_connect_wallet_error' && err !== 'exited_auth_flow') auth._set({ error: `Couldn't connect the wallet: ${err}` }); },
       });
       const embedded = wallets.find((w) => w.walletClientType === 'privy') || null;
+      // Signed in with an own wallet (MetaMask, Phantom, WalletConnect…): no Privy wallet is created, so that wallet is
+      // the account's wallet for every transaction and signature.
+      const linked = !embedded && user?.wallet?.walletClientType !== 'privy' ? (user?.wallet?.address || '').toLowerCase() : '';
+      const own = linked ? wallets.find((w) => w.address.toLowerCase() === linked) || null : null;
+      const primary = embedded || own;
       const address = embedded?.address || user?.wallet?.address || null;
-      const external = wallets.filter((w) => w.walletClientType !== 'privy');
+      const walletKind = !authenticated || !address ? null : embedded ? 'embedded' : 'external';
+      const walletName = walletKind === 'external' ? (own?.meta?.name || user?.wallet?.walletClientType || 'Wallet') : null;
+      const external = wallets.filter((w) => w !== primary && w.walletClientType !== 'privy');
       const externalKey = external.map((w) => w.address).join(',');
-      React.useEffect(() => { auth._api = { login, logout, exportWallet, connectWallet }; auth._wallet = embedded; auth._external = external; });
+      React.useEffect(() => { auth._api = { login, logout, exportWallet, connectWallet }; auth._wallet = primary; auth._external = external; });
       React.useEffect(() => {
         auth._set({ externalWallets: external.map((w) => ({ address: w.address, name: w.meta?.name || w.walletClientType || 'Wallet' })) });
       }, [externalKey]);
       React.useEffect(() => {
         auth._set({
-          ready, authenticated, user: summarize(user), address, loading: !ready,
+          ready, authenticated, user: summarize(user), address, walletKind, walletName, loading: !ready,
           ...(ready ? { stage: 'ready', error: auth.state.stage === 'start-timeout' ? null : auth.state.error } : {}),
         });
-      }, [ready, authenticated, user?.id, address]);
+      }, [ready, authenticated, user?.id, address, walletKind, walletName, Boolean(primary)]);
       return null;
     }
 
@@ -166,15 +175,17 @@ class Auth extends EventTarget {
       appId: PRIVY_APP_ID,
       ...(PRIVY_CLIENT_ID ? { clientId: PRIVY_CLIENT_ID } : {}),
       config: {
-        loginMethods: ['google', 'apple', 'email'],
+        // Own wallets (MetaMask, Phantom, WalletConnect…) on the website; the phone app keeps Google/Apple/email
+        // (wallet apps can't hand a connection back into the app reliably yet).
+        loginMethods: isNative ? ['google', 'apple', 'email'] : ['email', 'google', 'apple', 'wallet'],
         appearance: {
           theme: dark ? 'dark' : 'light',
           accentColor: '#E8483B',
           logo: isNative ? 'https://www.runearn.fun/icon.svg' : new URL('icon.svg', location.href).href,
           landingHeader: 'Sign in to RUNNER',
-          loginMessage: 'Your wallet is created automatically — no seed phrase needed.',
+          loginMessage: isNative ? 'Your wallet is created automatically — no seed phrase needed.' : 'Email, Google or Apple creates a wallet for you — or connect your own.',
           walletChainType: 'ethereum-only',
-          walletList: ['detected_ethereum_wallets', 'metamask', 'wallet_connect_qr', 'coinbase_wallet', 'rainbow', 'okx_wallet', 'rabby_wallet'],
+          walletList: ['detected_ethereum_wallets', 'metamask', 'phantom', 'wallet_connect_qr', 'coinbase_wallet', 'rainbow', 'okx_wallet', 'rabby_wallet'],
         },
         embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },
         // "Connect wallet" (Rewards tab, admin page): WalletConnect shows a QR code on a computer and opens
@@ -221,7 +232,7 @@ class Auth extends EventTarget {
    */
   async sendTx({ to, value = 0n, data, chainId = ROBINHOOD_CHAIN.id }) {
     const w = this._wallet;
-    if (!w) throw new Error('Wallet not ready yet — try again in a moment.');
+    if (!w) throw new Error(this._noWallet());
     await w.switchChain(chainId);
     const provider = await w.getEthereumProvider();
     const tx = { from: w.address, value: `0x${BigInt(value).toString(16)}` };
@@ -233,10 +244,16 @@ class Auth extends EventTarget {
   /** personal_sign a text message with the embedded wallet (Privy asks the user first). */
   async signMessage(message) {
     const w = this._wallet;
-    if (!w) throw new Error('Wallet not ready yet — try again in a moment.');
+    if (!w) throw new Error(this._noWallet());
     const provider = await w.getEthereumProvider();
     const hexMsg = `0x${Array.from(new TextEncoder().encode(message), (b) => b.toString(16).padStart(2, '0')).join('')}`;
     return provider.request({ method: 'personal_sign', params: [hexMsg, w.address] });
+  }
+
+  _noWallet() {
+    return this.state.walletKind === 'external'
+      ? `Your ${this.state.walletName || 'wallet'} isn't connected right now — unlock it (or open the wallet app) and try again.`
+      : 'Wallet not ready yet — try again in a moment.';
   }
 
   /**
@@ -284,6 +301,7 @@ class Auth extends EventTarget {
 
   async exportWallet() {
     if (!this._api || !this.state.address) throw new Error('Sign in first');
+    if (this.state.walletKind === 'external') throw new Error(`This is your own ${this.state.walletName || 'wallet'} — its keys stay in that wallet.`);
     await this._api.exportWallet({ address: this.state.address });
   }
 }

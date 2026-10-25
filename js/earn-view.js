@@ -150,9 +150,9 @@ function walletCard() {
           </div>` : ''}
         <div class="wallet-links">
           <a href="${explorerUrl(st.address)}" target="_blank" rel="noopener">View on explorer</a>
-          <button data-act="export-key">Export private key</button>
+          ${st.walletKind === 'external' ? '' : '<button data-act="export-key">Export private key</button>'}
         </div>
-        <span class="muted small">Signed in with ${esc(st.user?.method || 'Privy')}${st.user?.email ? ` · ${esc(st.user.email)}` : ''}</span>
+        <span class="muted small">Signed in with ${esc(st.walletKind === 'external' ? st.walletName || 'your wallet' : st.user?.method || 'Privy')}${st.user?.email ? ` · ${esc(st.user.email)}` : ''}</span>
       </div>`;
   }
   return `
