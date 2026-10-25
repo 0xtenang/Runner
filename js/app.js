@@ -20,7 +20,7 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const view = $('#view');
 
-const VERSION = '0.1 beta';
+const VERSION = '1.0';
 const FEEDBACK_URL = 'https://github.com/0xtenang/Runner/issues/new';
 // The phone app is served from the device, so links to the website's own pages need the full address.
 const SITE = isNative ? 'https://www.runearn.fun' : '';
@@ -181,7 +181,7 @@ function setTopbar({ left = '', title = '', right = '' } = {}) {
 const iconLink = (href, icon, label) => `<a class="icon-btn" href="${href}" aria-label="${label}">${icon}</a>`;
 const backLink = (href = '#/home') => iconLink(href, ICON.back, 'Back');
 const walletChip = () => '<a id="wallet-chip" class="wallet-chip" href="#/earn" aria-label="Wallet"></a>';
-const logo = '<span class="logo">RUNN<em>ER</em><sup class="beta">BETA</sup></span>';
+const logo = '<span class="logo">RUNN<em>ER</em></span>';
 
 function updateWalletChip() {
   const el = $('#wallet-chip');
@@ -338,7 +338,7 @@ function appBanner() {
 }
 
 // ---------------------------------------------------------------- map styles
-// Free tile sources suitable for a beta. Heavy production use should move to a
+// Free tile sources, fine for now. Heavy production use should move to a
 // keyed provider (e.g. MapTiler / Stadia) to respect the OSM tile usage policy.
 const MAP_STYLES = {
   standard: { label: 'Standard', url: TILE_URL, attr: TILE_ATTR, max: 19, swatch: 'linear-gradient(135deg,#efe9dd,#cfe3c2)' },
@@ -1069,7 +1069,7 @@ function renderSettings() {
           ${ICON.chev}
         </a>
         <a class="setting" href="${FEEDBACK_URL}" target="_blank" rel="noopener">
-          <div class="row">${ICON.chat}<div><b>Send feedback</b><div class="muted small">Report a bug or idea — it really helps the beta</div></div></div>
+          <div class="row">${ICON.chat}<div><b>Send feedback</b><div class="muted small">Report a bug or share an idea</div></div></div>
           ${ICON.chev}
         </a>
         <div class="setting">
@@ -1077,7 +1077,7 @@ function renderSettings() {
           <button class="btn sm danger" id="b-wipe">Delete</button>
         </div>
       </div>
-      <p class="muted small" style="text-align:center">RUNNER ${VERSION} · Your runs are stored privately on this device. ${COIN} coins are in-app points with no cash value.</p>
+      <p class="muted small" style="text-align:center">RUNNER ${VERSION} · Your runs are stored privately on this device. Earnings become real ${COIN} tokens when you claim them in Earn.</p>
     </section>`;
 
   $('#units').onclick = (e) => {

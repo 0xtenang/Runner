@@ -1,6 +1,6 @@
-# RUNNER — run to earn (beta)
+# RUNNER — run to earn
 
-**[Whitepaper](https://www.runearn.fun/whitepaper)** (draft for public review).
+**[Whitepaper](https://www.runearn.fun/whitepaper)** (v1.0).
 
 A simple GPS running app with a run-to-earn layer: own a **RUNNER Genesis** sneaker NFT, run inside its pace zone, and earn the **RUNNER** token.
 
@@ -31,21 +31,21 @@ Each deployed contract was checked byte for byte against the audited build.
    - **Android (Chrome):** ⋮ menu → *Install app* / *Add to Home screen*
 3. Open RUNNER from the home screen and go through the short setup.
 
-## What to test
+## How to use it
 
 1. **Onboarding** — sign in (or continue as a guest) and enter your name.
 2. **Record a real outdoor run** — tap Record → Start. Check the GPS line, distance and pace look right (compare with your watch if you have one).
 3. **Earning** — with a sneaker NFT equipped, the bar says *Earning*, *Too fast* or *Too slow* for its pace zone. RUNNER appears when you finish.
 4. **Heart rate** — You → Settings → *Heart-rate sensor* → pair a Bluetooth chest strap or a watch that broadcasts heart rate (+10% while earning).
-5. **Get a sneaker** (once the NFT is live) — sign in, open Earn → *Browse sneakers*, pick one and buy it with ETH on Robinhood Chain (Common 0.005 · Uncommon 0.015 · Rare 0.04 · Epic 0.1).
+5. **Get a sneaker** — sign in, open Earn → *Browse sneakers*, pick one and buy it with ETH on Robinhood Chain (Common 0.005 · Uncommon 0.015 · Rare 0.04 · Epic 0.1).
 6. **Earn tab** — level up, assign attribute points (Efficiency / Resilience) and repair with RUNNER.
-7. **Rewards tab** — for RUNNER holders (once the token is live): check whether you qualify, see each day's IMD share and claim it.
+7. **Rewards tab** — for RUNNER holders: check whether you qualify, see each day's IMD share and claim it.
 
 ## Known limitations
 
-- **iPhone:** Safari pauses GPS when the screen locks — keep the screen on while running (the app asks it to stay awake).
+- **iPhone:** Safari pauses GPS when the screen locks — keep the screen on while running (the app asks it to stay awake). On Android, the app keeps recording with the screen off.
 - **Bluetooth heart-rate sensors** work in Chrome on Android / desktop, not on iPhone.
-- Data lives on each device — no accounts, friends or leaderboards yet.
+- Runs are stored on each device (earnings and claims live on the server and the chain) — no friends or leaderboards yet.
 - Only runs recorded live with GPS in the app earn RUNNER.
 - You need at least one RUNNER Genesis sneaker NFT to earn.
 
