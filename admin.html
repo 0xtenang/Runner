@@ -6,6 +6,8 @@
   <meta name="robots" content="noindex">
   <title>RUNNER Admin</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <!-- Privy's Stripe import → a no-op stub, so Stripe's frame (which made a tone on iPhones) never loads. -->
+  <script type="importmap">{ "imports": { "https://esm.sh/@stripe/stripe-js?target=es2022": "./js/stripe-stub.js" } }</script>
   <link rel="stylesheet" href="styles.css">
   <style>
     body { padding: 0 0 40px; }
