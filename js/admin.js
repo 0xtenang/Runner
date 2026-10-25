@@ -117,7 +117,8 @@ function render() {
   $('#server').hidden = kind !== 'token';
   $('#launch').hidden = kind !== 'token' || !TOKEN_CONTRACT || !HOOK_CONTRACT;
   $('#protocol').hidden = $('#launch').hidden;
-  if (!$('#protocol').hidden) refreshProtocol();
+  $('#ethpool').hidden = $('#launch').hidden;
+  if (!$('#protocol').hidden) { refreshProtocol(); refreshEthPool(); }
   $('#controls').hidden = kind !== 'token';
   $('#review').hidden = kind !== 'token';
   if (kind === 'token') refreshServer();
@@ -323,19 +324,19 @@ $('#b-genkey').onclick = async () => {
 };
 
 /** Sends a transaction from the dev wallet: connected via Connect wallet, else a browser wallet (MetaMask), else Privy. */
-async function sendAsDev(to, data, chainId = TOKEN_CHAIN.id) {
-  if (devConnected()) return auth.sendTxFrom(DEV_WALLET, { to, data, chainId });
+async function sendAsDev(to, data, chainId = TOKEN_CHAIN.id, value = 0n) {
+  if (devConnected()) return auth.sendTxFrom(DEV_WALLET, { to, data, chainId, value });
   const injected = window.ethereum;
   if (injected) {
     const [from] = await injected.request({ method: 'eth_requestAccounts' });
     if (from.toLowerCase() !== DEV_WALLET.toLowerCase()) throw new Error(`Switch your browser wallet to the dev wallet ${DEV_WALLET} (it's on ${from}).`);
     await injected.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] });
-    return injected.request({ method: 'eth_sendTransaction', params: [{ from, to, data }] });
+    return injected.request({ method: 'eth_sendTransaction', params: [{ from, to, data, value: `0x${BigInt(value).toString(16)}` }] });
   }
   if (!auth.signedIn || auth.state.address.toLowerCase() !== DEV_WALLET.toLowerCase()) {
     throw new Error(`Only the dev wallet ${DEV_WALLET} can do this. Open this page in a browser with that wallet installed, or use Blockscout → the token → Write contract.`);
   }
-  return auth.sendTx({ to, data, chainId });
+  return auth.sendTx({ to, data, chainId, value });
 }
 
 async function runTx(button, out, makeTx, done) {
@@ -577,5 +578,77 @@ $('#b-collect').onclick = async () => {
   refreshProtocol();
 };
 $('#b-proto-refresh').onclick = () => refreshProtocol();
+
+// ----- RUNNER/ETH pool (Uniswap v4, 10%, no hook), filled from the dev wallet through Uniswap's PositionManager
+let ethPool = null; // last status()
+const fmtWei = (wei, dp = 6) => { const n = Number(wei / 10n ** 9n) / 1e9; return n.toLocaleString(undefined, { maximumFractionDigits: dp }); };
+const parseUnits18 = (s) => { const v = String(s).trim().replace(/,/g, ''); if (!/^\d+(\.\d{0,18})?$/.test(v)) return null; const [w, f = ''] = v.split('.'); return BigInt(w) * 10n ** 18n + BigInt((f + '0'.repeat(18)).slice(0, 18)); };
+
+async function refreshEthPool() {
+  const out = $('#ethpool-info');
+  out.textContent = 'Loading…';
+  try {
+    const xp = await import('./extra-pool.js');
+    ethPool = await xp.status(DEV_WALLET);
+    const gap = xp.priceGapPct(ethPool);
+    const price = xp.runnerPerEth(ethPool.created ? ethPool.poolSqrtPrice : ethPool.impliedSqrtPrice);
+    out.innerHTML = `<table class="small" style="width:100%;border-collapse:collapse">
+      <tr><td>Pool</td><td style="text-align:right"><b>${ethPool.created ? 'Created' : 'Not created yet'}</b></td></tr>
+      <tr><td>Price from the RUNNER/IMD and IMD/ETH pools</td><td style="text-align:right">${Math.round(xp.runnerPerEth(ethPool.impliedSqrtPrice)).toLocaleString()} RUNNER per ETH</td></tr>
+      ${ethPool.created ? `<tr><td>This pool's price</td><td style="text-align:right">${Math.round(price).toLocaleString()} RUNNER per ETH (${gap.toFixed(1)}% apart)</td></tr>` : ''}
+      <tr><td>Dev wallet holds</td><td style="text-align:right">${fmtWei(ethPool.runner, 0)} RUNNER · ${fmtWei(ethPool.eth)} ETH</td></tr>
+    </table>${ethPool.created && gap > 3 ? '<p class="bad small" style="margin:6px 0 0">The pool already exists at a price far from the main pool. Adding liquidity there would be arbitraged away — the button is disabled. Trades will bring it back in line first.</p>' : ''}`;
+    quoteEthPool();
+  } catch (e) {
+    out.innerHTML = `<span class="bad">${esc(String(e.message || e).slice(0, 200))}</span>`;
+  }
+}
+
+async function quoteEthPool() {
+  const btn = $('#b-ethpool'), q = $('#ethpool-quote');
+  btn.disabled = true;
+  if (!ethPool) return;
+  const xp = await import('./extra-pool.js');
+  const runnerWei = parseUnits18($('#ethpool-runner').value);
+  if (!runnerWei) { q.textContent = 'Enter how much RUNNER to add.'; return; }
+  const sqrtP = ethPool.created ? ethPool.poolSqrtPrice : ethPool.impliedSqrtPrice;
+  const quote = xp.fullRangeQuote(runnerWei, sqrtP);
+  const ethMax = quote.ethWei + quote.ethWei / 100n + 1n;
+  const short = runnerWei > ethPool.runner ? `<span class="bad">The dev wallet has only ${fmtWei(ethPool.runner, 0)} RUNNER — buy some in the RUNNER/IMD pool or send it from the team wallet first.</span>`
+    : ethMax + 10n ** 15n > ethPool.eth ? `<span class="bad">Not enough ETH (needs about ${fmtWei(ethMax)} plus gas).</span>` : '';
+  q.innerHTML = `Adds ${fmtWei(runnerWei, 0)} RUNNER + about <b>${fmtWei(quote.ethWei)} ETH</b> (sends up to ${fmtWei(ethMax)}; the rest comes back) as one full-range position. ${short}`;
+  btn.disabled = Boolean(short) || (ethPool.created && xp.priceGapPct(ethPool) > 3);
+  btn.textContent = ethPool.created ? 'Add liquidity (dev wallet)' : 'Create RUNNER/ETH pool + add liquidity (dev wallet)';
+}
+
+$('#ethpool-runner').addEventListener('input', () => quoteEthPool());
+$('#b-ethpool-refresh').onclick = () => refreshEthPool();
+$('#b-ethpool').onclick = async () => {
+  const xp = await import('./extra-pool.js');
+  await refreshEthPool(); // fresh price right before sending
+  const runnerWei = parseUnits18($('#ethpool-runner').value);
+  if (!runnerWei || !ethPool || $('#b-ethpool').disabled) return;
+  const sqrtP = ethPool.created ? ethPool.poolSqrtPrice : ethPool.impliedSqrtPrice;
+  const tx = await xp.mintTx({ owner: DEV_WALLET, runnerWei, sqrtP, create: !ethPool.created });
+  if (!confirm(`${ethPool.created ? 'Add liquidity to' : 'Create'} the RUNNER/ETH pool (Uniswap v4, 10% fee)?\n\nFull-range position owned by the dev wallet:\n${fmtWei(runnerWei, 0)} RUNNER + up to ${fmtWei(tx.ethMax)} ETH.\n\nYour wallet may ask up to three times: allow RUNNER for Uniswap's Permit2, allow the PositionManager, then add the liquidity.`)) return;
+  await runTx($('#b-ethpool'), $('#ethpool-out'), async () => {
+    const out = $('#ethpool-out');
+    if (ethPool.runnerToPermit2 < tx.runnerMax) {
+      out.textContent = 'Step 1 of 3: allow RUNNER for Uniswap Permit2…';
+      const a = await xp.approvePermit2Tx();
+      const r = await waitForReceipt(await sendAsDev(a.to, a.data));
+      if (r.status !== '0x1') throw new Error('The Permit2 approval failed.');
+    }
+    if (ethPool.permit2Amount < tx.runnerMax || ethPool.permit2Expiration < Date.now() / 1000 + 600) {
+      out.textContent = 'Step 2 of 3: allow the Uniswap PositionManager…';
+      const a = await xp.approvePositionManagerTx(tx.runnerMax);
+      const r = await waitForReceipt(await sendAsDev(a.to, a.data));
+      if (r.status !== '0x1') throw new Error('The PositionManager approval failed.');
+    }
+    out.textContent = 'Step 3 of 3: adding the liquidity…';
+    return sendAsDev(tx.to, tx.data, TOKEN_CHAIN.id, tx.value);
+  }, '✓ RUNNER/ETH liquidity added. The position (an NFT in the dev wallet) shows in the Uniswap app under Positions.');
+  refreshEthPool();
+};
 
 render();

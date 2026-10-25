@@ -98,6 +98,16 @@
       <div id="sweep" class="small"></div>
       <button class="btn pill sm ghost" id="b-proto-refresh">Refresh</button>
     </section>
+    <section class="card step" id="ethpool" hidden>
+      <h3><i>+</i>RUNNER/ETH pool (Uniswap v4, 10%)</h3>
+      <p class="muted small" style="margin:0">An extra pool like the Pepes ones: RUNNER/ETH on Uniswap v4 with a 10% fee and no hook, created through Uniswap's own PositionManager at the price of the main pool. The dev wallet adds a full-range position (RUNNER + ETH) and earns the 10% fee on trades there. Those trades don't pay the 4% holder/protocol fee — only trades in the RUNNER/IMD pool do.</p>
+      <div id="ethpool-info" class="small"></div>
+      <label class="small">RUNNER to add <input id="ethpool-runner" class="input mono" inputmode="decimal" placeholder="e.g. 10000000" autocomplete="off"></label>
+      <div id="ethpool-quote" class="small"></div>
+      <button class="btn primary pill" id="b-ethpool" disabled>Create RUNNER/ETH pool + add liquidity (dev wallet)</button>
+      <div id="ethpool-out" class="small"></div>
+      <button class="btn pill sm ghost" id="b-ethpool-refresh">Refresh</button>
+    </section>
     <section class="card step" id="controls" hidden>
       <h3><i>6</i>Controls after launch</h3>
       <div class="small"><b>Emission schedule</b> (on the token, dev wallet). The new schedule starts the next UTC day with a fresh halving clock; never above 20,000,000/day.</div>
