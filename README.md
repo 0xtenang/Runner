@@ -6,7 +6,7 @@ A simple GPS running app with a run-to-earn layer: own a **RUNNER Genesis** snea
 
 **Try it:** https://runearn.fun
 
-> **Live on Robinhood Chain (25 October 2026).** RUNNER trades against IMD in its Uniswap v4 pool (liquidity locked forever); RUNNER Genesis sneakers are on sale with real ETH. Run-reward claims open once the rewards server and emission are switched on.
+> **Live on Robinhood Chain (25 October 2026).** RUNNER trades against IMD in its Uniswap v4 pool (liquidity locked forever); RUNNER Genesis sneakers are on sale with real ETH. Run rewards are on: emission started 25 October 2026 (10,000,000 RUNNER/day, halving every 30 days); verified runs can be claimed.
 
 | Contract | Address |
 |---|---|
