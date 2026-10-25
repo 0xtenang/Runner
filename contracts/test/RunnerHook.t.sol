@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {PoolManager} from "v4-core/src/PoolManager.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {IUnlockCallback} from "v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {PoolSwapTest} from "v4-core/src/test/PoolSwapTest.sol";
 import {PoolModifyLiquidityTest} from "v4-core/src/test/PoolModifyLiquidityTest.sol";
+import {PoolDonateTest} from "v4-core/src/test/PoolDonateTest.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
@@ -66,6 +67,35 @@ contract FlashFlusher is IUnlockCallback {
         IRunner(token).transfer(address(pm), borrowed);
         pm.settle();
         return "";
+    }
+}
+
+/// @notice An unrelated contract that tries to collect protocol fees inside its own unlock (fifth audit, #3).
+contract MidUnlockCollector is IUnlockCallback {
+    IPoolManager immutable pm;
+    RunnerHook immutable hook;
+    address immutable quote;
+
+    constructor(IPoolManager pm_, RunnerHook hook_, address quote_) {
+        pm = pm_;
+        hook = hook_;
+        quote = quote_;
+    }
+
+    function run() external {
+        pm.unlock("");
+    }
+
+    function unlockCallback(bytes calldata) external returns (bytes memory) {
+        hook.collectProtocolFees(quote); // must do nothing mid-unlock for anyone but our routers
+        return "";
+    }
+}
+
+/// @dev Exposes RunnerDeployLib.sqrt (internal) to tests.
+contract SqrtHarness {
+    function sqrt(uint256 x) external pure returns (uint256) {
+        return RunnerDeployLib.sqrt(x);
     }
 }
 
@@ -152,7 +182,7 @@ contract RunnerHookTest is Test {
     receive() external payable {}
 
     function _flags() internal pure returns (uint160) {
-        return uint160((1 << 13) | (1 << 11) | (1 << 7) | (1 << 6) | (1 << 3) | (1 << 2));
+        return uint160((1 << 13) | (1 << 11) | (1 << 7) | (1 << 6) | (1 << 5) | (1 << 3) | (1 << 2));
     }
 
     function _buy(address who, uint256 imdIn) internal returns (uint256) {
@@ -607,6 +637,82 @@ contract RunnerHookTest is Test {
         uint256 before = _pendingTotal();
         extRouter.swap(key, SwapParams(imdIs0, -24, _limit(imdIs0)), settings, "");
         assertEq(_pendingTotal() - before, 1);
+    }
+
+    // ------------------------------------------------------------ fifth audit
+
+    /// @dev #1: donations to the pool are refused (they'd be lost to the locked position).
+    function test_donations_areRefused() public {
+        PoolDonateTest donor = new PoolDonateTest(pm);
+        imd.mint(alice, 10e18);
+        vm.startPrank(alice);
+        imd.approve(address(donor), type(uint256).max);
+        PoolKey memory key = _key();
+        bool imdIs0 = Currency.unwrap(key.currency0) == address(imd);
+        uint256 pmBefore = imd.balanceOf(address(pm));
+        vm.expectRevert();
+        donor.donate(key, imdIs0 ? 10e18 : 0, imdIs0 ? 0 : 10e18, "");
+        vm.stopPrank();
+        assertEq(imd.balanceOf(address(pm)), pmBefore);
+    }
+
+    /// @dev #2: integer square root is the floor for small inputs too (it returned 2 for 2).
+    function test_sqrt_isFloorForSmallInputs() public {
+        SqrtHarness s = new SqrtHarness();
+        for (uint256 x = 0; x < 200; x++) {
+            uint256 z = s.sqrt(x);
+            assertLe(z * z, x);
+            assertGt((z + 1) * (z + 1), x);
+        }
+        assertEq(s.sqrt(type(uint256).max), type(uint128).max);
+    }
+
+    /// @dev #3: like flush, a stranger can't make the hook collect protocol fees inside its unlock.
+    function test_collectProtocolFees_strangerMidUnlock_doesNothing() public {
+        _buy(alice, 1_000e18);
+        uint256 p = hook.pendingProtocolFees(address(imd));
+        assertEq(p, 20e18);
+        new MidUnlockCollector(pm, hook, address(imd)).run();
+        assertEq(hook.pendingProtocolFees(address(imd)), p, "nothing collected mid-unlock");
+        assertEq(imd.balanceOf(feeRecipient), 0);
+        hook.collectProtocolFees(address(imd)); // outside an unlock it still works for anyone
+        assertEq(imd.balanceOf(feeRecipient), p);
+    }
+
+    /// @dev #5: trades through other routers name that router, not tx.origin.
+    function test_tradeEvent_otherRouter_namesTheRouter() public {
+        PoolKey memory key = _key();
+        bool imdIs0 = Currency.unwrap(key.currency0) == address(imd);
+        address relayer = makeAddr("relayer");
+        vm.recordLogs();
+        vm.prank(address(this), relayer);
+        extRouter.swap(key, SwapParams(imdIs0, -1_000e18, _limit(imdIs0)), settings, "");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sig = keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint160)");
+        bool seen;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(hook) && logs[i].topics[0] == sig) {
+                assertEq(address(uint160(uint256(logs[i].topics[2]))), address(extRouter));
+                seen = true;
+            }
+        }
+        assertTrue(seen, "Trade emitted");
+    }
+
+    /// @dev Our own router still names the user.
+    function test_tradeEvent_ourRouter_namesTheUser() public {
+        vm.recordLogs();
+        _buy(alice, 1_000e18);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sig = keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint160)");
+        bool seen;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(hook) && logs[i].topics[0] == sig) {
+                assertEq(address(uint160(uint256(logs[i].topics[2]))), alice);
+                seen = true;
+            }
+        }
+        assertTrue(seen, "Trade emitted");
     }
 
     // ------------------------------------------------------------ fuzz

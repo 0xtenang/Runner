@@ -178,6 +178,8 @@ contract RunnerGenesis {
 
     /// @notice Attach (or remove with address(0)) a transfer validator to enforce royalties.
     function setTransferValidator(address validator) external onlyOwner {
+        // A validator without code would make every transfer revert (fifth audit, #10); address(0) turns it off.
+        if (validator != address(0) && validator.code.length == 0) revert NotAuthorized();
         emit TransferValidatorUpdated(_transferValidator, validator);
         _transferValidator = validator;
     }

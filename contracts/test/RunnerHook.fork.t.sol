@@ -51,7 +51,7 @@ contract RunnerHookForkTest is Test {
                 RunnerHook.ImdEthPool(10_000, 100, address(0))
             )
         );
-        (bytes32 salt,) = RunnerDeployLib.mineSalt(address(this), uint160(0x28CC), initCode, 0);
+        (bytes32 salt,) = RunnerDeployLib.mineSalt(address(this), uint160(0x28EC), initCode, 0);
         address deployed;
         assembly {
             deployed := create2(0, add(initCode, 0x20), mload(initCode), salt)

@@ -47,7 +47,7 @@ export const NFT_CHAIN = ROBINHOOD_CHAIN;
 export const NFT_CONTRACT = '';
 // Fingerprint of the audited build (solc 0.8.24, optimizer 200 runs, evm "paris").
 // /admin.html refuses to deploy bytecode that doesn't match.
-export const NFT_CREATION_CODE_KECCAK = '0xbb23f94439cb6717558d87b83cb1e9d922d54210975a2e75b2aa9405e3ca08fa';
+export const NFT_CREATION_CODE_KECCAK = '0x270c71d725f5555873c1391b02799879056d7d4923759ab75fe6cd3d9c32ed9e';
 export const NFT_BASE_URI = 'https://runearn.fun/nft/';
 // Collection page for OpenSea (ERC-7572 contractURI): name, images, website, 5% fee.
 export const NFT_CONTRACT_URI = 'https://runearn.fun/nft/collection.json';
@@ -63,7 +63,7 @@ export const DEV_WALLET = '0x0f397E46e4e810313dBC782CDb0236347157f1B4';
 export const TOKEN_CHAIN = ROBINHOOD_CHAIN;
 export const TOKEN_CONTRACT = '';
 export const TEAM_WALLET = '0x0f4FE718eb8492533E600b30F3287E2f04087332';
-export const TOKEN_CREATION_CODE_KECCAK = '0x25a43088dbb18c33c11e56e302903717cf84301d17801c6f82ea70ab5de52e5b';
+export const TOKEN_CREATION_CODE_KECCAK = '0x5dd29313d079ac0da0e91228161e0d2ac15badf3529e38a25705938f158414c6';
 
 // RUNNER/IMD pool on Robinhood Chain's Uniswap v4 (the same PoolManager, IMD and IMD/ETH pool
 // PepesFamily uses). The RunnerHook (contracts/RunnerHook.sol) is deployed first, through the
@@ -73,8 +73,8 @@ export const IMD_TOKEN = '0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127';
 export const POOL_MANAGER = '0x8366a39CC670B4001A1121B8F6A443A643e40951';
 export const IMD_ETH_POOL = { fee: 10_000, tickSpacing: 100, hooks: '0x0000000000000000000000000000000000000000' };
 export const CREATE2_DEPLOYER = '0x4e59b44847b379578588920cA78FbF26c0B4956C';
-export const HOOK_FLAGS = 0x28cc; // beforeInitialize, beforeAddLiquidity, before/afterSwap (+ return deltas)
+export const HOOK_FLAGS = 0x28ec; // beforeInitialize, beforeAddLiquidity, before/afterSwap (+ return deltas), beforeDonate
 export const HOOK_START_TICK = 142_600; // tick of RUNNER-per-IMD: about 642 IMD starting market cap (635 IMD rounded to the tick spacing)
 export const HOOK_CONTRACT = '';
 // Fingerprint of contracts/build/RunnerHook.json (solc 0.8.26, via-IR, optimizer 200, cancun).
-export const HOOK_CREATION_CODE_KECCAK = '0x5c219725272d98e95b9b5bf08e76463ee008bf33e078deb3f42a8f57a2e022bf';
+export const HOOK_CREATION_CODE_KECCAK = '0xa19ac5773841d46411339cf0809c6ba2cd95ea673a9ca18e4230955e2f8d5398';

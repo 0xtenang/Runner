@@ -25,15 +25,21 @@ pragma solidity 0.8.24;
 interface IT { function transfer(address,uint256) external returns (bool); }
 contract MockPair {
   address public token0; address public token1;
-  constructor(address t, bool second) { if (second) { token1 = t; token0 = address(1); } else { token0 = t; token1 = address(1); } }
+  constructor(address t, bool second) { if (second) { token1 = t; token0 = address(this); } else { token0 = t; token1 = address(this); } }
+  function factory() external view returns (address) { return address(this); }
   function send(address t, address to, uint256 a) external { IT(t).transfer(to, a); }
 }
 contract MockSmartWallet { function send(address t, address to, uint256 a) external { IT(t).transfer(to, a); } }
 contract MockOtherPool { address public token0 = address(2); address public token1 = address(3); }
+contract MockToken0Wallet { address public token0; constructor(address t) { token0 = t; } } // fifth audit, #4
+contract MockEoaSidePool { address public token0; address public token1 = address(1); constructor(address t) { token0 = t; }
+  function factory() external view returns (address) { return address(this); } }
+contract MockNoFactoryPool { address public token0; address public token1; constructor(address t) { token0 = t; token1 = address(this); } }
 interface IClaim { function claimHolderRewards() external returns (uint256); }
 contract ClaimingPool {
   address public token0; address public token1;
-  constructor(address t) { token0 = t; token1 = address(1); }
+  constructor(address t) { token0 = t; token1 = address(this); }
+  function factory() external view returns (address) { return address(this); }
   function claim(address t) external { IClaim(t).claimHolderRewards(); }
 }
 contract MockIMD {
@@ -117,6 +123,11 @@ async function setup() {
   ok('excludePool rejects smart-contract wallets (not a RUNNER pool)', reverts(await call(DEV, 'excludePool', smart), 'NotAPool'));
   const other = (await c.send(DEPLOYER, null, OP.ctor())).created;
   ok('excludePool rejects pools of other tokens', reverts(await call(DEV, 'excludePool', other), 'NotAPool'));
+  // Fifth audit, #4: a contract that only reports token0 = RUNNER is not a pool.
+  const mk = async (n) => (await c.send(DEPLOYER, null, iface(contracts['Mocks.sol'][n]).ctor(tok))).created;
+  ok('excludePool rejects a wallet exposing only token0() = RUNNER', reverts(await call(DEV, 'excludePool', await mk('MockToken0Wallet')), 'NotAPool'));
+  ok('excludePool rejects a "pool" whose other token is not a contract', reverts(await call(DEV, 'excludePool', await mk('MockEoaSidePool')), 'NotAPool'));
+  ok('excludePool rejects a "pool" without a factory', reverts(await call(DEV, 'excludePool', await mk('MockNoFactoryPool')), 'NotAPool'));
   ok('no adjustable daily cap exists (schedule is fixed)', !T.selectors.some((x) => /DailyClaimCap/.test(x)));
   ok('non-owner protocol wallet', reverts(await call(W(1), 'setProtocolWallet', W(1)), 'NotOwner'));
   ok('owner sets protocol wallet', (await call(DEV, 'setProtocolWallet', W(9))).ok && u(await view('protocolWallet')) === BigInt(W(9)));
@@ -228,6 +239,8 @@ async function setup() {
   ok('setting again the same day replaces the pending one', await em(d20 + 1) === 2_000_000n && await em(d20) === 4_000_000n);
   c.addTime(5 * DAY);                        // day 25: pending (2M, 60 days) is in force since day 21
   ok('pending schedule in force on its day', await em(d20 + 5) === 2_000_000n && await em(d20 + 61) === 1_000_000n);
+  const scLive = await sched(); // fifth audit, #6: the view reports the schedule in force, not the superseded one
+  ok('emissionSchedule() shows the in-force schedule as current and nothing pending', scLive[0] === 2_000_000n * M && scLive[2] === 60n && scLive[3] === BigInt(d20 + 1) && scLive[7] === 0n && scLive[4] === 0n);
   await call(DEV, 'setEmissionSchedule', 3_000_000n * M, 7, 100_000n * M);
   const sc2 = await sched();
   ok('a later change promotes the old pending one to current', sc2[0] === 2_000_000n * M && sc2[3] === BigInt(d20 + 1) && sc2[4] === 3_000_000n * M && sc2[7] === BigInt(d20 + 6));

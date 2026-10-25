@@ -116,6 +116,7 @@ ok('safe transfer to non-receiver blocked', reverts(await call(W(1), 'safeTransf
 // ERC-721C validator
 const v = await deploy('MockValidator');
 ok('only owner sets validator', reverts(await call(W(1), 'setTransferValidator', v), 'NotOwner'));
+ok('a validator without code is refused (it would freeze transfers)', reverts(await call(DEV, 'setTransferValidator', W(8)), 'NotAuthorized'));
 await call(DEV, 'setTransferValidator', v);
 ok('validator stored', u(await view('getTransferValidator')) === BigInt(v));
 await call(W(1), 'setApprovalForAll', W(5), true);

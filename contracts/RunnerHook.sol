@@ -89,10 +89,12 @@ contract RunnerHook is IHooks, IUnlockCallback {
     uint24 public constant LP_FEE = 0; // all fees are taken by the hook
     uint160 public constant HOOK_FLAGS = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG
         | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
-        | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
+        | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG | Hooks.BEFORE_DONATE_FLAG; // donations refused (fifth audit, #1)
 
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
     /// @dev Kept out of the liquidity calculation so rounding can never ask for more than the allocation; burned.
+    ///      At the production start tick (142,600) the total burn is ~1e9 wei; at extreme accepted ticks the
+    ///      floored liquidity leaves up to ~0.9 RUNNER, so re-check the burn if the launch price changes (fifth audit, #8).
     uint256 internal constant LIQUIDITY_BUFFER = 1e9;
     uint256 internal constant Q96 = 2 ** 96;
     /// @dev keccak256("RunnerHook.beforeSwapFee") - transient slot passing the fee from beforeSwap to afterSwap.
@@ -193,7 +195,7 @@ contract RunnerHook is IHooks, IUnlockCallback {
                 afterRemoveLiquidity: false,
                 beforeSwap: true,
                 afterSwap: true,
-                beforeDonate: false,
+                beforeDonate: true,
                 afterDonate: false,
                 beforeSwapReturnDelta: true,
                 afterSwapReturnDelta: true,
@@ -336,8 +338,9 @@ contract RunnerHook is IHooks, IUnlockCallback {
         }
 
         bool isBuy = params.zeroForOne == quoteIs0;
+        // Our routers name the user; any other router is recorded as the trader itself (fifth audit, #5).
         address trader =
-            (sender == router || sender == ethRouter) && hookData.length == 32 ? abi.decode(hookData, (address)) : tx.origin;
+            (sender == router || sender == ethRouter) && hookData.length == 32 ? abi.decode(hookData, (address)) : sender;
         emit Trade(t, trader, isBuy, isBuy ? poolQuote + fee : poolQuote - fee, tokenAmount, fee, _price(t));
         return (IHooks.afterSwap.selector, hookDelta);
     }
@@ -374,8 +377,12 @@ contract RunnerHook is IHooks, IUnlockCallback {
     /// @notice Sends pending protocol fees (IMD) to `feeRecipient`. Callable by anyone.
     function collectProtocolFees(address quote) external {
         if (pendingProtocolFees[quote] == 0) return;
-        if (poolManager.isUnlocked()) _collect(quote);
-        else poolManager.unlock(abi.encode(ACTION_COLLECT, abi.encode(quote)));
+        if (poolManager.isUnlocked()) {
+            // Same rule as flush: mid-unlock, only our routers may distribute (fifth audit, #3).
+            if (msg.sender == router || msg.sender == ethRouter) _collect(quote);
+        } else {
+            poolManager.unlock(abi.encode(ACTION_COLLECT, abi.encode(quote)));
+        }
     }
 
     function _flush(address t) internal {
@@ -504,7 +511,10 @@ contract RunnerHook is IHooks, IUnlockCallback {
 
     // ------------------------------------------------- Disabled hook paths
     // The PoolManager skips hook calls made by the hook itself, so only this contract can initialize the
-    // pool and add (never remove) its liquidity; everyone else is refused.
+    // pool and add (never remove) its liquidity; everyone else is refused. Donations are refused for
+    // everyone (they would be lost to the locked position). The PoolManager only calls the hooks whose
+    // flag is in HOOK_FLAGS (beforeInitialize, beforeAddLiquidity, beforeDonate, the swap hooks); the
+    // other overrides below are never called and revert only as a safeguard.
 
     function beforeInitialize(address, PoolKey calldata, uint160) external pure returns (bytes4) {
         revert HookNotAllowed();

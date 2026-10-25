@@ -38,12 +38,16 @@ library RunnerDeployLib {
     }
 
     function sqrt(uint256 x) internal pure returns (uint256 z) {
-        if (x == 0) return 0;
-        z = x;
-        uint256 y = (x >> 1) + 1;
-        while (y < z) {
-            z = y;
-            y = (x / y + y) >> 1;
+        // Uniswap v2's Math.sqrt: x/2 + 1 is an upper bound only for x > 3, so 1..3 are special-cased (fifth audit, #2).
+        if (x > 3) {
+            z = x;
+            uint256 y = (x >> 1) + 1;
+            while (y < z) {
+                z = y;
+                y = (x / y + y) >> 1;
+            }
+        } else if (x != 0) {
+            z = 1;
         }
     }
 }

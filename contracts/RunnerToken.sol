@@ -47,7 +47,8 @@ contract RunnerToken {
     /// Run-reward emission: starts at 10,000,000 RUNNER/day, halving every 30 days, never
     /// below 100,000/day. The owner can set a new schedule, which starts the next UTC day,
     /// but never above MAX_DAILY_EMISSION — so even a stolen owner key can move at most
-    /// 2.5% of the pool per day.
+    /// 2.5% of the pool per UTC day. The cap resets at 00:00 UTC, so two days' worth can be
+    /// claimed seconds apart across midnight (worst case 5% within 24 hours; fifth audit, #9).
     uint256 public constant MAX_DAILY_EMISSION = 20_000_000 ether;
     uint256 public constant MIN_HALVING_DAYS = 7;
     uint256 public constant MAX_HALVING_DAYS = 3650;
@@ -456,6 +457,8 @@ contract RunnerToken {
 
     /// @notice The schedule in force and the one waiting to start (fromDay 0 = none).
     function emissionSchedule() external view returns (Schedule memory current, Schedule memory next) {
+        // A pending schedule whose day has come is the one in force, even before it is promoted (fifth audit, #6).
+        if (_nextSchedule.fromDay != 0 && _today() >= _nextSchedule.fromDay) return (_nextSchedule, next);
         return (_schedule, _nextSchedule);
     }
 
@@ -475,12 +478,19 @@ contract RunnerToken {
 
     /// @notice Exclude another exchange pool from holder rewards (e.g. a RUNNER pool someone
     ///         created elsewhere), so its balance doesn't dilute holders. It changes nothing
-    ///         about transfers. Only contracts that report RUNNER as token0 or token1 qualify,
-    ///         so a wallet (including a smart-contract wallet) can never be cut out this way.
+    ///         about transfers. The rule (fifth audit, #4): a contract whose token0() and token1()
+    ///         are two different contracts, one of them RUNNER, and whose factory() is a contract —
+    ///         the shape of Uniswap v2/v3-style pools. An ordinary wallet can't qualify, but no
+    ///         on-chain check can tell a pool from a contract built to look like one; this is an
+    ///         owner power and can't be undone.
     function excludePool(address pool) external onlyOwner {
         if (pool.code.length == 0) revert NotAContract();
         if (excludedFromHolderRewards[pool]) revert AlreadyExcluded();
-        if (_poolToken(pool, 0x0dfe1681) != address(this) && _poolToken(pool, 0xd21220a7) != address(this)) revert NotAPool(); // token0(), token1()
+        address t0 = _poolToken(pool, 0x0dfe1681); // token0()
+        address t1 = _poolToken(pool, 0xd21220a7); // token1()
+        address other = t0 == address(this) ? t1 : t1 == address(this) ? t0 : address(0);
+        if (other == address(0) || other == address(this) || other.code.length == 0) revert NotAPool();
+        if (_poolToken(pool, 0xc45a0155).code.length == 0) revert NotAPool(); // factory()
         uint256 today = _today();
         _startDay(today);
         _exclude(pool, today);
