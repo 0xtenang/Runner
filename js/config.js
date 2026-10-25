@@ -75,7 +75,7 @@ export const DEV_WALLET = '0x0f397E46e4e810313dBC782CDb0236347157f1B4';
 // 10% team → TEAM_WALLET. Owner = DEV_WALLET. The hook charges 4% of every trade in IMD:
 // 2% to the protocol (DEV_WALLET) and 2% to RUNNER holders (paid out by the token, in IMD).
 export const TOKEN_CHAIN = ROBINHOOD_CHAIN;
-export const TOKEN_CONTRACT = DEV_CHAIN?.token || '';
+export const TOKEN_CONTRACT = DEV_CHAIN?.token || '0x52cE7fC26a4Bb4B8aFef02C1b00486FDF4Bb804e';
 export const TEAM_WALLET = '0x0f4FE718eb8492533E600b30F3287E2f04087332';
 export const TOKEN_CREATION_CODE_KECCAK = '0x75d8d27c4c1220ebabaf525493933771ca45bab43110bb52f09fa74ce0d226d5';
 

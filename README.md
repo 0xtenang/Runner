@@ -6,7 +6,7 @@ A simple GPS running app with a run-to-earn layer: own a **RUNNER Genesis** snea
 
 **Try it:** https://runearn.fun
 
-> RUNNER Genesis sneakers are live on **Robinhood Chain** (`0x7ded256c6646630dFcf15317aeB7cF40027932CC`), bought with real ETH. The RUNNER token launches next.
+> RUNNER Genesis sneakers are live on **Robinhood Chain** (`0x7ded256c6646630dFcf15317aeB7cF40027932CC`), bought with real ETH. The RUNNER token is deployed (`0x52cE7fC26a4Bb4B8aFef02C1b00486FDF4Bb804e`); trading starts when the RUNNER/IMD pool opens.
 
 ## Install on your phone
 
