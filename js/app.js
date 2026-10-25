@@ -331,7 +331,7 @@ function appBanner() {
   try { if (localStorage.getItem(APP_BANNER_KEY)) return ''; } catch { /* show it */ }
   return `<div class="app-banner">
       <span class="app-banner-icon">${ICON.phone}</span>
-      <div><b>Get the Android app</b><span class="muted small">Keeps recording your run with the screen locked.</span></div>
+      <div><b>RUNNER for Android is out</b><span class="muted small">Version 1.0 — keeps recording your run with the screen locked.</span></div>
       <a class="btn primary pill sm" href="/download">Download</a>
       <button class="icon-btn sm" data-act="hide-app-banner" aria-label="Hide">×</button>
     </div>`;
@@ -1061,7 +1061,7 @@ function renderSettings() {
           ${ICON.chev}
         </a>` : ''}
         ${isNative ? '' : `<a class="setting" href="/download" target="_blank" rel="noopener">
-          <div class="row">${ICON.phone}<div><b>Android app</b><div class="muted small">Keeps recording with the screen locked — install it from runearn.fun</div></div></div>
+          <div class="row">${ICON.phone}<div><b>Android app</b><div class="muted small">Version 1.0 — keeps recording with the screen locked</div></div></div>
           ${ICON.chev}
         </a>`}
         <a class="setting" href="${SITE}/whitepaper" target="_blank" rel="noopener">
