@@ -84,9 +84,16 @@
       <input id="pool-addr" class="input mono" placeholder="Other RUNNER pool contract 0x…" autocomplete="off" spellcheck="false">
       <button class="btn pill" id="b-exclude">Exclude pool from holder rewards (dev wallet)</button>
       <div id="exclude" class="small"></div>
-      <p class="muted small" style="margin:8px 0 0">Holder rewards not claimed within 7 days go to the protocol wallet when anyone sweeps them:</p>
+    </section>
+    <section class="card step" id="protocol" hidden>
+      <h3><i>$</i>Protocol rewards (IMD)</h3>
+      <p class="muted small" style="margin:0">The protocol's 2% of every trade collects in the hook until it's claimed, then goes to the hook's fee recipient. Holder rewards nobody claimed within 7 days go to the token's protocol wallet when swept. Anyone can send either — the IMD always goes to the configured wallet, never to whoever clicks.</p>
+      <div id="proto-info" class="small"></div>
+      <button class="btn primary pill" id="b-collect">Claim protocol fees</button>
+      <div id="collect" class="small"></div>
       <button class="btn pill" id="b-sweep">Sweep expired holder rewards</button>
       <div id="sweep" class="small"></div>
+      <button class="btn pill sm ghost" id="b-proto-refresh">Refresh</button>
     </section>
     <section class="card step" id="controls" hidden>
       <h3><i>6</i>Controls after launch</h3>

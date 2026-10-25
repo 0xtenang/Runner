@@ -67,10 +67,23 @@ Result on Android 15 (fresh install, screen asleep the whole time): **1.199 km r
 
 Gotcha that this caught: on Android the plugin can't start its foreground service if the watcher is created while the location prompt is still open, and GPS then stops when the screen locks. `js/geo.js` replaces the first watcher once its first fix arrives.
 
+## Publish the Android app (runearn.fun/download)
+
+Players install the signed APK from **https://runearn.fun/download**. To build or update it:
+
+```bash
+bash scripts/build-apk.sh
+```
+
+- The first run creates the app's signing key in `~/RUNNER-signing/` (outside the repo) and asks you to choose its password. **Back that folder and password up and never lose them:** every update must be signed with the same key, or players have to uninstall (losing their runs) to install it.
+- Each run asks for the password (it's never stored), builds the release APK, checks its signature, and writes `downloads/runner.apk` plus `downloads/android.json` (version, size, SHA-256, signing certificate), which the download page reads.
+- Before building an update, raise `versionCode` (and `versionName`) in `android/app/build.gradle`.
+- Commit and push `downloads/`; Vercel serves it with the right download headers (`vercel.json`).
+
 ## Install on your phone
 
 ### Android (no Play Store needed)
-1. Copy `app-debug.apk` to the phone (Google Drive, email, or a USB cable), or download it from a link.
+1. Download it from **runearn.fun/download** on the phone (or copy an APK over with Google Drive, email, or a USB cable).
 2. Tap the file. Android asks to allow installs from that app (Files/Chrome): tap **Settings → Allow from this source**, then go back and tap **Install**.
 3. Open RUNNER. Allow **notifications** and **location → While using the app**.
 4. To update later, install the new APK over the old one. Your runs stay.

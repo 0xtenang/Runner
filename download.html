@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Get RUNNER for Android</title>
+  <meta name="description" content="Download the RUNNER Android app (APK): GPS run tracking that keeps recording with the screen locked, sneaker NFTs and the RUNNER token on Robinhood Chain.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="RUNNER">
+  <meta property="og:title" content="Get RUNNER for Android">
+  <meta property="og:description" content="Download the RUNNER Android app: run tracking that keeps recording with the screen locked.">
+  <meta property="og:url" content="https://www.runearn.fun/download">
+  <meta property="og:image" content="https://www.runearn.fun/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://www.runearn.fun/og.png">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { padding: 0; background: var(--bg); }
+    .dl { max-width: 680px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 16px; }
+    .dl-brand { display: flex; align-items: center; gap: 10px; font-weight: 900; font-size: 20px; color: var(--text); text-decoration: none; }
+    .dl-brand img { width: 34px; height: 34px; }
+    .dl-brand em { color: var(--accent-strong); font-style: normal; }
+    .dl h1 { font-size: clamp(30px, 7vw, 44px); font-weight: 900; line-height: 1.05; margin: 8px 0 0; letter-spacing: -0.02em; }
+    .dl .lead { font-size: 17px; color: var(--muted); margin: 0; line-height: 1.5; }
+    .dl-get { display: grid; gap: 10px; justify-items: start; }
+    .dl-get .btn { font-size: 17px; min-height: 54px; padding: 12px 26px; text-decoration: none; }
+    .dl-get .btn[aria-disabled="true"] { opacity: .55; pointer-events: none; }
+    .dl ol, .dl ul { margin: 0; padding-left: 22px; display: grid; gap: 8px; line-height: 1.55; font-size: 15.5px; }
+    .dl h2 { font-size: 19px; font-weight: 900; margin: 0 0 10px; }
+    .mono { font: 600 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+    .foot { font-size: 14px; color: var(--muted); text-align: center; }
+    a.inline { color: var(--accent-strong); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main class="dl">
+    <a class="dl-brand" href="/"><img src="icon.svg" alt=""><span>RUNN<em>ER</em></span></a>
+    <h1>Get RUNNER for Android</h1>
+    <p class="lead">The phone app keeps recording your run with the screen locked, counts steps for fair play, and has everything the website has — Earn, Rewards and your wallet.</p>
+
+    <section class="card dl-get">
+      <a class="btn primary pill" id="dl-btn" href="/downloads/runner.apk" download aria-disabled="true">Download for Android</a>
+      <span class="muted small" id="dl-meta">Checking for the latest version…</span>
+    </section>
+
+    <section class="card">
+      <h2>Install it</h2>
+      <ol>
+        <li>Open this page on your Android phone and tap <b>Download for Android</b>.</li>
+        <li>Open the downloaded <b>runner.apk</b>. Android asks whether to allow installs from your browser or Files app: tap <b>Settings → Allow from this source</b>, go back, and tap <b>Install</b>.</li>
+        <li>If Google Play Protect says the app is from an unknown developer, tap <b>More details → Install anyway</b>. That's normal for apps installed outside the Play Store.</li>
+        <li>Open RUNNER. Allow <b>notifications</b> (so recording keeps going with the screen off) and <b>location → While using the app</b>.</li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>Updating</h2>
+      <ul>
+        <li>Download the new version here and install it over the old one. Your runs and settings stay.</li>
+        <li>Only install RUNNER from <b>runearn.fun/download</b>. Every version is signed with the same key, so Android refuses an update that didn't come from us.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Check the file (optional)</h2>
+      <p class="small" style="margin:0 0 8px">SHA-256 of the APK:</p>
+      <p class="mono" id="dl-sha" style="margin:0 0 10px">—</p>
+      <p class="small" style="margin:0 0 8px">Signing certificate (SHA-256):</p>
+      <p class="mono" id="dl-cert" style="margin:0">—</p>
+    </section>
+
+    <section class="card">
+      <h2>iPhone</h2>
+      <p class="small" style="margin:0">An iPhone app is coming. Until then, open <a class="inline" href="/">runearn.fun</a> in Safari and choose <b>Share → Add to Home Screen</b> (keep the screen on while you run).</p>
+    </section>
+
+    <p class="foot"><a class="inline" href="/whitepaper">Whitepaper</a> · <a class="inline" href="https://github.com/0xtenang/Runner" target="_blank" rel="noopener">Source code</a></p>
+  </main>
+  <script>
+    (async () => {
+      const meta = document.getElementById('dl-meta');
+      const btn = document.getElementById('dl-btn');
+      try {
+        const r = await fetch('/downloads/android.json', { cache: 'no-store' });
+        if (!r.ok) throw new Error('missing');
+        const a = await r.json();
+        btn.setAttribute('aria-disabled', 'false');
+        btn.href = a.file || '/downloads/runner.apk';
+        btn.textContent = `Download RUNNER ${a.version} for Android`;
+        meta.textContent = `Version ${a.version} · ${(a.size / 1048576).toFixed(1)} MB · updated ${a.built} · Android 6 or newer`;
+        document.getElementById('dl-sha').textContent = a.sha256 || '—';
+        document.getElementById('dl-cert').textContent = a.certSha256 || '—';
+      } catch {
+        meta.textContent = 'The Android app is coming soon — check back shortly.';
+        btn.textContent = 'Coming soon';
+      }
+    })();
+  </script>
+</body>
+</html>

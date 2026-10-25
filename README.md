@@ -10,6 +10,10 @@ A simple GPS running app with a run-to-earn layer: own a **RUNNER Genesis** snea
 
 ## Install on your phone
 
+**Android app:** download it from **https://runearn.fun/download** (an APK, no Play Store needed). It keeps recording with the screen locked. Building and publishing it: see [NATIVE.md](NATIVE.md).
+
+**Or add the website to your home screen:**
+
 1. Open the link above on your phone.
 2. Add it to your home screen:
    - **iPhone (Safari):** Share → *Add to Home Screen*
@@ -24,6 +28,7 @@ A simple GPS running app with a run-to-earn layer: own a **RUNNER Genesis** snea
 4. **Heart rate** — You → Settings → *Heart-rate sensor* → pair a Bluetooth chest strap or a watch that broadcasts heart rate (+10% while earning).
 5. **Get a sneaker** (once the NFT is live) — sign in, open Earn → *Browse sneakers*, pick one and buy it with ETH on Robinhood Chain (Common 0.005 · Uncommon 0.015 · Rare 0.04 · Epic 0.1).
 6. **Earn tab** — level up, assign attribute points (Efficiency / Resilience) and repair with RUNNER.
+7. **Rewards tab** — for RUNNER holders (once the token is live): check whether you qualify, see each day's IMD share and claim it.
 
 ## Known limitations
 
@@ -69,7 +74,7 @@ Then open http://localhost:5190.
 | Team | 100,000,000 (10%) | `0x0f4FE718eb8492533E600b30F3287E2f04087332` |
 
 - **No transfer tax; a 4% trading fee paid in IMD.** RUNNER itself is a plain ERC-20: every transfer moves exactly the amount sent. It trades against IMD in one Uniswap v4 pool owned by the RunnerHook (`contracts/RunnerHook.sol`, adapted from PepesFamily's audited `PepesEarnIMD`). The hook takes 4% of the IMD side of every swap: **2% to the protocol wallet and 2% to RUNNER holders, both in IMD**. The fee is fixed in the hook, and a swap that wouldn't fill completely (a price limit, or selling for more IMD than the pool holds) is refused rather than charged on the unfilled part; a swap that would move nothing is refused too, and so are donations to the pool (they would be lost to the locked position). The fee rounds up, so every trade pays. Our routers deliver the holder share in a way that never blocks a trade: if IMD transfers to the token ever fail, the share waits in the hook until anyone calls `flush`. The hook adds the 100M liquidity allocation as single-sided liquidity at a starting market cap of about 635 IMD and has no way to remove it (locked forever); nobody else can add liquidity to that pool. `RunnerRouter` (IMD) and `RunnerEthRouter` (ETH, routed through the IMD/ETH pool) buy and sell in one transaction. Trades through other pools someone may create are not charged; the owner can exclude such pools from holder rewards (`excludePool`: only contracts shaped like a v2/v3 pool qualify, and an exclusion can't be undone). Don't send tokens to the hook's address: it has no way to return them.
-- **Holder rewards, in IMD.** The hook delivers the holders' IMD to the token (`syncHolderRewards` books it as that day's rewards). Each UTC day's IMD is shared by every wallet that held at least **300,000 RUNNER for that whole day**, in proportion to its lowest balance that day. It can be claimed (`claimHolderRewards`, also on the Earn tab) for **7 days**. After that, `sweepExpired` sends what's left to the protocol wallet; anyone can call it. The pool (PoolManager), the hook, other excluded pools and the contract get no share; the team wallet does. The threshold is per address: a vault or wrapper holding 300,000+ on behalf of many smaller wallets counts as one holder and could pass rewards on to them. Opening balances count for the deploy day. A pool excluded later stops counting for the days still claimable that nobody has been paid from yet; a day someone was already paid from keeps its total, so every holder of it is paid at the same rate.
+- **Holder rewards, in IMD.** The hook delivers the holders' IMD to the token (`syncHolderRewards` books it as that day's rewards). Each UTC day's IMD is shared by every wallet that held at least **300,000 RUNNER for that whole day**, in proportion to its lowest balance that day. It can be claimed (`claimHolderRewards`) for **7 days** in the app's **Rewards** tab, which shows whether a wallet qualifies today and its share of each of the last 7 days; on the website a browser wallet (MetaMask etc.) holding RUNNER can connect there to claim, and any address can be looked up. The admin page's *Protocol rewards* card shows and claims the protocol's IMD (`collectProtocolFees`) and sweeps expired holder rewards. After that, `sweepExpired` sends what's left to the protocol wallet; anyone can call it. The pool (PoolManager), the hook, other excluded pools and the contract get no share; the team wallet does. The threshold is per address: a vault or wrapper holding 300,000+ on behalf of many smaller wallets counts as one holder and could pass rewards on to them. Opening balances count for the deploy day. A pool excluded later stops counting for the days still claimable that nobody has been paid from yet; a day someone was already paid from keeps its total, so every holder of it is paid at the same rate.
 - **Run-reward emission (halving).** The launch schedule is 10,000,000 RUNNER a day from launch day (`startEmission`, once), halving every 30 days (10M → 5M → 2.5M …) and never dropping below 100,000 a day. The dev wallet can set a new schedule (`setEmissionSchedule`: daily amount, halving period, floor). It starts the next UTC day and can never exceed 20,000,000 a day. With the launch schedule:
 
   | Period | Emission |

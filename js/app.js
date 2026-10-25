@@ -9,6 +9,7 @@ import { PRICE_ETH } from './collection.js';
 import { auth, shortAddress, explorerUrl } from './auth.js';
 import { runOnboarding } from './onboarding.js';
 import { settleRun, syncRewards } from './rewards.js';
+import { renderRewards } from './rewards-view.js';
 
 // RUNNER is run-only: every activity is a run, recorded or imported.
 
@@ -20,6 +21,8 @@ const view = $('#view');
 
 const VERSION = '0.1 beta';
 const FEEDBACK_URL = 'https://github.com/0xtenang/Runner/issues/new';
+// The phone app is served from the device, so links to the website's own pages need the full address.
+const SITE = isNative ? 'https://www.runearn.fun' : '';
 const SOURCE_LABEL = { gps: 'RUNNER', fit: 'FIT file', gpx: 'GPX file', tcx: 'TCX file' };
 const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
@@ -38,6 +41,7 @@ const ICON = {
   route: '<svg viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8.2 18H13a3 3 0 0 0 0-6h-2a3 3 0 0 1 0-6h4.8"/></svg>',
   ruler: '<svg viewBox="0 0 24 24"><path d="M4 15 15 4l5 5L9 20z"/><path d="M8 11l2 2M11 8l2 2M14 5l1 1"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>',
+  phone: '<svg viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
   doc: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 15.5h7M9 8.5h3"/></svg>',
   layers: '<svg viewBox="0 0 24 24"><path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="M2.5 12.5 12 17.5l9.5-5M2.5 16.5 12 21.5l9.5-5"/></svg>',
   locate: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.2" class="fill"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
@@ -208,6 +212,7 @@ async function route() {
     if (page === 'record') return renderRecord();
     if (page === 'activity') return await renderActivity(arg);
     if (page === 'earn') { setTopbar({ title: 'Earn', right: walletChip() }); return renderEarn(view, { toast, onCleanup }); }
+    if (page === 'rewards') { setTopbar({ title: 'Rewards', right: walletChip() }); return renderRewards(view, { toast, onCleanup }); }
     if (page === 'you') return await renderYou(arg);
     if (page === 'settings') return renderSettings();
     if (page === 'devices') return renderDevices();
@@ -1049,7 +1054,11 @@ function renderSettings() {
           <div class="row">${ICON.heart}<div><b>Heart-rate sensor</b><div class="muted small">Chest straps and watches that broadcast heart rate</div></div></div>
           ${ICON.chev}
         </a>
-        <a class="setting" href="/whitepaper" target="_blank" rel="noopener">
+        ${isNative ? '' : `<a class="setting" href="/download" target="_blank" rel="noopener">
+          <div class="row">${ICON.phone}<div><b>Android app</b><div class="muted small">Keeps recording with the screen locked — install it from runearn.fun</div></div></div>
+          ${ICON.chev}
+        </a>`}
+        <a class="setting" href="${SITE}/whitepaper" target="_blank" rel="noopener">
           <div class="row">${ICON.doc}<div><b>Whitepaper</b><div class="muted small">How RUNNER, the sneakers and the token work</div></div></div>
           ${ICON.chev}
         </a>

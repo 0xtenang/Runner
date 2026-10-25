@@ -116,6 +116,8 @@ function render() {
   bytecode = null;
   $('#server').hidden = kind !== 'token';
   $('#launch').hidden = kind !== 'token' || !TOKEN_CONTRACT || !HOOK_CONTRACT;
+  $('#protocol').hidden = $('#launch').hidden;
+  if (!$('#protocol').hidden) refreshProtocol();
   $('#controls').hidden = kind !== 'token';
   $('#review').hidden = kind !== 'token';
   if (kind === 'token') refreshServer();
@@ -509,6 +511,57 @@ $('#b-sweep').onclick = async () => {
   // Anyone may sweep; use whichever wallet is available.
   const data = `0x98bc402d${word(60)}`; // sweepExpired(60 days)
   await runTx($('#b-sweep'), $('#sweep'), () => (window.ethereum ? sendAsDev(TOKEN_CONTRACT, data) : auth.sendTx({ to: TOKEN_CONTRACT, data, chainId: TOKEN_CHAIN.id })), '✓ Expired holder rewards sent to the protocol wallet.');
+  refreshProtocol();
 };
+
+// ----- protocol rewards: the hook's pending protocol IMD and expired holder rewards
+const ethCall = async (to, data) => (await rpc('eth_call', [{ to, data }, 'latest']) || '0x').replace(/^0x/, '');
+const callWord = (h, i = 0) => BigInt(`0x${h.slice(i * 64, (i + 1) * 64) || '0'}`);
+const callUint = async (to, data) => callWord(await ethCall(to, data));
+const callAddr = async (to, data) => `0x${(await ethCall(to, data)).slice(24, 64)}`;
+const fmtImdWei = (wei) => { const n = Number(wei / 10n ** 12n) / 1e6; return n.toLocaleString(undefined, { maximumFractionDigits: n && n < 1 ? 6 : 4 }); };
+const SWEEP_DAYS = 60; // matches the Sweep button
+
+async function refreshProtocol() {
+  const out = $('#proto-info');
+  out.textContent = 'Loading…';
+  try {
+    const [pendingProto, pendingHolders, recipient, wallet, today, nextSweep] = await Promise.all([
+      callUint(HOOK_CONTRACT, `0x1fa4e045${encAddress(IMD_TOKEN)}`),     // pendingProtocolFees(IMD)
+      callUint(HOOK_CONTRACT, `0x2f22b8a2${encAddress(TOKEN_CONTRACT)}`), // pendingHolderFees(token)
+      callAddr(HOOK_CONTRACT, '0x46904840'),                              // feeRecipient()
+      callAddr(TOKEN_CONTRACT, '0x06d6e63f'),                             // protocolWallet()
+      callUint(TOKEN_CONTRACT, '0x5c9302c9'),                             // currentDay()
+      callUint(TOKEN_CONTRACT, '0x71a4ee73'),                             // nextSweepDay()
+    ]);
+    // Days the sweep can close: from nextSweepDay while d + 7 < today (same rule as sweepExpired).
+    const days = [];
+    for (let d = nextSweep; d + 7n < today && days.length < SWEEP_DAYS; d++) days.push(d);
+    const left = await Promise.all(days.map(async (d) => { const h = await ethCall(TOKEN_CONTRACT, `0x335d4c37${word(d)}`); return callWord(h, 1) - callWord(h, 2); })); // dayInfo: rewards - paidOut
+    const expired = left.reduce((a, b) => a + b, 0n);
+    const more = nextSweep + BigInt(SWEEP_DAYS) + 7n < today;
+    const [recipientImd, walletImd] = await Promise.all([callUint(IMD_TOKEN, `0x70a08231${encAddress(recipient)}`), callUint(IMD_TOKEN, `0x70a08231${encAddress(wallet)}`)]);
+    out.innerHTML = `<table class="small" style="width:100%;border-collapse:collapse">
+      <tr><td>Protocol fees waiting in the hook</td><td style="text-align:right"><b>${fmtImdWei(pendingProto)} IMD</b></td></tr>
+      <tr><td>Fee recipient <span class="mono">${esc(shortAddress(recipient))}</span> holds</td><td style="text-align:right">${fmtImdWei(recipientImd)} IMD</td></tr>
+      <tr><td>Expired holder rewards ready to sweep${more ? ' (first 60 days)' : ''}</td><td style="text-align:right"><b>${fmtImdWei(expired)} IMD</b></td></tr>
+      <tr><td>Protocol wallet <span class="mono">${esc(shortAddress(wallet))}</span> holds</td><td style="text-align:right">${fmtImdWei(walletImd)} IMD</td></tr>
+      ${pendingHolders ? `<tr><td>Holder fees waiting in the hook (send them in step 5)</td><td style="text-align:right">${fmtImdWei(pendingHolders)} IMD</td></tr>` : ''}
+    </table>`;
+    $('#b-collect').disabled = pendingProto === 0n;
+    $('#b-collect').textContent = pendingProto ? `Claim ${fmtImdWei(pendingProto)} IMD protocol fees` : 'No protocol fees waiting';
+    $('#b-sweep').disabled = expired === 0n;
+  } catch (e) {
+    out.innerHTML = `<span class="bad">${esc(String(e.message || e).slice(0, 200))}</span>`;
+  }
+}
+
+$('#b-collect').onclick = async () => {
+  // Anyone may collect; the IMD always goes to the hook's fee recipient.
+  const data = `0x2a54db01${encAddress(IMD_TOKEN)}`; // collectProtocolFees(IMD)
+  await runTx($('#b-collect'), $('#collect'), () => (window.ethereum ? sendAsDev(HOOK_CONTRACT, data) : auth.sendTx({ to: HOOK_CONTRACT, data, chainId: TOKEN_CHAIN.id })), '✓ Protocol fees sent to the fee recipient.');
+  refreshProtocol();
+};
+$('#b-proto-refresh').onclick = () => refreshProtocol();
 
 render();

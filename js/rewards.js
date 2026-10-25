@@ -11,8 +11,8 @@ import { runPayload } from './rules.js';
 import { isNative } from './geo.js';
 import { deviceProof, resetDeviceProof, runDigest } from './device.js';
 
-// The website calls its own API; the phone app (served from the device) calls runearn.fun.
-const API = /(^|\.)runearn\.fun$/.test(location.hostname) || location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+// The website calls its own API; the phone app (served from the device at https://localhost) calls runearn.fun.
+const API = !isNative && (/(^|\.)runearn\.fun$/.test(location.hostname) || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ? '/api/rewards' : 'https://www.runearn.fun/api/rewards';
 const SESSION_KEY = (a) => `runner.rewards.session.${a.toLowerCase()}`;
 const sessionMessage = (address, issued) =>

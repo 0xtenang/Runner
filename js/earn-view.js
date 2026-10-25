@@ -695,6 +695,7 @@ function holderRewardsBlock() {
       <span class="lbl">Holder rewards</span>
       <span class="muted small">Hold at least ${MIN_HOLDING.toLocaleString()} ${COIN} for a whole day (UTC) to share 2% of that day's trading volume, paid in IMD. Each day's reward can be claimed for 7 days.</span>
       <button class="btn pill sm" data-act="holder-claim" ${h > 0 ? '' : 'disabled'}>${h > 0 ? `Claim ${fmtImd(h)} IMD holder rewards` : 'No holder rewards to claim'}</button>
+      <a class="small" href="#/rewards">Day-by-day details in Rewards →</a>
     </div>`;
 }
 
