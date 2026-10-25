@@ -4,8 +4,8 @@
 // IMD is shared by wallets that held at least 300,000 RUNNER for that whole day,
 // by their lowest balance that day, and can be claimed for 7 days. Everything here
 // is read straight from the token contract; claiming sends claimHolderRewards()
-// from the holder's own wallet (the in-app wallet, or a browser wallet such as
-// MetaMask that holds RUNNER).
+// from the holder's own wallet (the in-app wallet, or any wallet connected with
+// "Connect wallet": WalletConnect, MetaMask, Coinbase Wallet…).
 import { auth, shortAddress, explorerUrl } from './auth.js';
 import { TOKEN_CHAIN, TOKEN_CONTRACT, HOOK_CONTRACT, IMD_TOKEN } from './config.js';
 import { waitForReceipt } from './nft.js';
@@ -72,42 +72,30 @@ async function load(address) {
 }
 
 // ---------------------------------------------------------------- wallets
-/** A browser wallet (MetaMask etc.) the user connected on this page, if any. */
-let injected = null;
+// Claims must come from the wallet that holds the RUNNER: the in-app wallet (signed in), or any
+// wallet connected with "Connect wallet" (WalletConnect, MetaMask, Coinbase Wallet… via Privy).
+/** The connected wallet the user picked to look at, if any. */
+let chosen = null;
 
-async function connectInjected() {
-  const eth = window.ethereum;
-  if (!eth) throw new Error('No browser wallet found. Open this page in a browser with MetaMask (or similar) installed.');
-  const [from] = await eth.request({ method: 'eth_requestAccounts' });
-  if (!from) throw new Error('The wallet didn\'t share an address.');
-  injected = from;
-  return from;
-}
-
-async function sendInjected(to, data) {
-  const eth = window.ethereum;
-  const chainId = `0x${TOKEN_CHAIN.id.toString(16)}`;
-  try {
-    await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId }] });
-  } catch (e) {
-    if (e?.code !== 4902) throw e; // 4902: the wallet doesn't know Robinhood Chain yet
-    await eth.request({ method: 'wallet_addEthereumChain', params: [{ chainId, chainName: TOKEN_CHAIN.name, nativeCurrency: TOKEN_CHAIN.nativeCurrency, rpcUrls: TOKEN_CHAIN.rpcUrls.default.http, blockExplorerUrls: [TOKEN_CHAIN.blockExplorers.default.url] }] });
-  }
-  return eth.request({ method: 'eth_sendTransaction', params: [{ from: injected, to, data }] });
-}
+const isConnected = (a) => Boolean(a) && auth.state.externalWallets.some((w) => w.address.toLowerCase() === a.toLowerCase());
+const walletName = (a) => auth.state.externalWallets.find((w) => w.address.toLowerCase() === a.toLowerCase())?.name || 'Connected wallet';
 
 /** Which wallet can send transactions for `address` here (null = view only). */
 function signerFor(address) {
   if (!address) return null;
-  const a = address.toLowerCase();
-  if (injected && injected.toLowerCase() === a) return 'injected';
-  if (auth.signedIn && auth.state.address.toLowerCase() === a) return 'app';
+  if (isConnected(address)) return { kind: 'external', address };
+  if (auth.signedIn && auth.state.address.toLowerCase() === address.toLowerCase()) return { kind: 'app', address };
   return null;
 }
-const anySigner = () => (injected ? 'injected' : auth.signedIn ? 'app' : null);
+/** Any wallet that can send (for actions anyone may do, like sending pending fees). */
+const anySigner = () => (chosen && isConnected(chosen) ? { kind: 'external', address: chosen }
+  : auth.signedIn ? { kind: 'app', address: auth.state.address }
+    : auth.state.externalWallets[0] ? { kind: 'external', address: auth.state.externalWallets[0].address } : null);
 
-function send(kind, to, data) {
-  return kind === 'injected' ? sendInjected(to, data) : auth.sendTx({ to, data, chainId: TOKEN_CHAIN.id });
+function send(signer, to, data) {
+  return signer.kind === 'external'
+    ? auth.sendTxFrom(signer.address, { to, data, chainId: TOKEN_CHAIN.id })
+    : auth.sendTx({ to, data, chainId: TOKEN_CHAIN.id });
 }
 
 // ---------------------------------------------------------------- view
@@ -117,8 +105,12 @@ export function renderRewards(view, { toast, onCleanup }) {
   try { lookup = localStorage.getItem(LOOKUP_KEY) || ''; } catch {}
   let override = null; // an address looked up while signed in, shown until the tab is left
 
-  /** The address being shown: a looked-up one, a connected browser wallet, the in-app wallet, or the last lookup. */
-  const current = () => override || injected || (auth.signedIn ? auth.state.address : null) || (isAddr(lookup) ? lookup : null);
+  let waitingConnect = false; // "Connect wallet" was tapped; pick the wallet that shows up
+  if (chosen && !isConnected(chosen)) chosen = null;
+
+  /** The address being shown: a looked-up one, a picked connected wallet, the in-app wallet, any connected wallet, or the last lookup. */
+  const current = () => override || chosen || (auth.signedIn ? auth.state.address : null)
+    || auth.state.externalWallets[0]?.address || (isAddr(lookup) ? lookup : null);
   let shown = current();
 
   async function refresh() {
@@ -137,18 +129,26 @@ export function renderRewards(view, { toast, onCleanup }) {
   function walletCard() {
     const a = current();
     const kind = signerFor(a);
-    const who = !a ? 'No wallet chosen' : kind === 'injected' ? 'Browser wallet' : kind === 'app' ? 'Your RUNNER wallet' : 'Looking up';
+    const who = !a ? 'No wallet chosen' : kind?.kind === 'external' ? esc(walletName(a)) : kind?.kind === 'app' ? 'Your RUNNER wallet' : 'Looking up';
+    const others = auth.state.externalWallets.filter((w) => w.address.toLowerCase() !== (a || '').toLowerCase());
     return `<div class="card rw-wallet">
       <div class="row between" style="gap:10px;flex-wrap:wrap">
         <div><span class="lbl">${who}</span>${a ? `<a class="mono small" href="${explorerUrl(a)}" target="_blank" rel="noopener">${shortAddress(a)}</a>` : '<span class="muted small">Sign in, connect a wallet, or look up an address.</span>'}</div>
         <div class="row" style="gap:8px;flex-wrap:wrap">
-          ${!auth.signedIn && !injected ? `<button class="btn pill sm" data-act="signin">Sign in</button>` : ''}
-          ${window.ethereum && !injected ? '<button class="btn pill sm" data-act="connect">Connect browser wallet</button>' : ''}
-          ${injected || override ? `<button class="btn pill sm ghost" data-act="disconnect">${auth.signedIn ? 'Back to my wallet' : 'Clear'}</button>` : ''}
+          ${!auth.signedIn && !auth.state.externalWallets.length ? '<button class="btn pill sm" data-act="signin">Sign in</button>' : ''}
+          <button class="btn pill sm" data-act="connect">${auth.state.externalWallets.length ? 'Connect another' : 'Connect wallet'}</button>
+          ${kind?.kind === 'external' ? '<button class="btn pill sm ghost" data-act="disconnect">Disconnect</button>' : ''}
+          ${override ? '<button class="btn pill sm ghost" data-act="clear">Back</button>' : ''}
         </div>
       </div>
+      ${others.length || (auth.signedIn && a && a.toLowerCase() !== auth.state.address.toLowerCase()) ? `<div class="row" style="gap:8px;flex-wrap:wrap">
+        <span class="muted small">Switch to:</span>
+        ${auth.signedIn && (!a || a.toLowerCase() !== auth.state.address.toLowerCase()) ? `<button class="btn sm ghost" data-act="pick" data-addr="${auth.state.address}">RUNNER wallet ${shortAddress(auth.state.address)}</button>` : ''}
+        ${others.map((w) => `<button class="btn sm ghost" data-act="pick" data-addr="${w.address}">${esc(w.name)} ${shortAddress(w.address)}</button>`).join('')}
+      </div>` : ''}
+      <span class="muted small">Connect wallet works with WalletConnect (scan the QR code with your phone wallet, or open the wallet app on your phone), MetaMask, Coinbase Wallet, Rainbow and more.</span>
       <form class="rw-lookup" data-form="lookup">
-        <input name="addr" placeholder="Check any address: 0x…" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(override || (!injected && !auth.signedIn ? lookup : ''))}">
+        <input name="addr" placeholder="Check any address: 0x…" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(override || (!auth.signedIn && !auth.state.externalWallets.length ? lookup : ''))}">
         <button class="btn sm">Check</button>
       </form>
     </div>`;
@@ -197,7 +197,7 @@ export function renderRewards(view, { toast, onCleanup }) {
         <h2 class="rw-big">${fmtImd(d.claimable)} <small>IMD</small></h2>
         ${d.claimable > 0n
           ? (kind ? `<button class="btn primary pill" data-act="claim" ${busy ? 'disabled' : ''}>Claim ${fmtImd(d.claimable)} IMD</button>`
-            : '<span class="muted small">To claim, sign in with this wallet or connect it as a browser wallet.</span>')
+            : '<span class="muted small">To claim, connect this wallet (Connect wallet above) or sign in with it.</span>')
           : '<span class="muted small">Nothing to claim right now.</span>'}
         ${d.imdBalance != null ? `<span class="muted small">IMD in this wallet: ${fmtImd(d.imdBalance)}</span>` : ''}
       </div>`;
@@ -279,8 +279,10 @@ export function renderRewards(view, { toast, onCleanup }) {
     if (!b) return;
     switch (b.dataset.act) {
       case 'signin': try { await auth.login(); } catch (err) { toast(err.message, 4000); } break;
-      case 'connect': try { await connectInjected(); override = null; refresh(); } catch (err) { toast(/reject|denied|cancel/i.test(String(err.message)) ? 'Cancelled.' : err.message, 4000); } break;
-      case 'disconnect': injected = null; override = null; refresh(); break;
+      case 'connect': try { waitingConnect = true; await auth.connectWallet(); } catch (err) { waitingConnect = false; toast(err.message, 4000); } break;
+      case 'disconnect': { const a = current(); chosen = null; await auth.disconnectWallet(a); refresh(); break; }
+      case 'pick': chosen = isConnected(b.dataset.addr) ? b.dataset.addr : null; override = null; refresh(); break;
+      case 'clear': override = null; refresh(); break;
       case 'refresh': refresh(); break;
       case 'claim': tx('claim', TOKEN_CONTRACT, '0x1979f81e', 'Holder rewards claimed'); break; // claimHolderRewards()
       case 'flush': tx('flush', HOOK_CONTRACT, `0x79c76e1a${addrWord(TOKEN_CONTRACT)}`, 'Sent to holders'); break; // flush(token)
@@ -299,7 +301,19 @@ export function renderRewards(view, { toast, onCleanup }) {
   };
 
   // Reload only when sign-in changes which address is shown (Privy fires many change events).
-  const onAuth = () => { if (current() !== shown) refresh(); else draw(); };
+  let knownWallets = auth.state.externalWallets.map((w) => w.address.toLowerCase());
+  const onAuth = () => {
+    const now = auth.state.externalWallets.map((w) => w.address.toLowerCase());
+    const added = now.find((x) => !knownWallets.includes(x));
+    knownWallets = now;
+    if (added && waitingConnect) { // show the wallet that was just connected
+      waitingConnect = false;
+      chosen = auth.state.externalWallets.find((w) => w.address.toLowerCase() === added).address;
+      override = null;
+    }
+    if (chosen && !isConnected(chosen)) chosen = null;
+    if (current() !== shown) refresh(); else draw();
+  };
   auth.addEventListener('change', onAuth);
   const timer = setInterval(refresh, 60_000);
   onCleanup(() => { auth.removeEventListener('change', onAuth); clearInterval(timer); view.onclick = null; view.onsubmit = null; });

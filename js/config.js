@@ -6,6 +6,9 @@
 export const PRIVY_APP_ID = 'cmvi422kz004c0hjjmtt56ut4';
 // Optional app client ID (Dashboard → App clients). Leave empty if unused.
 export const PRIVY_CLIENT_ID = '';
+// Optional WalletConnect project ID (free at dashboard.reown.com) for "Connect wallet".
+// Empty = Privy's shared default, which works but is rate-limited; set your own before launch.
+export const WALLETCONNECT_PROJECT_ID = '';
 // Phone app only: where Google/Apple sign-in returns to. That page hands the
 // result back to the app. Must be listed in Privy → Settings → Advanced →
 // Allowed OAuth redirect URLs.

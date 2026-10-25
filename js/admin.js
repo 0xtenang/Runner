@@ -149,6 +149,18 @@ async function refreshWho() {
   updateDeploy();
 }
 auth.addEventListener('change', refreshWho);
+
+// Dev wallet connected with "Connect wallet" (WalletConnect, MetaMask…), if any.
+const devConnected = () => auth.state.externalWallets.some((w) => w.address.toLowerCase() === DEV_WALLET.toLowerCase());
+function refreshDevConn() {
+  const list = auth.state.externalWallets;
+  $('#devconn').innerHTML = devConnected()
+    ? `<span class="ok">✓ Dev wallet connected (${esc(list.find((w) => w.address.toLowerCase() === DEV_WALLET.toLowerCase()).name)}) — owner actions will ask it to confirm.</span>`
+    : list.length ? `<span class="bad">Connected ${list.map((w) => `<span class="mono">${esc(shortAddress(w.address))}</span>`).join(', ')}, but that isn't the dev wallet ${esc(shortAddress(DEV_WALLET))}.</span>` : '';
+  $('#b-connect').textContent = devConnected() ? 'Connect another wallet' : 'Connect dev wallet';
+}
+auth.addEventListener('change', refreshDevConn);
+$('#b-connect').onclick = async () => { try { await auth.connectWallet(); } catch (e) { $('#devconn').innerHTML = `<span class="bad">${esc(e.message)}</span>`; } };
 $('#b-signin').onclick = async () => { try { await auth.login(); } catch (e) { $('#who').textContent = e.message; } };
 auth.load().then(refreshWho);
 
@@ -310,8 +322,9 @@ $('#b-genkey').onclick = async () => {
   $('#b-copykey').onclick = () => navigator.clipboard.writeText(hex(key));
 };
 
-/** Sends a transaction from the dev wallet: a browser wallet (MetaMask) if present, else Privy. */
+/** Sends a transaction from the dev wallet: connected via Connect wallet, else a browser wallet (MetaMask), else Privy. */
 async function sendAsDev(to, data, chainId = TOKEN_CHAIN.id) {
+  if (devConnected()) return auth.sendTxFrom(DEV_WALLET, { to, data, chainId });
   const injected = window.ethereum;
   if (injected) {
     const [from] = await injected.request({ method: 'eth_requestAccounts' });
@@ -384,8 +397,9 @@ function previewLevels() {
 }
 ['#st-base', '#st-exp'].forEach((id) => $(id).addEventListener('input', previewLevels));
 
-/** personal_sign as the dev wallet (browser wallet if present, else Privy when signed in as it). */
+/** personal_sign as the dev wallet (connected wallet, else browser wallet, else Privy when signed in as it). */
 async function signAsDev(message) {
+  if (devConnected()) return auth.signMessageFrom(DEV_WALLET, message);
   const injected = window.ethereum;
   if (injected) {
     const [from] = await injected.request({ method: 'eth_requestAccounts' });
@@ -438,7 +452,7 @@ let adminSession = null;
 try { adminSession = sessionStorage.getItem('runner.admin.session'); } catch { /* storage blocked */ }
 async function adminCall(body, retried = false) {
   if (!adminSession) {
-    const address = window.ethereum ? (await window.ethereum.request({ method: 'eth_requestAccounts' }))[0] : auth.state.address;
+    const address = devConnected() ? DEV_WALLET : window.ethereum ? (await window.ethereum.request({ method: 'eth_requestAccounts' }))[0] : auth.state.address;
     if (!address) throw new Error('Sign in as the dev wallet first.');
     const message = `RUNNER admin sign-in\nWallet: ${address.toLowerCase()}\nIssued: ${new Date().toISOString()}`;
     const signature = await signAsDev(message);
@@ -503,14 +517,14 @@ $('#b-exclude').onclick = async () => {
 
 $('#b-fees').onclick = async () => {
   // Anyone may do both: send pending holder IMD to the token, and the protocol's IMD to the fee recipient.
-  const send = (data) => (window.ethereum ? sendAsDev(HOOK_CONTRACT, data) : auth.sendTx({ to: HOOK_CONTRACT, data, chainId: TOKEN_CHAIN.id }));
+  const send = (data) => (window.ethereum || devConnected() ? sendAsDev(HOOK_CONTRACT, data) : auth.sendTx({ to: HOOK_CONTRACT, data, chainId: TOKEN_CHAIN.id }));
   await runTx($('#b-fees'), $('#fees'), async () => { await send(`0x79c76e1a${encAddress(TOKEN_CONTRACT)}`); return send(`0x2a54db01${encAddress(IMD_TOKEN)}`); }, '✓ Holder IMD booked and protocol IMD sent.'); // flush(token), collectProtocolFees(IMD)
 };
 
 $('#b-sweep').onclick = async () => {
   // Anyone may sweep; use whichever wallet is available.
   const data = `0x98bc402d${word(60)}`; // sweepExpired(60 days)
-  await runTx($('#b-sweep'), $('#sweep'), () => (window.ethereum ? sendAsDev(TOKEN_CONTRACT, data) : auth.sendTx({ to: TOKEN_CONTRACT, data, chainId: TOKEN_CHAIN.id })), '✓ Expired holder rewards sent to the protocol wallet.');
+  await runTx($('#b-sweep'), $('#sweep'), () => (window.ethereum || devConnected() ? sendAsDev(TOKEN_CONTRACT, data) : auth.sendTx({ to: TOKEN_CONTRACT, data, chainId: TOKEN_CHAIN.id })), '✓ Expired holder rewards sent to the protocol wallet.');
   refreshProtocol();
 };
 
@@ -559,7 +573,7 @@ async function refreshProtocol() {
 $('#b-collect').onclick = async () => {
   // Anyone may collect; the IMD always goes to the hook's fee recipient.
   const data = `0x2a54db01${encAddress(IMD_TOKEN)}`; // collectProtocolFees(IMD)
-  await runTx($('#b-collect'), $('#collect'), () => (window.ethereum ? sendAsDev(HOOK_CONTRACT, data) : auth.sendTx({ to: HOOK_CONTRACT, data, chainId: TOKEN_CHAIN.id })), '✓ Protocol fees sent to the fee recipient.');
+  await runTx($('#b-collect'), $('#collect'), () => (window.ethereum || devConnected() ? sendAsDev(HOOK_CONTRACT, data) : auth.sendTx({ to: HOOK_CONTRACT, data, chainId: TOKEN_CHAIN.id })), '✓ Protocol fees sent to the fee recipient.');
   refreshProtocol();
 };
 $('#b-proto-refresh').onclick = () => refreshProtocol();

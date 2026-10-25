@@ -3,7 +3,7 @@
 // private key to import. Privy's SDK is React-based; we load React + Privy as
 // ES modules from esm.sh (no build step) and mount a tiny invisible React
 // "bridge" that mirrors Privy's state into this plain EventTarget.
-import { PRIVY_APP_ID, PRIVY_CLIENT_ID, ROBINHOOD_CHAIN, ROBINHOOD_TESTNET, NATIVE_OAUTH_REDIRECT } from './config.js';
+import { PRIVY_APP_ID, PRIVY_CLIENT_ID, WALLETCONNECT_PROJECT_ID, ROBINHOOD_CHAIN, ROBINHOOD_TESTNET, NATIVE_OAUTH_REDIRECT } from './config.js';
 import { isNative, registerPlugin } from './geo.js';
 
 const REACT = 'https://esm.sh/react@18.3.1';
@@ -35,6 +35,7 @@ class Auth extends EventTarget {
       configured: Boolean(PRIVY_APP_ID),
       loading: false, ready: false, authenticated: false,
       user: null, address: null, error: null, stage: 'idle',
+      externalWallets: [], // wallets connected with "Connect wallet" (WalletConnect, MetaMask…): [{ address, name }]
     };
     this._api = null;
     this._mounted = false;
@@ -126,9 +127,17 @@ class Auth extends EventTarget {
       });
       const { logout } = Privy.useLogout();
       const { exportWallet } = Privy.useExportWallet();
+      const { connectWallet } = Privy.useConnectWallet({
+        onError: (err) => { if (err && err !== 'generic_connect_wallet_error' && err !== 'exited_auth_flow') auth._set({ error: `Couldn't connect the wallet: ${err}` }); },
+      });
       const embedded = wallets.find((w) => w.walletClientType === 'privy') || null;
       const address = embedded?.address || user?.wallet?.address || null;
-      React.useEffect(() => { auth._api = { login, logout, exportWallet }; auth._wallet = embedded; });
+      const external = wallets.filter((w) => w.walletClientType !== 'privy');
+      const externalKey = external.map((w) => w.address).join(',');
+      React.useEffect(() => { auth._api = { login, logout, exportWallet, connectWallet }; auth._wallet = embedded; auth._external = external; });
+      React.useEffect(() => {
+        auth._set({ externalWallets: external.map((w) => ({ address: w.address, name: w.meta?.name || w.walletClientType || 'Wallet' })) });
+      }, [externalKey]);
       React.useEffect(() => {
         auth._set({
           ready, authenticated, user: summarize(user), address, loading: !ready,
@@ -164,8 +173,13 @@ class Auth extends EventTarget {
           logo: isNative ? 'https://www.runearn.fun/icon.svg' : new URL('icon.svg', location.href).href,
           landingHeader: 'Sign in to RUNNER',
           loginMessage: 'Your wallet is created automatically — no seed phrase needed.',
+          walletChainType: 'ethereum-only',
+          walletList: ['detected_ethereum_wallets', 'metamask', 'wallet_connect_qr', 'coinbase_wallet', 'rainbow', 'okx_wallet', 'rabby_wallet'],
         },
         embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },
+        // "Connect wallet" (Rewards tab, admin page): WalletConnect shows a QR code on a computer and opens
+        // the wallet app on a phone; browser wallets (MetaMask etc.) are listed when installed.
+        ...(WALLETCONNECT_PROJECT_ID ? { walletConnectCloudProjectId: WALLETCONNECT_PROJECT_ID } : {}),
         // The phone app opens Google/Apple in the system browser, which Google allows.
         ...(isNative ? { customOAuthRedirectUrl: NATIVE_OAUTH_REDIRECT, allowOAuthInEmbeddedBrowsers: true } : {}),
         defaultChain: ROBINHOOD_CHAIN,
@@ -220,6 +234,49 @@ class Auth extends EventTarget {
   async signMessage(message) {
     const w = this._wallet;
     if (!w) throw new Error('Wallet not ready yet — try again in a moment.');
+    const provider = await w.getEthereumProvider();
+    const hexMsg = `0x${Array.from(new TextEncoder().encode(message), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+    return provider.request({ method: 'personal_sign', params: [hexMsg, w.address] });
+  }
+
+  /**
+   * Opens Privy's "Connect wallet" sheet (WalletConnect, MetaMask, Coinbase Wallet…) without
+   * signing in. The connected wallet shows up in state.externalWallets.
+   */
+  async connectWallet() {
+    if (!(await this.load())) throw new Error(this.state.error || 'Wallet connect isn\'t available right now.');
+    this._set({ error: null });
+    this._api.connectWallet();
+  }
+
+  /** Disconnects a wallet connected with connectWallet(). */
+  async disconnectWallet(address) {
+    const w = this._externalWallet(address);
+    try { await w?.disconnect?.(); } catch (e) { console.warn(e); }
+    this._set({ externalWallets: this.state.externalWallets.filter((x) => x.address.toLowerCase() !== String(address).toLowerCase()) });
+  }
+
+  _externalWallet(address) {
+    const a = String(address || '').toLowerCase();
+    return (this._external || []).find((w) => w.address.toLowerCase() === a) || null;
+  }
+
+  /** Sends a transaction from a connected external wallet (it asks the user to confirm). */
+  async sendTxFrom(address, { to, value = 0n, data, chainId = ROBINHOOD_CHAIN.id }) {
+    const w = this._externalWallet(address);
+    if (!w) throw new Error('That wallet isn\'t connected any more — connect it again.');
+    await w.switchChain(chainId);
+    const provider = await w.getEthereumProvider();
+    const tx = { from: w.address, value: `0x${BigInt(value).toString(16)}` };
+    if (to) tx.to = to;
+    if (data) tx.data = data;
+    return provider.request({ method: 'eth_sendTransaction', params: [tx] });
+  }
+
+  /** personal_sign with a connected external wallet (it asks the user first). */
+  async signMessageFrom(address, message) {
+    const w = this._externalWallet(address);
+    if (!w) throw new Error('That wallet isn\'t connected any more — connect it again.');
     const provider = await w.getEthereumProvider();
     const hexMsg = `0x${Array.from(new TextEncoder().encode(message), (b) => b.toString(16).padStart(2, '0')).join('')}`;
     return provider.request({ method: 'personal_sign', params: [hexMsg, w.address] });
