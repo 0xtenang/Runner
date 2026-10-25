@@ -11,6 +11,7 @@ import {PoolModifyLiquidityTest} from "v4-core/src/test/PoolModifyLiquidityTest.
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {SwapParams, ModifyLiquidityParams} from "v4-core/src/types/PoolOperation.sol";
 
 import {RunnerHook} from "../RunnerHook.sol";
@@ -69,6 +70,7 @@ contract FlashFlusher is IUnlockCallback {
 }
 
 contract RunnerHookTest is Test {
+    using StateLibrary for IPoolManager;
     uint256 constant DAY = 1 days;
     uint256 constant SUPPLY = 1_000_000_000e18;
     uint256 constant LIQUIDITY = 100_000_000e18;
@@ -445,6 +447,88 @@ contract RunnerHookTest is Test {
         vm.prank(owner);
         vm.expectRevert(RunnerHook.ZeroAddress.selector);
         hook.setFeeRecipient(address(hook));
+    }
+
+    // ------------------------------------------------------------ third IMD audit (d4297b4d)
+
+    /// @dev #1: an exact-out sell for more IMD than the pool holds is refused instead of overcharging.
+    function test_partialFill_exactOutSell_isRefused() public {
+        _buy(alice, 1_000e18); // the pool now holds 960 IMD
+        PoolKey memory key = _key();
+        bool imdIs0 = Currency.unwrap(key.currency0) == address(imd);
+        uint256 fees = _pendingTotal();
+        vm.prank(alice);
+        vm.expectRevert();
+        extRouter.swap(key, SwapParams(!imdIs0, int256(2_000e18), _limit(!imdIs0)), settings, "");
+        assertEq(_pendingTotal(), fees, "nothing charged");
+    }
+
+    /// @dev #1: an exact-in buy stopped early by a price limit is refused instead of paying 4% of the whole order.
+    function test_partialFill_exactInBuy_priceLimit_isRefused() public {
+        PoolKey memory key = _key();
+        bool imdIs0 = Currency.unwrap(key.currency0) == address(imd);
+        (uint160 sqrtP,,,) = IPoolManager(address(pm)).getSlot0(key.toId());
+        uint160 limit = imdIs0 ? uint160(uint256(sqrtP) * 9995 / 10000) : uint160(uint256(sqrtP) * 10005 / 10000);
+        vm.expectRevert();
+        extRouter.swap(key, SwapParams(imdIs0, -10_000e18, limit), settings, "");
+    }
+
+    /// @dev #1: full fills in the two "IMD specified" directions still pay exactly 4%.
+    function test_fullFills_stillPayExactly4Percent() public {
+        PoolKey memory key = _key();
+        bool imdIs0 = Currency.unwrap(key.currency0) == address(imd);
+        uint256 before = _pendingTotal();
+        extRouter.swap(key, SwapParams(imdIs0, -1_000e18, _limit(imdIs0)), settings, ""); // exact-in buy
+        assertEq(_pendingTotal() - before, 40e18);
+        before = _pendingTotal();
+        extRouter.swap(key, SwapParams(!imdIs0, int256(96e18), _limit(!imdIs0)), settings, ""); // exact-out sell, within the reserve
+        assertEq(_pendingTotal() - before, 4e18);
+    }
+
+    function _freshPair(uint256 saltStart) internal returns (RunnerHook h, IRunner r) {
+        bytes memory initCode = abi.encodePacked(
+            type(RunnerHook).creationCode,
+            abi.encode(pm, address(imd), owner, feeRecipient, int24(142_600), RunnerHook.ImdEthPool(10_000, 100, address(0)))
+        );
+        (bytes32 salt,) = RunnerDeployLib.mineSalt(address(this), _flags(), initCode, saltStart);
+        address d;
+        assembly {
+            d := create2(0, add(initCode, 0x20), mload(initCode), salt)
+        }
+        h = RunnerHook(d);
+        r = IRunner(deployCode("RunnerToken.sol:RunnerToken", abi.encode(owner, d, team, address(imd), address(pm))));
+    }
+
+    /// @dev #2: 1 wei sent to the hook, or burned by a holder, before launch can't stop the pool from opening.
+    function test_openPool_survivesDustAndPreLaunchBurn() public {
+        (RunnerHook h1, IRunner r1) = _freshPair(3_000_000);
+        vm.prank(team);
+        r1.transfer(address(h1), 1);
+        vm.prank(owner);
+        h1.openPool(address(r1));
+        assertEq(h1.token(), address(r1));
+        assertEq(r1.balanceOf(address(h1)), 0, "the extra wei is burned with the rounding dust");
+
+        (RunnerHook h2, IRunner r2) = _freshPair(6_000_000);
+        vm.prank(team);
+        (bool ok,) = address(r2).call(abi.encodeWithSignature("burn(uint256)", 1));
+        assertTrue(ok);
+        vm.prank(owner);
+        h2.openPool(address(r2));
+        assertEq(h2.token(), address(r2));
+    }
+
+    /// @dev #3: a start tick whose launch liquidity can't fit in a v4 tick is rejected at deployment.
+    function test_constructor_rejectsUnsafeStartTick() public {
+        vm.expectRevert(RunnerHook.BadTick.selector);
+        new RunnerHook(pm, address(imd), owner, feeRecipient, int24(-400_000), RunnerHook.ImdEthPool(10_000, 100, address(0)));
+        // A large positive tick (a low RUNNER price) fits either way the pair sorts: it passes the tick checks and
+        // only fails afterwards because `new` doesn't land on a flagged hook address.
+        try new RunnerHook(pm, address(imd), owner, feeRecipient, int24(400_000), RunnerHook.ImdEthPool(10_000, 100, address(0))) {
+            revert("unexpected deploy at an unflagged address");
+        } catch (bytes memory err) {
+            assertTrue(bytes4(err) != RunnerHook.BadTick.selector, "a safe tick isn't rejected as BadTick");
+        }
     }
 
     // ------------------------------------------------------------ fuzz

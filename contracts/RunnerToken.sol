@@ -339,9 +339,10 @@ contract RunnerToken {
         return balanceOf[address(this)] - totalLocked;
     }
 
-    /// @notice How much `account` could claim right now with a server signature for `totalEarned`:
-    ///         0 while claims are paused, emission hasn't started or no signer is set, and never
-    ///         more than what is left of today's emission or of the run-reward pool.
+    /// @notice What claim() would pay right now with a server signature for `totalEarned`: the
+    ///         difference to what was already claimed, or 0 while claims are paused, emission hasn't
+    ///         started, no signer is set, or the difference doesn't fit in today's remaining
+    ///         emission or the run-reward pool (claims are all-or-nothing).
     function claimable(address account, uint256 totalEarned) external view returns (uint256 amount) {
         if (claimsPaused || emissionStartDay == 0 || signer == address(0)) return 0;
         uint256 done = claimed[account];
@@ -350,9 +351,7 @@ contract RunnerToken {
         uint256 day = _today();
         uint256 limit = emissionOn(day);
         uint256 leftToday = limit > claimedOnDay[day] ? limit - claimedOnDay[day] : 0;
-        if (amount > leftToday) amount = leftToday;
-        uint256 pool = rewardsRemaining();
-        if (amount > pool) amount = pool;
+        if (amount > leftToday || amount > rewardsRemaining()) return 0;
     }
 
     /// @notice Pay `account` its verified run earnings, either
@@ -580,7 +579,7 @@ contract RunnerToken {
     }
 
     function _transfer(address from, address to, uint256 value) private {
-        if (to == address(0)) revert ZeroAddress();
+        if (to == address(0) || from == address(0)) revert ZeroAddress(); // no forged "mint" events (third audit, #5)
         _move(from, to, value, _today());
     }
 

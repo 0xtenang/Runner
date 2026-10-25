@@ -7,6 +7,7 @@ import {IUnlockCallback} from "v4-core/src/interfaces/callback/IUnlockCallback.s
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {Pool} from "v4-core/src/libraries/Pool.sol";
 import {SafeCast} from "v4-core/src/libraries/SafeCast.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {TransientStateLibrary} from "v4-core/src/libraries/TransientStateLibrary.sol";
@@ -59,6 +60,7 @@ contract RunnerHook is IHooks, IUnlockCallback {
     error BadTick();
     error ZeroAddress();
     error HookNotAllowed();
+    error PartialFill();
 
     event PoolOpened(address indexed token, PoolId poolId, int24 startTick);
     /// @param quoteAmount IMD paid by the buyer / received by the seller, fee included
@@ -173,6 +175,12 @@ contract RunnerHook is IHooks, IUnlockCallback {
         }
         int24 limit = TickMath.maxUsableTick(TICK_SPACING) - TICK_SPACING;
         if (startTick_ % TICK_SPACING != 0 || startTick_ > limit || startTick_ < -limit) revert BadTick();
+        // The launch liquidity must fit in a v4 tick whichever way the pair sorts (RUNNER's address isn't known
+        // yet); otherwise openPool would always revert after the allocation is minted here (third audit, #3).
+        uint256 maxL = Pool.tickSpacingToMaxLiquidityPerTick(TICK_SPACING);
+        (,, uint256 l1) = _launchRange(startTick_, true);
+        (,, uint256 l0) = _launchRange(-startTick_, false);
+        if (l1 > maxL || l0 > maxL) revert BadTick();
         Hooks.validateHookPermissions(
             IHooks(address(this)),
             Hooks.Permissions({
@@ -213,8 +221,8 @@ contract RunnerHook is IHooks, IUnlockCallback {
         IRunnerToken t = IRunnerToken(token_);
         if (
             t.hook() != address(this) || t.poolManager() != address(poolManager) || t.rewardToken() != IMD
-                || t.balanceOf(address(this)) != LIQUIDITY_ALLOCATION || t.totalSupply() != TOTAL_SUPPLY
-        ) revert BadToken();
+                || t.balanceOf(address(this)) < LIQUIDITY_ALLOCATION
+        ) revert BadToken(); // at least 100M: dust sent here is burned with the rounding buffer (third audit, #2)
 
         token = token_;
         bool quoteIs0 = uint160(IMD) < uint160(token_);
@@ -238,16 +246,21 @@ contract RunnerHook is IHooks, IUnlockCallback {
         emit PoolOpened(token_, id, tick);
     }
 
-    function _addLaunchLiquidity(PoolKey memory key, address token_, int24 tick, bool tokenIs1) internal {
-        (int24 lower, int24 upper) = tokenIs1
+    /// @dev Single-sided range and liquidity for the launch allocation at `tick` (RUNNER as currency1 or 0).
+    function _launchRange(int24 tick, bool tokenIs1) internal pure returns (int24 lower, int24 upper, uint256 liquidity) {
+        (lower, upper) = tokenIs1
             ? (TickMath.minUsableTick(TICK_SPACING), tick)
             : (tick, TickMath.maxUsableTick(TICK_SPACING));
         uint256 sqrtL = TickMath.getSqrtPriceAtTick(lower);
         uint256 sqrtU = TickMath.getSqrtPriceAtTick(upper);
         uint256 amount = LIQUIDITY_ALLOCATION - LIQUIDITY_BUFFER;
-        uint256 liquidity = tokenIs1
+        liquidity = tokenIs1
             ? FullMath.mulDiv(amount, Q96, sqrtU - sqrtL)
             : FullMath.mulDiv(amount, FullMath.mulDiv(sqrtL, sqrtU, Q96), sqrtU - sqrtL);
+    }
+
+    function _addLaunchLiquidity(PoolKey memory key, address token_, int24 tick, bool tokenIs1) internal {
+        (int24 lower, int24 upper, uint256 liquidity) = _launchRange(tick, tokenIs1);
 
         (BalanceDelta delta,) = poolManager.modifyLiquidity(
             key,
@@ -305,6 +318,11 @@ contract RunnerHook is IHooks, IUnlockCallback {
                 fee := tload(FEE_SLOT)
                 tstore(FEE_SLOT, 0)
             }
+            // The fee was fixed from the requested IMD before the swap. Refuse a partial fill (price limit,
+            // or an exact-out sell beyond the pool's IMD), so the fee is always exactly 4% of what traded
+            // (third audit, #1): exact-in buy -> the pool took amount - fee; exact-out sell -> it paid amount + fee.
+            uint256 amount = exactIn ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
+            if (poolQuote != (exactIn ? amount - fee : amount + fee)) revert PartialFill();
         } else {
             // IMD is the unspecified side. exact-in sell: 4% of the pool's output.
             // exact-out buy: 4% of what the buyer pays in total.

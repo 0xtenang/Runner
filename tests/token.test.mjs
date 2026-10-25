@@ -517,13 +517,16 @@ async function setup() {
   ok('claimable is 0 with no signer set', u(await view('claimable', A, 100n * E18)) === 0n);
   await call(DEV, 'setSigner', SIGNER);
   ok('claimable = the difference once claims are on', u(await view('claimable', A, 100n * E18)) === 100n * E18);
-  ok('claimable never exceeds what is left of today\'s emission', u(await view('claimable', A, 30_000_000n * E18)) === 10_000_000n * E18);
+  ok('claimable is 0 when the full amount doesn\'t fit today (claims are all-or-nothing; third audit #4)', u(await view('claimable', A, 30_000_000n * E18)) === 0n);
+  ok('…and the full amount when it does fit', u(await view('claimable', A, 10_000_000n * E18)) === 10_000_000n * E18);
   await call(DEV, 'setClaimsPaused', true);
   ok('claimable is 0 while claims are paused', u(await view('claimable', A, 100n * E18)) === 0n);
   // Finding 3: a pending ownership proposal can be cancelled.
   await call(DEV, 'transferOwnership', W(5));
   ok('owner can cancel a proposal with address(0)', (await call(DEV, 'transferOwnership', ZERO)).ok && (await view('pendingOwner')).slice(26) === '0'.repeat(40));
   ok('the cancelled address can no longer take over', reverts(await call(W(5), 'acceptOwnership'), 'NotOwner') && (await view('owner')).slice(26) === DEV.slice(2));
+  // Third audit #5: transfers from the zero address are refused, so nobody can forge a "mint" event.
+  ok('transferFrom(address(0), …, 0) is refused', reverts(await call(W(3), 'transferFrom', ZERO, W(4), 0n), 'ZeroAddress'));
   // Finding 4: the protocol wallet can't be the token itself.
   ok('protocol wallet can\'t be the token contract', reverts(await call(DEV, 'setProtocolWallet', tok), 'BadAddress'));
 }
