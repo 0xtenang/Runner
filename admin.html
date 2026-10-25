@@ -62,12 +62,9 @@
       <h3><i>4</i>Claim server</h3>
       <p class="muted small" style="margin:0">The server checks runs and signs claims with its own key. Its address must be set on the token by the dev wallet before anyone can claim.</p>
       <div id="srv-status" class="small">Checking…</div>
-      <details>
-        <summary class="small"><b>a.</b> Create the server key</summary>
-        <p class="muted small">Made in this browser and never sent anywhere. Copy it into Vercel → Settings → Environment Variables as <span class="mono">SIGNER_PRIVATE_KEY</span>, then redeploy. Don't share it with anyone, Claude included.</p>
-        <button class="btn pill" id="b-genkey">Generate key</button>
-        <div id="genkey" class="small"></div>
-      </details>
+      <div class="small"><b>a.</b> Create the server key. It's made in this browser and never sent anywhere. Copy it into Vercel → Settings → Environment Variables as <span class="mono">SIGNER_PRIVATE_KEY</span>, then redeploy. Don't share it with anyone, Claude included.</div>
+      <button class="btn pill" id="b-genkey">Generate key</button>
+      <div id="genkey" class="small"></div>
       <div class="small"><b>b.</b> Connect Upstash Redis from the Vercel Marketplace (Storage tab) to this project. It adds the database settings by itself.</div>
       <div class="small"><b>c.</b> Authorize the server address on the token, from the dev wallet:</div>
       <button class="btn primary pill" id="b-setsigner" disabled>Set server address on the token</button>
