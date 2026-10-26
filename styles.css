@@ -773,3 +773,30 @@ body.privy-open .onboard, body.privy-open .sheet-overlay, body.privy-open .revea
 .price-grid > div { display: grid; grid-template-columns: auto auto; justify-content: start; align-items: baseline; gap: 4px 6px; }
 .price-grid > div .badge { grid-column: 1 / -1; justify-self: start; }
 .price-grid > div b { margin-left: 0; }
+
+/* ---------- after a run: "Nice work!" (js/celebrate.js) ---------- */
+.celebrate { position: fixed; inset: 0; z-index: 5000; background: #0b0b0c; overflow: hidden; color: #FFF8EF; animation: fade .2s ease; cursor: pointer; }
+.celebrate.out { animation: fade .25s ease reverse forwards; }
+.cb-swoosh { position: absolute; inset: 0; width: 100%; height: 60%; }
+.cb-swoosh path { fill: none; stroke: #E8483B; stroke-width: 90; stroke-linecap: round; stroke-dasharray: 900; stroke-dashoffset: 900; animation: cb-draw .9s cubic-bezier(.3,.8,.3,1) forwards; }
+@keyframes cb-draw { to { stroke-dashoffset: 0; } }
+.cb-float { position: absolute; width: 54px; height: 54px; opacity: 0; animation: cb-float 2.2s ease-out forwards; }
+.cb-float svg { width: 100%; height: 100%; fill: none; stroke: #FFF8EF; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
+@keyframes cb-float { 0% { opacity: 0; transform: translateY(30px) scale(.6) rotate(-12deg); } 25% { opacity: 1; } 100% { opacity: 0; transform: translateY(-70px) scale(1.05) rotate(8deg); } }
+.cb-text { position: absolute; left: 0; right: 0; top: 52%; display: grid; justify-items: center; gap: 10px; text-align: center; }
+.cb-text b { font-size: clamp(44px, 13vw, 72px); font-weight: 900; letter-spacing: -0.03em; animation: cb-pop .5s .35s cubic-bezier(.2,1.4,.4,1) both; }
+.cb-text span { font-family: Anton, Impact, sans-serif; font-size: 34px; color: #E8483B; animation: cb-pop .5s .6s cubic-bezier(.2,1.4,.4,1) both; }
+@keyframes cb-pop { from { opacity: 0; transform: scale(.7); } }
+@media (prefers-reduced-motion: reduce) { .cb-swoosh path { animation: none; stroke-dashoffset: 0; } .cb-float, .cb-text b, .cb-text span { animation: none; opacity: 1; } }
+
+/* ---------- share sheet (js/share-card.js) ---------- */
+.share-sheet .sheet-panel { gap: 12px; }
+.share-cards { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 2px 8px; scrollbar-width: none; }
+.share-cards::-webkit-scrollbar { display: none; }
+.share-card { flex: 0 0 62%; max-width: 280px; margin: 0; scroll-snap-align: center; display: grid; gap: 6px; }
+.share-card img { width: 100%; aspect-ratio: 9 / 16; border-radius: 14px; display: block; background: #0b0b0c; }
+.share-card.checker img { background: repeating-conic-gradient(#3a3a3e 0 25%, #2a2a2e 0 50%) 0 0 / 24px 24px; }
+.share-card figcaption { text-align: center; font-size: 13px; font-weight: 700; color: var(--muted); }
+.share-dots { display: flex; justify-content: center; gap: 6px; }
+.share-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.share-dots i.on { background: var(--text); }

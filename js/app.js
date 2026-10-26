@@ -10,6 +10,8 @@ import { auth, shortAddress, explorerUrl, SIGN_IN_METHODS } from './auth.js';
 import { runOnboarding } from './onboarding.js';
 import { settleRun, syncRewards, publicStats, deleteAccount } from './rewards.js';
 import { renderRewards } from './rewards-view.js';
+import { celebrate } from './celebrate.js';
+import { openShareSheet } from './share-card.js';
 import { DEV_WALLET } from './config.js';
 
 // RUNNER is run-only: every activity is a run, recorded or imported.
@@ -43,6 +45,7 @@ const ICON = {
   ruler: '<svg viewBox="0 0 24 24"><path d="M4 15 15 4l5 5L9 20z"/><path d="M8 11l2 2M11 8l2 2M14 5l1 1"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>',
   phone: '<svg viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
+  share: '<svg viewBox="0 0 24 24"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>',
   doc: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 15.5h7M9 8.5h3"/></svg>',
   layers: '<svg viewBox="0 0 24 24"><path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="M2.5 12.5 12 17.5l9.5-5M2.5 16.5 12 21.5l9.5-5"/></svg>',
   locate: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.2" class="fill"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
@@ -713,6 +716,8 @@ function earnToast(e, saved) {
   return e?.coins > 0 ? `${saved} · +${fmtCoins(e.coins)} ${COIN}${e.server ? ' (verified)' : ''}` : saved;
 }
 
+const SHARE_AFTER_KEY = 'runner.shareAfter'; // open the share sheet once on the run page after finishing
+
 async function finishRecording() {
   if (rec.points.length < 2) {
     if (confirm('Not enough GPS data was recorded to save this run. Discard it?')) {
@@ -734,7 +739,9 @@ async function finishRecording() {
   await db.saveActivity(act, points);
   await db.kvDel('inprogress').catch(() => {});
   rec.stopGps();
+  await celebrate({ coins: act.earn?.coins || 0 });
   toast(earnToast(act.earn, 'Run saved'), 4500);
+  try { sessionStorage.setItem(SHARE_AFTER_KEY, act.id); } catch { /* the share sheet just won't open by itself */ }
   location.hash = `#/activity/${act.id}`;
 }
 
@@ -783,7 +790,7 @@ function earnCard(a) {
 }
 
 async function renderActivity(id) {
-  setTopbar({ left: backLink(), title: 'Run' });
+  setTopbar({ left: backLink(), title: 'Run', right: `<button class="icon-btn" id="tb-share" aria-label="Share run">${ICON.share}</button>` });
   const a = await db.getActivity(id);
   if (!a) { view.innerHTML = '<section class="page"><div class="card">Run not found. <a class="link" href="#/home">Back home</a></div></section>'; return; }
   const pts = (await db.getStream(id)) || [];
@@ -841,6 +848,7 @@ async function renderActivity(id) {
         ${hasHr ? '<div class="card"><h4>Heart rate</h4><div class="chart-box"><canvas id="c-hr"></canvas></div></div>' : ''}
         ${hasEle ? '<div class="card"><h4>Elevation</h4><div class="chart-box"><canvas id="c-ele"></canvas></div></div>' : ''}
         <div class="actions-row">
+          <button class="btn pill primary" id="b-share">Share</button>
           <button class="btn pill" id="b-gpx">Export GPX</button>
           <button class="btn pill danger" id="b-del">Delete run</button>
         </div>
@@ -895,6 +903,20 @@ async function renderActivity(id) {
     toast('Run deleted');
     location.hash = '#/home';
   };
+  const shareRun = () => {
+    const segs = [[]];
+    for (const p of gpsPts) { if (p.b && segs.at(-1).length) segs.push([]); segs.at(-1).push([p.lat, p.lon]); }
+    const coins = a.earn?.coins || 0;
+    return openShareSheet({
+      id: a.id, distance: fmtDist(a.distance), pace: fmtPace(a.distance, a.movingTime), time: fmtTime(a.movingTime), segs,
+      earned: coins > 0 ? fmtCoins(coins) : null, sneaker: a.earn?.sneakerLabel || null,
+    }, { toast });
+  };
+  $('#b-share').onclick = shareRun;
+  $('#tb-share').onclick = shareRun;
+  let shareAfter = null;
+  try { shareAfter = sessionStorage.getItem(SHARE_AFTER_KEY); sessionStorage.removeItem(SHARE_AFTER_KEY); } catch { /* ignore */ }
+  if (shareAfter === a.id) setTimeout(shareRun, 400);
   $('#b-gpx').onclick = () => download(`${a.name.replace(/[^\w\- ]+/g, '').trim() || 'run'}.gpx`, toGPX(a, pts), 'application/gpx+xml');
 }
 
