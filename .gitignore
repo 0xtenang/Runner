@@ -9,3 +9,6 @@ lib/
 contracts/out/
 contracts/cache/
 cache/
+
+# Private marketing notes (not published)
+marketing/
