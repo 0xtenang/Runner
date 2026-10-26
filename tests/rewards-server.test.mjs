@@ -503,6 +503,8 @@ process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO] });
   const pick = all.top[1].address;
   const mine = await call({ action: 'leaderboard', period: 'all', address: pick }, 'GET');
   ok('leaderboard: your own place is returned', mine.me?.rank === 2 && mine.me.address === pick && mine.me.earned === all.top[1].earned, JSON.stringify(mine.me));
+  const last = await call({ action: 'leaderboard', period: 'last' }, 'GET');
+  ok('leaderboard: last week is its own board, starting 7 days before this week', last.code === 200 && last.period === 'last' && last.weekStart === wk.weekStart - 7 * 864e5 && Array.isArray(last.top), JSON.stringify({ w: wk.weekStart, l: last.weekStart }));
   ok('leaderboard: a bad period falls back to this week', (await call({ action: 'leaderboard', period: 'x' }, 'GET')).period === 'week');
 }
 // concurrency lock

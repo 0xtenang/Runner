@@ -545,10 +545,10 @@ async function removeFromLeaderboards(address) {
 }
 
 const lbCache = new Map(); // period → { at, value }
-/** Top 50 by RUNNER earned for 'week' or 'all', plus `address`'s own place if given. */
+/** Top 50 by RUNNER earned for 'week', 'last' (last week, final) or 'all', plus `address`'s own place if given. */
 async function leaderboard(period, address) {
   if (!store.storeConfigured()) fail(503, 'Database not connected yet.');
-  const week = weekOf(utcDay());
+  const week = weekOf(utcDay()) - (period === 'last' ? 1 : 0);
   const keys = period === 'all' ? LB.all : LB.week(week);
   let top = lbCache.get(period);
   if (!top || Date.now() - top.at > 60e3 || top.week !== week) {
@@ -619,7 +619,7 @@ export default async function handler(req, res) {
     if (action === 'leaderboard') {
       const q = req.method === 'POST' ? body : req.query || {};
       res.setHeader('Cache-Control', q.address ? 'no-store' : 'public, s-maxage=60, stale-while-revalidate=300');
-      res.status(200).json(await leaderboard(q.period === 'all' ? 'all' : 'week', q.address));
+      res.status(200).json(await leaderboard(['all', 'last'].includes(q.period) ? q.period : 'week', q.address));
       return;
     }
     if (action === 'status') {
