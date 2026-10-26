@@ -29,7 +29,7 @@
 //
 // Vercel env vars: SIGNER_PRIVATE_KEY (server key, its address is set on the
 // token with setSigner) and the Upstash Redis REST URL/token.
-import { TOKEN_CHAIN, TOKEN_CONTRACT as CONFIG_TOKEN, NFT_CONTRACT as CONFIG_NFT, DEV_WALLET } from '../js/config.js';
+import { TOKEN_CHAIN, TOKEN_CONTRACT as CONFIG_TOKEN, NFT_CONTRACT as CONFIG_NFT, DEV_WALLET, PRIVY_APP_ID } from '../js/config.js';
 import {
   scoreTrack, isVoided, maxEnergy, regenEnergy, sneakerFromToken, levelUpCost, repairCost,
   durabilityLossPerEnergy, ATTRS, POINTS_PER_LEVEL, MAX_LEVEL, round2,
@@ -40,6 +40,7 @@ import * as store from './_lib/store.js';
 import { ownedTokenIds, emissionSchedule, claimState, heldContracts, totalClaimed, genesisHolders } from './_lib/chain.js';
 import { trustScore, trackFingerprint, cleanSteps } from './_lib/trust.js';
 import { checkDevice, androidConfigured, iosConfigured } from './_lib/attest.js';
+import { privyConfigured, verifyAccessToken, deletePrivyUser } from './_lib/privy.js';
 
 const env = globalThis.process?.env || {};
 const KEY = (env.SIGNER_PRIVATE_KEY || '').trim();
@@ -491,6 +492,23 @@ async function adminOp(admin, body) {
 }
 
 // ------------------------------------------------------------------ handler
+// ------------------------------------------------------------------ account deletion
+/**
+ * Deletes the signed-in user's account: the Privy user (proved by their Privy access token) and, when
+ * the request also carries their rewards session, the server's record for that wallet (balance,
+ * runs, energy). Suspensions are kept for fair play. The wallet itself is non-custodial and on-chain.
+ */
+async function deleteAccount(body) {
+  if (!privyConfigured()) fail(503, 'Account deletion isn\'t set up on the server yet. Please contact support.');
+  const userId = await verifyAccessToken(body.accessToken, PRIVY_APP_ID).catch(() => null);
+  if (!userId) fail(401, 'Please sign in again, then delete your account.');
+  let address = null;
+  if (body.session) { try { address = openSession(body); } catch { /* no server record to delete */ } }
+  if (address && store.storeConfigured()) await store.del(userKey(address));
+  await deletePrivyUser(userId, PRIVY_APP_ID);
+  return { deleted: true, serverRecord: Boolean(address) };
+}
+
 // ------------------------------------------------------------------ public stats (front page)
 let statsCache = null; // { at, value }
 /**
@@ -552,6 +570,7 @@ export default async function handler(req, res) {
       return;
     }
     if (action === 'admin-session') { res.status(200).json(createAdminSession(body)); return; }
+    if (action === 'delete-account') { await rateLimit(`ipdel:${ip}`, 10, 3600e3); res.status(200).json(await deleteAccount(body)); return; }
     if (action === 'admin') { res.status(200).json(await adminOp(openSession(body, { admin: true }), body)); return; }
     if (!isLive()) fail(503, 'Rewards are not switched on yet.');
     let out;

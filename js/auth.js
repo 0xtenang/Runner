@@ -130,7 +130,7 @@ class Auth extends EventTarget {
     const auth = this;
 
     function Bridge() {
-      const { ready, authenticated, user } = Privy.usePrivy();
+      const { ready, authenticated, user, getAccessToken } = Privy.usePrivy();
       const { wallets } = Privy.useWallets();
       const { login } = Privy.useLogin({
         onError: (err) => { if (err && err !== 'exited_auth_flow') auth._set({ error: `Sign-in failed: ${err}` }); },
@@ -153,7 +153,7 @@ class Auth extends EventTarget {
       const walletName = walletKind === 'external' ? (own?.meta?.name || user?.wallet?.walletClientType || 'Wallet') : null;
       const external = wallets.filter((w) => w !== primary && w.walletClientType !== 'privy');
       const externalKey = external.map((w) => w.address).join(',');
-      React.useEffect(() => { auth._api = { login, logout, exportWallet, connectWallet, sendCode, loginWithCode }; auth._wallet = primary; auth._external = external; });
+      React.useEffect(() => { auth._api = { login, logout, exportWallet, connectWallet, sendCode, loginWithCode, getAccessToken }; auth._wallet = primary; auth._external = external; });
       React.useEffect(() => {
         auth._set({ externalWallets: external.map((w) => ({ address: w.address, name: w.meta?.name || w.walletClientType || 'Wallet' })) });
       }, [externalKey]);
@@ -334,6 +334,14 @@ class Auth extends EventTarget {
     const provider = await w.getEthereumProvider();
     const hexMsg = `0x${Array.from(new TextEncoder().encode(message), (b) => b.toString(16).padStart(2, '0')).join('')}`;
     return provider.request({ method: 'personal_sign', params: [hexMsg, w.address] });
+  }
+
+  /** The signed-in user's Privy access token (proves who they are to the RUNNER server). */
+  async getAccessToken() {
+    if (!this._api || !this.state.authenticated) throw new Error('Sign in first');
+    const t = await this._api.getAccessToken();
+    if (!t) throw new Error('Please sign in again.');
+    return t;
   }
 
   async exportWallet() {

@@ -493,6 +493,36 @@ process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO] });
 // concurrency lock
 const [a, b] = await Promise.all([call({ action: 'state', session: S }), call({ action: 'state', session: S })]);
 ok('parallel requests: one waits (409) or both ok, never corrupt', [a.code, b.code].includes(200));
+// in-app account deletion (App Store 5.1.1(v)): Privy access token checked, Privy user + server record deleted
+{
+  const { generateKeyPairSync, createSign } = await import('node:crypto');
+  const { PRIVY_APP_ID } = await imp('js/config.js');
+  r = await call({ action: 'delete-account', accessToken: 'x', session: S });
+  ok('delete-account: refused until Privy keys are set on the server', r.code === 503, r.error);
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  process.env.PRIVY_VERIFICATION_KEY = publicKey.export({ type: 'spki', format: 'pem' });
+  process.env.PRIVY_APP_SECRET = 'test-secret';
+  process.env.REWARDS_FAKE_PRIVY_DELETE = '1';
+  const b64u = (x) => Buffer.from(typeof x === 'string' ? x : JSON.stringify(x)).toString('base64url');
+  const jwt = (claims, key = privateKey) => {
+    const head = b64u({ alg: 'ES256', typ: 'JWT' }), body = b64u(claims);
+    const sig = createSign('SHA256').update(`${head}.${body}`).sign({ key, dsaEncoding: 'ieee-p1363' }).toString('base64url');
+    return `${head}.${body}.${sig}`;
+  };
+  const good = { iss: 'privy.io', aud: PRIVY_APP_ID, sub: 'did:privy:test-user', exp: Math.floor(Date.now() / 1000) + 600 };
+  const other = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey;
+  r = await call({ action: 'delete-account', accessToken: jwt(good, other), session: S });
+  ok('delete-account: a token not signed by Privy is refused', r.code === 401, r.error);
+  r = await call({ action: 'delete-account', accessToken: jwt({ ...good, aud: 'another-app' }), session: S });
+  ok('delete-account: a token for another app is refused', r.code === 401, r.error);
+  r = await call({ action: 'delete-account', accessToken: jwt({ ...good, exp: Math.floor(Date.now() / 1000) - 5 }), session: S });
+  ok('delete-account: an expired token is refused', r.code === 401, r.error);
+  const before = await storeMod.get(`rw:u:${USER.toLowerCase()}`);
+  r = await call({ action: 'delete-account', accessToken: jwt(good), session: S });
+  const after = await storeMod.get(`rw:u:${USER.toLowerCase()}`);
+  ok('delete-account: a valid token deletes the account and the wallet\'s server record', r.code === 200 && r.deleted && r.serverRecord && before && !after, JSON.stringify(r));
+  delete process.env.PRIVY_VERIFICATION_KEY; delete process.env.PRIVY_APP_SECRET; delete process.env.REWARDS_FAKE_PRIVY_DELETE;
+}
 const fails = results.filter((x) => x.startsWith('FAIL'));
 console.log(results.join('\n'));
 console.log(`\n${results.length - fails.length}/${results.length} passed`);

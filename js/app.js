@@ -8,7 +8,7 @@ import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange, addressAvatar, sy
 import { PRICE_ETH } from './collection.js';
 import { auth, shortAddress, explorerUrl, SIGN_IN_METHODS } from './auth.js';
 import { runOnboarding } from './onboarding.js';
-import { settleRun, syncRewards, publicStats } from './rewards.js';
+import { settleRun, syncRewards, publicStats, deleteAccount } from './rewards.js';
 import { renderRewards } from './rewards-view.js';
 import { DEV_WALLET } from './config.js';
 
@@ -1083,6 +1083,10 @@ function renderSettings() {
           <div class="row">${ICON.doc}<div><b>Whitepaper</b><div class="muted small">How RUNNER, the sneakers and the token work</div></div></div>
           ${ICON.chev}
         </a>
+        <a class="setting" href="${SITE}/privacy" target="_blank" rel="noopener">
+          <div class="row">${ICON.doc}<div><b>Privacy policy</b><div class="muted small">What RUNNER collects and how to delete it</div></div></div>
+          ${ICON.chev}
+        </a>
         <a class="setting" href="${FEEDBACK_URL}" target="_blank" rel="noopener">
           <div class="row">${ICON.chat}<div><b>Send feedback</b><div class="muted small">Report a bug or share an idea</div></div></div>
           ${ICON.chev}
@@ -1091,6 +1095,10 @@ function renderSettings() {
           <div class="row">${ICON.trash}<div><b>Delete all data</b><div class="muted small">Runs, coins and sneakers on this device</div></div></div>
           <button class="btn sm danger" id="b-wipe">Delete</button>
         </div>
+        ${auth.signedIn ? `<div class="setting">
+          <div class="row">${ICON.user}<div><b>Delete account</b><div class="muted small">Your RUNNER account and its unclaimed balance</div></div></div>
+          <button class="btn sm danger" id="b-delete-account">Delete</button>
+        </div>` : ''}
       </div>
       <p class="muted small" style="text-align:center">RUNNER ${VERSION} · Your runs are stored privately on this device. Earnings become real ${COIN} tokens when you claim them in Earn.</p>
     </section>`;
@@ -1113,6 +1121,29 @@ function renderSettings() {
     auth.addEventListener('change', rerender);
     onCleanup(() => auth.removeEventListener('change', rerender));
   }
+  const delBtn = $('#b-delete-account');
+  if (delBtn) delBtn.onclick = async () => {
+    if (rec.state !== 'idle') { toast('Finish your current run first'); return; }
+    if (!confirm(`Delete your RUNNER account?\n\nThis deletes your account and your unclaimed ${COIN} balance on our server, signs you out and clears this device. ${COIN} you already claimed and your sneakers stay in your wallet.`)) return;
+    if (auth.state.walletKind === 'embedded' && confirm('Your wallet was created for you at sign-in. After deleting, you can only reach it with its private key.\n\nExport the private key now? (OK = export first, Cancel = continue deleting)')) {
+      try { await auth.exportWallet(); } catch (err) { toast(err.message, 4000); }
+      return;
+    }
+    if ((prompt('Type DELETE to delete your account.') || '').trim().toUpperCase() !== 'DELETE') { toast('Not deleted'); return; }
+    delBtn.disabled = true;
+    try {
+      await deleteAccount();
+      await auth.logout();
+      await db.clearAll();
+      await game.reset();
+      toast('Your account has been deleted');
+      await runOnboarding();
+      location.hash = '#/home';
+    } catch (err) {
+      delBtn.disabled = false;
+      toast(String(err.message || err).slice(0, 200), 5000);
+    }
+  };
   $('#b-wipe').onclick = async () => {
     if (rec.state !== 'idle') { toast('Finish your current run first'); return; }
     if (!confirm('Delete ALL runs, coins and sneakers on this device? This can\'t be undone.')) return;

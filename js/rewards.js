@@ -46,6 +46,23 @@ export async function claimedOnChain(address = auth.state.address) {
 }
 export { checkStatus as checkRewardsStatus };
 
+/**
+ * Deletes the signed-in user's account (App Store / Play rule): the Privy user and the server's record
+ * for this wallet. The wallet and anything claimed to it stay on-chain.
+ */
+export async function deleteAccount() {
+  const accessToken = await auth.getAccessToken();
+  const session = storedSession(auth.state.address) || undefined;
+  let res;
+  try {
+    res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete-account', accessToken, session }) });
+  } catch { throw new Error('No connection to the RUNNER server.'); }
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || `Server error (${res.status})`);
+  try { localStorage.removeItem(SESSION_KEY(auth.state.address)); } catch { /* ignore */ }
+  return j;
+}
+
 let statsCache = null; // { at, value }
 /** Public totals for the front page: { runners, runs, earned, claimed }, or null if unavailable. Cached 1 min. */
 export async function publicStats() {

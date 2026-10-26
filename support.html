@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>RUNNER Support</title>
+  <meta name="description" content="Help with RUNNER: sign-in, sneakers, earning, claiming, the apps and your account.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { padding: 0; background: var(--bg); }
+    .doc { max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 16px; }
+    .doc-brand { display: flex; align-items: center; gap: 10px; font-weight: 900; font-size: 20px; color: var(--text); text-decoration: none; }
+    .doc-brand img { width: 34px; height: 34px; }
+    .doc-brand em { color: var(--accent-strong); font-style: normal; }
+    .doc h1 { font-size: clamp(28px, 6vw, 40px); font-weight: 900; margin: 8px 0 0; letter-spacing: -0.02em; }
+    .doc h2 { font-size: 19px; font-weight: 900; margin: 0 0 8px; }
+    .doc p, .doc li { line-height: 1.6; font-size: 15.5px; }
+    .doc p { margin: 0 0 8px; }
+    .doc details { border-top: 1px solid var(--line); padding: 10px 0; }
+    .doc details:first-of-type { border-top: 0; }
+    .doc summary { font-weight: 800; cursor: pointer; }
+    a.inline { color: var(--accent-strong); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main class="doc">
+    <a class="doc-brand" href="/"><img src="icon.svg" alt=""><span>RUNN<em>ER</em></span></a>
+    <h1>Support</h1>
+
+    <section class="card">
+      <h2>Contact us</h2>
+      <p>Report a problem or ask a question: <a class="inline" href="https://github.com/0xtenang/Runner/issues/new" target="_blank" rel="noopener">open a support request</a>. Include your phone model, the app or browser you use, and what happened. Never send your private key or sign-in code to anyone, including us.</p>
+    </section>
+
+    <section class="card">
+      <h2>Common questions</h2>
+      <details><summary>How do I start earning?</summary><p>Sign in, get a RUNNER Genesis sneaker in the Earn tab, then tap Record and run outdoors inside your sneaker's pace zone. The <a class="inline" href="/whitepaper#earning">whitepaper</a> explains energy, pace zones and levels.</p></details>
+      <details><summary>Why didn't my run earn?</summary><p>Only live GPS runs inside your sneaker's pace zone earn, and only while you have energy. Every run is checked by the server; runs that look like a vehicle, a fake-GPS app or a copied route aren't paid. Earnings become usable 24 hours after the run.</p></details>
+      <details><summary>How do I claim RUNNER to my wallet?</summary><p>Earn tab → Claim. Lock it for 7 days to get 100%, or take it now and get 80% (20% is burned). You need a little ETH on Robinhood Chain for the network fee.</p></details>
+      <details><summary>How do holder rewards work?</summary><p>Hold at least 300,000 RUNNER for a whole UTC day and you share 2% of that day's trading in the RUNNER/IMD pool, paid in IMD. Claim it in the Rewards tab within 7 days.</p></details>
+      <details><summary>I can't sign in on my iPhone home-screen app</summary><p>On the home-screen app, sign in with email. Google, Apple and wallet sign-in work in Safari or Chrome at runearn.fun, and in the RUNNER app.</p></details>
+      <details><summary>GPS stops when my screen locks</summary><p>Browsers pause GPS when the screen locks. Keep the screen on, or use the RUNNER app (Android: <a class="inline" href="/download">runearn.fun/download</a>), which keeps recording with the screen locked.</p></details>
+      <details><summary>How do I delete my account?</summary><p>You → Settings → Delete account. See the <a class="inline" href="/privacy">privacy policy</a> for what's deleted and what stays on the blockchain.</p></details>
+    </section>
+
+    <p class="muted small" style="text-align:center"><a class="inline" href="/">runearn.fun</a> · <a class="inline" href="/privacy">Privacy policy</a> · <a class="inline" href="/whitepaper">Whitepaper</a></p>
+  </main>
+</body>
+</html>

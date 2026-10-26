@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>RUNNER Privacy Policy</title>
+  <meta name="description" content="What RUNNER collects, why, where it's stored and how to delete it.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { padding: 0; background: var(--bg); }
+    .doc { max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 16px; }
+    .doc-brand { display: flex; align-items: center; gap: 10px; font-weight: 900; font-size: 20px; color: var(--text); text-decoration: none; }
+    .doc-brand img { width: 34px; height: 34px; }
+    .doc-brand em { color: var(--accent-strong); font-style: normal; }
+    .doc h1 { font-size: clamp(28px, 6vw, 40px); font-weight: 900; margin: 8px 0 0; letter-spacing: -0.02em; }
+    .doc h2 { font-size: 19px; font-weight: 900; margin: 0 0 8px; }
+    .doc p, .doc li { line-height: 1.6; font-size: 15.5px; }
+    .doc p { margin: 0 0 8px; }
+    .doc ul { margin: 0; padding-left: 22px; display: grid; gap: 6px; }
+    a.inline { color: var(--accent-strong); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main class="doc">
+    <a class="doc-brand" href="/"><img src="icon.svg" alt=""><span>RUNN<em>ER</em></span></a>
+    <h1>Privacy Policy</h1>
+    <p class="muted">Last updated 26 October 2026. Applies to the RUNNER website (runearn.fun) and the RUNNER apps for Android and iPhone.</p>
+
+    <section class="card">
+      <h2>The short version</h2>
+      <ul>
+        <li>Your runs are stored on your own device. If you earn, the GPS track of a run is sent to our server once so it can be checked and paid.</li>
+        <li>We don't sell your data, show ads or use trackers.</li>
+        <li>You can delete your account in the app: <b>You → Settings → Delete account</b>.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>What we collect and why</h2>
+      <ul>
+        <li><b>Runs (on your device).</b> GPS route, distance, pace, time and heart rate are saved in the app on your phone or browser. They stay there unless you earn.</li>
+        <li><b>Runs you earn from (on our server).</b> When you're signed in with a sneaker and a run earns RUNNER, the app uploads that run's GPS points, timing, step count and device check, so the server can score it with the same rules as the app and check it for cheating. We keep a summary of your last 30 runs (time, distance, earnings, trust score) and a short fingerprint of each route for 30 days, to stop copied routes. The full GPS track isn't kept after scoring.</li>
+        <li><b>Your wallet address and balance.</b> To credit earnings, level-ups, repairs and claims, the server keeps a record tied to your wallet address: balance, energy, sneaker levels and any fair-play strikes.</li>
+        <li><b>Sign-in.</b> Sign-in and the wallet created for you are provided by <a class="inline" href="https://www.privy.io/privacy-policy" target="_blank" rel="noopener">Privy</a>. Depending on how you sign in, Privy processes your email address or your Google or Apple account. If you sign in with your own wallet, only its address is used.</li>
+        <li><b>Device checks (phone apps).</b> To confirm runs come from the genuine app, the phone apps request a device proof from Google Play Integrity or Apple App Attest. The proof is checked and not stored beyond what's needed to verify it.</li>
+        <li><b>Technical data.</b> Our hosting (Vercel) and database (Upstash) process IP addresses and request logs to run the service and limit abuse. We don't use them to profile you.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>On the blockchain</h2>
+      <p>RUNNER, the sneaker NFTs and claims live on Robinhood Chain, a public blockchain. Transactions from your wallet (buying sneakers, claiming, trading) are public and permanent. They can't be deleted by us or anyone, including after you delete your account.</p>
+    </section>
+
+    <section class="card">
+      <h2>Sharing</h2>
+      <p>We share data only with the services that run RUNNER: Privy (sign-in and wallets), Vercel (hosting), Upstash (database), Google and Apple (device checks) and blockchain RPC providers (reading the chain). We don't sell or rent personal data.</p>
+    </section>
+
+    <section class="card">
+      <h2>Deleting your data</h2>
+      <ul>
+        <li><b>Your account:</b> You → Settings → <b>Delete account</b>. This deletes your Privy account and our server record for your wallet (balance, runs, energy). Unclaimed RUNNER is lost; RUNNER you claimed and your sneakers stay in your wallet. If your wallet was created for you at sign-in, export its private key first if it holds anything. We keep records of fair-play suspensions to prevent abuse.</li>
+        <li><b>Data on this device:</b> You → Settings → <b>Delete all data</b>.</li>
+        <li>You can also ask us to delete your data through the support page.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Age</h2>
+      <p>RUNNER's earning, wallet and trading features involve crypto and are for adults (18 or older, or the age of majority where you live). Run tracking without signing in has no age limit.</p>
+    </section>
+
+    <section class="card">
+      <h2>Contact</h2>
+      <p>Questions or requests: <a class="inline" href="/support">runearn.fun/support</a>. If we change this policy, we'll update the date at the top.</p>
+    </section>
+
+    <p class="muted small" style="text-align:center"><a class="inline" href="/">runearn.fun</a> · <a class="inline" href="/support">Support</a> · <a class="inline" href="/whitepaper">Whitepaper</a></p>
+  </main>
+</body>
+</html>

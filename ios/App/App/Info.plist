@@ -33,14 +33,16 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>RUNNER keeps recording your run when the screen is locked or you switch apps, so your distance stays accurate.</string>
-	<key>NSMotionUsageDescription</key>
-	<string>RUNNER counts your steps during a run to confirm it was on foot, so rewards stay fair.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>RUNNER uses your location to map your run and measure distance and pace.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>RUNNER counts your steps during a run to confirm it was on foot, so rewards stay fair.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
