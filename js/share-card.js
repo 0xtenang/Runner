@@ -68,13 +68,15 @@ function stat(ctx, label, value, y, color) {
 
 /**
  * Draws one card. `run` = { id, distance, pace, time, segs, earned, sneaker }.
- * Variants: 'transparent', 'dark', 'red', 'earned' (dark) and 'earned-red'.
+ * Variants: 'transparent', 'dark', 'red', and the earnings cards 'earned-clear' (transparent),
+ * 'earned' (dark) and 'earned-red'.
  */
 export function drawCard(variant, run) {
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const ctx = c.getContext('2d');
-  const earned = variant === 'earned' || variant === 'earned-red';
+  const earned = variant.startsWith('earned');
+  const clear = variant === 'transparent' || variant === 'earned-clear';
   const red = variant === 'red' || variant === 'earned-red';
   if (variant === 'dark' || variant === 'earned') {
     ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H);
@@ -84,7 +86,7 @@ export function drawCard(variant, run) {
     speedLines(ctx, run.id, [CREAM, '#ffd4c7']);
   }
   const text = CREAM;
-  if (variant === 'transparent') { ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 18; }
+  if (clear) { ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 18; }
   const routeColor = red ? CREAM : RED;
   if (earned) {
     stat(ctx, 'Distance', run.distance, 300, text);
@@ -151,7 +153,7 @@ function download(blob, filename) {
 export async function openShareSheet(run, { toast = () => {} } = {}) {
   try { await document.fonts?.load?.('150px Anton'); } catch { /* falls back to Impact */ }
   const variants = [['transparent', 'Transparent'], ['dark', 'Dark'], ['red', 'Red']];
-  if (run.earned) variants.splice(1, 0, ['earned', 'Earned · Dark'], ['earned-red', 'Earned · Red']);
+  if (run.earned) variants.splice(1, 0, ['earned-clear', 'Earned · Transparent'], ['earned', 'Earned · Dark'], ['earned-red', 'Earned · Red']);
   const cards = variants.map(([v, label]) => ({ v, label, canvas: drawCard(v, run) }));
   const filename = `runner-run-${run.id}.png`;
 
@@ -161,7 +163,7 @@ export async function openShareSheet(run, { toast = () => {} } = {}) {
       <div class="sheet-grab"></div>
       <div class="row between"><h2 class="sheet-title">Share your run</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
       <div class="share-cards" tabindex="0">
-        ${cards.map((c, i) => `<figure class="share-card ${c.v === 'transparent' ? 'checker' : ''}" data-i="${i}"><img alt="${esc(c.label)} share card" src="${c.canvas.toDataURL('image/png')}"><figcaption>${esc(c.label)}</figcaption></figure>`).join('')}
+        ${cards.map((c, i) => `<figure class="share-card ${c.v === 'transparent' || c.v === 'earned-clear' ? 'checker' : ''}" data-i="${i}"><img alt="${esc(c.label)} share card" src="${c.canvas.toDataURL('image/png')}"><figcaption>${esc(c.label)}</figcaption></figure>`).join('')}
       </div>
       <div class="share-dots">${cards.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>
       <button class="btn primary pill block" data-act="share">Share</button>
