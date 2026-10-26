@@ -277,7 +277,7 @@
         </table></div>
         <p>The emission cap is per UTC day and resets at midnight UTC, so in the worst case (a stolen owner key) two days' maximum — 40M RUNNER, 5% of the pool — could be claimed within minutes of each other.</p>
         <p><b>Nobody — including the owner — can:</b> change the 4% fee, remove the pool's liquidity, mint new tokens, exceed 20M RUNNER of emission per UTC day, change today's emission, or take tokens out of the run-reward pool, locked claims or the holder-reward bucket.</p>
-        <div class="note">Ownership will move from the single dev wallet to a multisig wallet, so no single key controls these settings. Ownership moves in two steps (propose, then accept), so a mistyped address can't take it.</div>
+        <div class="note">Ownership stays with the dev wallet. It can only move in two steps (propose, then accept), so a mistyped address can't take it.</div>
       </section>
 
       <section class="wp-sec" id="security">
@@ -296,6 +296,13 @@
             </ul>
           </li>
           <li><b>Android app:</b> every version is signed with the same RUNNER key, so Android refuses an update that didn't come from runearn.fun/download. Signing certificate (SHA-256): <span class="mono">a50b2fc25bf9546fc4f14ab6f2f5b8e0e047342a7867a7b8043413b81536c70b</span>; the download page also lists each file's SHA-256.</li>
+          <li id="scanners"><b>Token scanner flags:</b> some automated scanners mark RUNNER as <i>mintable</i> or <i>transfer pausable</i>. Neither is true:
+            <ul>
+              <li><b>Not mintable.</b> All 1,000,000,000 RUNNER were created once, in the constructor (<span class="mono">_mintAtStart</span>). The source also contains a private <span class="mono">_mint</span> helper that nothing calls: a private function can't be called from outside, and the compiler leaves it out of the deployed code. Supply can only go down (burns). <a class="inline" href="https://github.com/0xtenang/Runner/blob/main/contracts/RunnerToken.sol#L699" target="_blank" rel="noopener">See the code</a>.</li>
+              <li><b>Transfers can't be paused.</b> <span class="mono">setClaimsPaused</span> only pauses <span class="mono">claim()</span>, which pays run rewards out of the contract's own reward pool. <span class="mono">transfer</span> and <span class="mono">transferFrom</span> have no pause and no owner check, so buying, selling and sending always work. <a class="inline" href="https://github.com/0xtenang/Runner/blob/main/contracts/RunnerToken.sol#L524" target="_blank" rel="noopener">See the code</a>.</li>
+              <li>No tax, no blacklist, no proxy, no hidden owner: the token can't be changed after deployment.</li>
+            </ul>
+          </li>
           <li><b>Verifiable builds:</b> the deploy page refuses to deploy any contract whose bytecode differs from the reviewed build, and each deployed contract was compared byte for byte afterwards. All five contracts are source-verified on Blockscout and Sourcify (token and NFT as exact matches). Source code is public at <a class="inline" href="https://github.com/0xtenang/Runner" target="_blank" rel="noopener">github.com/0xtenang/Runner</a>.</li>
         </ul>
       </section>
@@ -315,7 +322,7 @@
           <li><b>No guaranteed value.</b> RUNNER and the sneakers may lose value or become illiquid. Earnings in dollars depend on the market price, which nobody controls. At a low market cap, daily earnings are worth only cents.</li>
           <li><b>Front-loaded emission.</b> Most rewards can be released in the first months, which can create heavy selling pressure.</li>
           <li><b>Smart-contract risk.</b> Bugs are possible despite reviews and tests. Contracts are not upgradeable.</li>
-          <li><b>Centralization.</b> A single dev wallet holds the controls in section 9 until ownership moves to a multisig; the rewards server decides which runs earn.</li>
+          <li><b>Centralization.</b> A single dev wallet holds the controls in section 9, within the limits listed there; the rewards server decides which runs earn.</li>
           <li><b>Cheating.</b> Fair-play checks reduce but cannot eliminate cheating.</li>
           <li><b>IMD dependency.</b> Holder rewards are paid in IMD, whose issuer can block addresses. If IMD transfers to or from the token contract stopped working, holder claims would wait; trading through RUNNER's routers would not stop.</li>
           <li><b>Thin early liquidity</b> means large price swings, made larger by the fees (4% in the RUNNER/IMD pool, 10% in the RUNNER/ETH pool). RUNNER's main price is in IMD, so it also moves with IMD's own price.</li>

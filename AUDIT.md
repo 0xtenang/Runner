@@ -240,7 +240,7 @@ Nobody, including the owner, can change the tax, raise emission above 20M/day, c
 ## Before mainnet
 
 1. ~~Get an independent audit.~~ Done: IMD, 24 October 2026 (see top). All code findings fixed; consider a re-check of the fixes.
-2. Move ownership of both contracts to a multisig, or at minimum a hardware wallet: `transferOwnership(multisig)` from the dev wallet, then `acceptOwnership()` from the multisig.
+2. ~~Move ownership of both contracts to a multisig.~~ **Decision, 26 October 2026: ownership stays with the dev wallet** (no multisig). The "multisig before launch" notes in the findings above are superseded by this. The risk is bounded by the limits listed above (≤ 20M RUNNER/day, no minting, fee and liquidity fixed); keep the dev key safe, ideally on a hardware wallet. Moving later is still possible with `transferOwnership` + `acceptOwnership`.
 3. Launch sequence (admin page): deploy the **RunnerHook** (CREATE2, flagged address) → deploy the **token** with the hook's address → **`openPool`** (dev wallet) → set up the rewards server → `setSigner` → `startEmission` on launch day.
 5. Before a public launch: finish the Google Play Integrity and Apple App Attest setup (README → *Device attestation setup*), ship the apps through Google Play and TestFlight/App Store, and switch on **Phone app only** (`requireAttestation`) in the admin page (see #9).
 6. Get legal advice on a tradable token with a holder-reward mechanism in Indonesia (OJK).
