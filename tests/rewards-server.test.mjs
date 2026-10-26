@@ -482,12 +482,14 @@ delete process.env.APPLE_TEAM_ID; delete process.env.REWARDS_FAKE_INTEGRITY; del
 process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO] });
 // public stats for the front page
 {
+  process.env.REWARDS_FAKE_HOLDER_IMD = '24.85';
   const sv = await call({ action: 'stats' }, 'GET');
   const fake = JSON.parse(process.env.REWARDS_FAKE_TOKEN);
   const keys = []; for (let d = fake.startDay; d <= rules.utcDay(); d++) keys.push(`rw:budget:${d}`);
   const expected = (await storeMod.mget(keys)).reduce((t, v) => t + (Number(v) || 0), 0) / 1e6;
   const owned = Object.values(JSON.parse(process.env.REWARDS_FAKE_OWNED));
   ok('stats: runners = wallets holding a Genesis sneaker; RUNNER credited = the daily emission counters', sv.code === 200 && sv.runners === owned.filter((ids) => ids.length).length && sv.sneakers === owned.reduce((n, ids) => n + ids.length, 0) && sv.earned > 0 && Math.abs(sv.earned - expected) < 1e-6 && sv.since === fake.startDay, JSON.stringify(sv));
+  ok('stats: IMD paid to holders and its value (IMD → ETH → USD)', sv.holderImd === 24.85 && Math.abs(sv.imdUsd - 6) < 1e-9 && Math.abs(sv.holderUsd - 24.85 * 6) < 1e-9, JSON.stringify(sv));
   ok('stats: a wallet that earned counts once however many runs it makes', sv.earners >= 2 && sv.runs > sv.earners, `${sv.earners} earners, ${sv.runs} runs`);
 }
 // concurrency lock

@@ -37,7 +37,7 @@ import {
 } from '../js/rules.js';
 import { addressOfKey, claimDigest, signDigest, personalDigest, recoverAddress, keccak, toHex, isAddress } from './_lib/eth.js';
 import * as store from './_lib/store.js';
-import { ownedTokenIds, emissionSchedule, claimState, heldContracts, totalClaimed, genesisHolders } from './_lib/chain.js';
+import { ownedTokenIds, emissionSchedule, claimState, heldContracts, totalClaimed, genesisHolders, holderRewards, ethUsd } from './_lib/chain.js';
 import { trustScore, trackFingerprint, cleanSteps } from './_lib/trust.js';
 import { checkDevice, androidConfigured, iosConfigured } from './_lib/attest.js';
 import { privyConfigured, verifyAccessToken, deletePrivyUser } from './_lib/privy.js';
@@ -527,13 +527,18 @@ async function publicStats() {
     runs = Number(n) || 0;
     earnedMicro = budgets.reduce((sum, b) => sum + (Number(b) || 0), 0);
   }
-  const [claimed, nft] = await Promise.all([
+  const [claimed, nft, holders, usd] = await Promise.all([
     contractsSet() ? totalClaimed(TOKEN_CONTRACT).catch(() => null) : null,
     NFT_CONTRACT ? genesisHolders(NFT_CONTRACT).catch(() => null) : null,
+    contractsSet() ? holderRewards(TOKEN_CONTRACT).catch(() => null) : null,
+    ethUsd().catch(() => null),
   ]);
+  const imdUsd = holders?.ethPerImd && usd ? holders.ethPerImd * usd : null;
   const value = {
     runners: nft?.holders ?? 0, sneakers: nft?.sneakers ?? 0, earners, runs,
-    earned: earnedMicro / MICRO, claimed, since: sch?.startDay || null, updatedAt: Date.now(),
+    earned: earnedMicro / MICRO, claimed,
+    holderImd: holders?.imd ?? null, holderUsd: holders && imdUsd ? holders.imd * imdUsd : null, imdUsd,
+    since: sch?.startDay || null, updatedAt: Date.now(),
   };
   statsCache = { at: Date.now(), value };
   return value;

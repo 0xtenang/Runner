@@ -329,7 +329,7 @@ async function renderHome() {
   });
 }
 
-/** Front-page totals: runners who have earned and RUNNER earned by runners (from the rewards server). */
+/** Front-page totals: runners, RUNNER earned by runners, and IMD paid to RUNNER holders with its value (from the rewards server). */
 const fmtBig = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e4 ? `${(n / 1e3).toFixed(1)}K` : Math.round(n).toLocaleString());
 async function fillCommunityStats() {
   const s = await publicStats();
@@ -338,6 +338,8 @@ async function fillCommunityStats() {
   el.innerHTML = `
     <div><b>${Number(s.runners || 0).toLocaleString()}</b><span>Runners</span></div>
     <div><b>${fmtBig(Number(s.earned || 0))}</b><span>$${COIN} earned</span></div>
+    ${s.holderImd != null ? `<div><b>${s.holderImd < 100 ? s.holderImd.toFixed(2) : fmtBig(s.holderImd)}</b><span>IMD to holders</span></div>
+    <div><b>${s.holderUsd != null ? `≈ $${s.holderUsd < 1e4 ? Math.round(s.holderUsd).toLocaleString() : fmtBig(s.holderUsd)}` : '—'}</b><span>Holder rewards value</span></div>` : ''}
     <p>${Number(s.sneakers || 0).toLocaleString()} Genesis sneakers owned${s.claimed != null ? ` · ${fmtBig(Number(s.claimed))} ${COIN} claimed to wallets` : ''}</p>`;
   el.hidden = false;
 }

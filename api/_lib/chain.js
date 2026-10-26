@@ -1,6 +1,7 @@
 // Read-only chain access for the rewards server: which sneakers a wallet owns,
 // and the token's emission schedule / claim counters.
-import { NFT_CHAIN, NFT_CONTRACT, TOKEN_CHAIN, TOKEN_CONTRACT } from '../../js/config.js';
+import { NFT_CHAIN, NFT_CONTRACT, TOKEN_CHAIN, TOKEN_CONTRACT, HOOK_CONTRACT, IMD_TOKEN, IMD_ETH_POOL } from '../../js/config.js';
+import { keccak_256 } from './noble/sha3.js';
 
 const env = globalThis.process?.env || {};
 const TESTING = env.VERCEL_ENV !== 'production' && env.REWARDS_STORE === 'memory';
@@ -81,6 +82,42 @@ export async function genesisHolders(nft = NFT_CONTRACT) {
 /** RUNNER paid out by claim() so far (whole tokens), read from the token. */
 export async function totalClaimed(token = TOKEN_CONTRACT) {
   return Number((await tokenUint(token, '0xd54ad2a1')) / 10n ** 12n) / 1e6; // totalClaimed()
+}
+
+const STATE_VIEW = '0xf3334192d15450cdd385c8b70e03f9a6bd9e673b'; // Uniswap v4 StateView on Robinhood Chain
+const toWhole = (raw) => Number(raw / 10n ** 12n) / 1e6; // 18-decimal amount → number (6 decimals kept)
+
+/**
+ * IMD earned by RUNNER holders so far: what the token has booked (totalHolderRewards) plus the 2%
+ * share still waiting in the hook for its next flush. Also IMD's price in ETH from the IMD/ETH
+ * pool, so the stats can show a value. { imd, ethPerImd }.
+ */
+export async function holderRewards(token = TOKEN_CONTRACT) {
+  if (TESTING) return { imd: Number(env.REWARDS_FAKE_HOLDER_IMD || 0), ethPerImd: 0.002 };
+  const poolId = Buffer.from(keccak_256(Buffer.from(addrWord('0x0') + addrWord(IMD_TOKEN) + word(IMD_ETH_POOL.fee) + word(IMD_ETH_POOL.tickSpacing) + addrWord(IMD_ETH_POOL.hooks), 'hex'))).toString('hex');
+  const [booked, pending, slot0] = await callBatch(TOKEN_CHAIN, [
+    { to: token, data: '0xca0c8045' }, // totalHolderRewards()
+    { to: HOOK_CONTRACT, data: `0x2f22b8a2${addrWord(token)}` }, // pendingHolderFees(token)
+    { to: STATE_VIEW, data: `0xc815641c${poolId}` }, // getSlot0(IMD/ETH pool): ETH is currency0
+  ]);
+  const imd = toWhole(BigInt(booked || 0) + BigInt(pending || 0));
+  const sqrtP = BigInt(String(slot0 || '0x').slice(0, 66) || 0);
+  const imdPerEth = sqrtP ? Number((sqrtP * sqrtP * 10n ** 6n) >> 192n) / 1e6 : 0;
+  return { imd, ethPerImd: imdPerEth ? 1 / imdPerEth : null };
+}
+
+let ethUsdCache = null; // { at, usd }
+/** ETH in USD (CoinGecko, cached 5 minutes). Null if unavailable: the value is only a display hint. */
+export async function ethUsd() {
+  if (TESTING) return 3000;
+  if (ethUsdCache && Date.now() - ethUsdCache.at < 300e3) return ethUsdCache.usd;
+  let usd = ethUsdCache?.usd ?? null;
+  try {
+    const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+    usd = (await r.json())?.ethereum?.usd ?? usd;
+  } catch { /* keep the last price */ }
+  ethUsdCache = { at: Date.now(), usd };
+  return usd;
 }
 
 let scheduleCache = null; // { at, value }
