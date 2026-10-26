@@ -8,7 +8,7 @@ import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange, addressAvatar, sy
 import { PRICE_ETH } from './collection.js';
 import { auth, shortAddress, explorerUrl, SIGN_IN_METHODS } from './auth.js';
 import { runOnboarding } from './onboarding.js';
-import { settleRun, syncRewards, publicStats, deleteAccount } from './rewards.js';
+import { settleRun, syncRewards, publicStats, deleteAccount, leaderboard } from './rewards.js';
 import { renderRewards } from './rewards-view.js';
 import { celebrate } from './celebrate.js';
 import { openShareSheet } from './share-card.js';
@@ -206,7 +206,7 @@ async function route() {
   cleanup.forEach((f) => { try { f(); } catch (e) { console.warn(e); } });
   cleanup = [];
   const [, page = 'home', arg] = (location.hash || '#/home').split('/');
-  const tab = { activity: 'home', feed: 'home', settings: 'you', devices: 'you' }[page] || page;
+  const tab = { activity: 'home', feed: 'home', leaderboard: 'home', settings: 'you', devices: 'you' }[page] || page;
   $$('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
   document.body.classList.toggle('immersive', page === 'record');
   updateRecBanner();
@@ -219,6 +219,7 @@ async function route() {
     if (page === 'you') return await renderYou(arg);
     if (page === 'settings') return renderSettings();
     if (page === 'devices') return renderDevices();
+    if (page === 'leaderboard') return await renderLeaderboard(arg);
     return await renderHome();
   } catch (e) {
     console.error(e);
@@ -340,8 +341,40 @@ async function fillCommunityStats() {
     <div><b>${fmtBig(Number(s.earned || 0))}</b><span>$${COIN} earned</span></div>
     ${s.holderImd != null ? `<div><b>${s.holderImd < 100 ? s.holderImd.toFixed(2) : fmtBig(s.holderImd)}</b><span>IMD to holders</span></div>
     <div><b>${s.holderUsd != null ? `≈ $${s.holderUsd < 1e4 ? Math.round(s.holderUsd).toLocaleString() : fmtBig(s.holderUsd)}` : '—'}</b><span>Holder rewards value</span></div>` : ''}
-    <p>${Number(s.sneakers || 0).toLocaleString()} Genesis sneakers owned${s.claimed != null ? ` · ${fmtBig(Number(s.claimed))} ${COIN} claimed to wallets` : ''}</p>`;
+    <p>${Number(s.sneakers || 0).toLocaleString()} Genesis sneakers owned${s.claimed != null ? ` · ${fmtBig(Number(s.claimed))} ${COIN} claimed to wallets` : ''}</p>
+    <a class="community-lb" href="#/leaderboard">🏆 Leaderboard <span aria-hidden="true">›</span></a>`;
   el.hidden = false;
+}
+
+// ---------------------------------------------------------------- leaderboard
+/** Top runners by RUNNER earned from verified runs, this week (UTC, from Monday) or all time. */
+async function renderLeaderboard(arg) {
+  const period = arg === 'all' ? 'all' : 'week';
+  setTopbar({ left: backLink(), title: 'Leaderboard' });
+  const me = auth.signedIn ? auth.state.address?.toLowerCase() : null;
+  view.innerHTML = `<section class="page lb">
+      <div class="seg lb-seg"><button data-p="week" class="${period === 'week' ? 'on' : ''}">This week</button><button data-p="all" class="${period === 'all' ? 'on' : ''}">All time</button></div>
+      <div class="lb-list card"><p class="muted">Loading…</p></div>
+    </section>`;
+  view.querySelector('.lb-seg').addEventListener('click', (e) => {
+    const p = e.target.closest('[data-p]')?.dataset.p;
+    if (p && p !== period) location.hash = p === 'all' ? '#/leaderboard/all' : '#/leaderboard';
+  });
+  const d = await leaderboard(period, me);
+  const list = view.querySelector('.lb-list');
+  if (!list) return; // left the page meanwhile
+  if (!d) { list.innerHTML = '<p class="muted">Couldn\'t load the leaderboard. Try again in a moment.</p>'; return; }
+  const medal = (r) => ['🥇', '🥈', '🥉'][r - 1] || r;
+  const row = (r) => `<div class="lb-row ${r.address === me ? 'me' : ''}">
+      <span class="lb-rank">${medal(r.rank)}</span>${addressAvatar(r.address, 32)}
+      <span class="lb-who"><b>${r.address === me ? 'You' : shortAddress(r.address)}</b><small>${fmtDist(r.km * 1000)}</small></span>
+      <span class="lb-earned">${fmtCoins(r.earned)}<small>${COIN}</small></span>
+    </div>`;
+  const since = d.weekStart ? `Since Monday ${new Date(d.weekStart).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' })} (UTC)` : 'Since launch';
+  list.innerHTML = d.top.length
+    ? `<p class="muted small lb-note">${since} · verified runs that earned ${COIN}</p>${d.top.map(row).join('')}
+       ${d.me && !d.top.some((r) => r.address === me) ? `<div class="lb-gap">···</div>${row(d.me)}` : ''}`
+    : `<div class="empty"><p><b>No earning runs ${period === 'week' ? 'this week' : 'yet'}.</b></p><p class="muted">Run with a Genesis sneaker and take the top spot.</p><a class="btn primary pill" href="#/record">Record a run</a></div>`;
 }
 
 // Website only: point people to the Android app, which keeps recording with the screen locked.

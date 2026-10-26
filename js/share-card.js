@@ -68,35 +68,38 @@ function stat(ctx, label, value, y, color) {
 
 /**
  * Draws one card. `run` = { id, distance, pace, time, segs, earned, sneaker }.
- * Variants: 'transparent', 'dark', 'red', 'earned'.
+ * Variants: 'transparent', 'dark', 'red', 'earned' (dark) and 'earned-red'.
  */
 export function drawCard(variant, run) {
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const ctx = c.getContext('2d');
+  const earned = variant === 'earned' || variant === 'earned-red';
+  const red = variant === 'red' || variant === 'earned-red';
   if (variant === 'dark' || variant === 'earned') {
     ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H);
     speedLines(ctx, run.id, [CREAM, RED, '#ff8a5b']);
-  } else if (variant === 'red') {
+  } else if (red) {
     ctx.fillStyle = RED; ctx.fillRect(0, 0, W, H);
     speedLines(ctx, run.id, [CREAM, '#ffd4c7']);
   }
   const text = CREAM;
   if (variant === 'transparent') { ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 18; }
-  const routeColor = variant === 'red' ? CREAM : RED;
-  if (variant === 'earned') {
+  const routeColor = red ? CREAM : RED;
+  if (earned) {
     stat(ctx, 'Distance', run.distance, 300, text);
     stat(ctx, 'Pace', run.pace, 590, text);
-    ctx.textAlign = 'center'; ctx.fillStyle = RED;
+    ctx.textAlign = 'center'; ctx.fillStyle = red ? INK : RED;
     ctx.font = '700 44px -apple-system, system-ui, sans-serif';
     ctx.fillText('Earned', W / 2, 880);
     ctx.font = '180px Anton, Impact, sans-serif';
+    if (red) ctx.fillStyle = CREAM;
     ctx.fillText(`+${run.earned}`, W / 2, 1070, W - 120);
     ctx.fillStyle = text; ctx.font = '700 52px -apple-system, system-ui, sans-serif';
     ctx.fillText('RUNNER', W / 2, 1150);
     if (run.sneaker) { ctx.font = '500 40px -apple-system, system-ui, sans-serif'; ctx.globalAlpha = 0.8; ctx.fillText(`with ${run.sneaker}`, W / 2, 1215); ctx.globalAlpha = 1; }
     drawRoute(ctx, run.segs, { x: 330, y: 1290, w: 420, h: 320 }, routeColor);
-    wordmark(ctx, 1770, RED);
+    wordmark(ctx, 1770, red ? INK : RED);
   } else {
     stat(ctx, 'Distance', run.distance, 330, text);
     stat(ctx, 'Pace', run.pace, 640, text);
@@ -148,7 +151,7 @@ function download(blob, filename) {
 export async function openShareSheet(run, { toast = () => {} } = {}) {
   try { await document.fonts?.load?.('150px Anton'); } catch { /* falls back to Impact */ }
   const variants = [['transparent', 'Transparent'], ['dark', 'Dark'], ['red', 'Red']];
-  if (run.earned) variants.splice(1, 0, ['earned', 'Earned']);
+  if (run.earned) variants.splice(1, 0, ['earned', 'Earned · Dark'], ['earned-red', 'Earned · Red']);
   const cards = variants.map(([v, label]) => ({ v, label, canvas: drawCard(v, run) }));
   const filename = `runner-run-${run.id}.png`;
 
@@ -167,11 +170,20 @@ export async function openShareSheet(run, { toast = () => {} } = {}) {
     </div>`;
   document.body.appendChild(el);
   const strip = el.querySelector('.share-cards');
-  const current = () => Math.max(0, Math.min(cards.length - 1, Math.round(strip.scrollLeft / (strip.firstElementChild.offsetWidth + 12))));
-  strip.addEventListener('scroll', () => el.querySelectorAll('.share-dots i').forEach((d, i) => d.classList.toggle('on', i === current())), { passive: true });
+  // The picked card is the one nearest the middle of the strip.
+  const current = () => {
+    const box = strip.getBoundingClientRect(), mid = box.left + box.width / 2;
+    let best = 0, dist = Infinity;
+    [...strip.children].forEach((fig, i) => { const r = fig.getBoundingClientRect(), d = Math.abs(r.left + r.width / 2 - mid); if (d < dist) { dist = d; best = i; } });
+    return best;
+  };
+  const syncDots = () => el.querySelectorAll('.share-dots i').forEach((d, i) => d.classList.toggle('on', i === current()));
+  strip.addEventListener('scroll', syncDots, { passive: true });
   const close = () => { el.classList.add('out'); setTimeout(() => el.remove(), 180); };
   el.addEventListener('click', async (e) => {
     if (e.target === el || e.target.closest('[data-close]')) return close();
+    const fig = e.target.closest('.share-card');
+    if (fig) return fig.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (!act) return;
     const card = cards[current()];

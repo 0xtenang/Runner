@@ -41,6 +41,7 @@ import { ownedTokenIds, emissionSchedule, claimState, heldContracts, totalClaime
 import { trustScore, trackFingerprint, cleanSteps } from './_lib/trust.js';
 import { checkDevice, androidConfigured, iosConfigured } from './_lib/attest.js';
 import { privyConfigured, verifyAccessToken, deletePrivyUser } from './_lib/privy.js';
+import { haversine } from '../js/stats.js';
 
 const env = globalThis.process?.env || {};
 const KEY = (env.SIGNER_PRIVATE_KEY || '').trim();
@@ -367,6 +368,7 @@ async function submitRun(address, { run }) {
     if (micro > 0) { // public stats: verified runs that earned, and unique runners
       await store.incrBy('rw:stats:runs', 1);
       if (await store.setNX(`rw:runner:${address}`, 1, 10 * 365 * 864e5)) await store.incrBy('rw:stats:runners', 1);
+      await addToLeaderboard(address, micro, trackMeters(pts), day);
     }
 
     u.energy = Math.max(0, u.energy - used);
@@ -504,7 +506,7 @@ async function deleteAccount(body) {
   if (!userId) fail(401, 'Please sign in again, then delete your account.');
   let address = null;
   if (body.session) { try { address = openSession(body); } catch { /* no server record to delete */ } }
-  if (address && store.storeConfigured()) await store.del(userKey(address));
+  if (address && store.storeConfigured()) { await store.del(userKey(address)); await removeFromLeaderboards(address); }
   await deletePrivyUser(userId, PRIVY_APP_ID);
   return { deleted: true, serverRecord: Boolean(address) };
 }
@@ -516,6 +518,59 @@ let statsCache = null; // { at, value }
  * earned, verified runs that earned, RUNNER credited to runners (the sum of the daily emission
  * counters since emission started) and RUNNER claimed to wallets (on-chain).
  */
+// Leaderboards: RUNNER earned and distance of verified runs that earned, this week (UTC, from
+// Monday) and all time. Wallets are shown shortened; suspended wallets are left out.
+const weekOf = (day) => Math.floor((day + 3) / 7); // day 0 (1 Jan 1970) was a Thursday
+const LB = { all: { earned: 'rw:lb:all', meters: 'rw:lbm:all' }, week: (w) => ({ earned: `rw:lb:w:${w}`, meters: `rw:lbm:w:${w}` }) };
+const LB_WEEK_MS = 40 * 864e5;
+
+function trackMeters(pts) {
+  let m = 0;
+  for (let i = 1; i < pts.length; i++) m += haversine(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon);
+  return Math.round(m);
+}
+
+async function addToLeaderboard(address, micro, meters, day) {
+  const w = LB.week(weekOf(day));
+  await Promise.all([
+    store.zIncrBy(LB.all.earned, address, micro), store.zIncrBy(LB.all.meters, address, meters),
+    store.zIncrBy(w.earned, address, micro, LB_WEEK_MS), store.zIncrBy(w.meters, address, meters, LB_WEEK_MS),
+  ]);
+}
+
+async function removeFromLeaderboards(address) {
+  const wk = weekOf(utcDay());
+  const keys = [LB.all, LB.week(wk), LB.week(wk - 1)].flatMap((k) => [k.earned, k.meters]);
+  await Promise.all(keys.map((k) => store.zRem(k, address)));
+}
+
+const lbCache = new Map(); // period → { at, value }
+/** Top 50 by RUNNER earned for 'week' or 'all', plus `address`'s own place if given. */
+async function leaderboard(period, address) {
+  if (!store.storeConfigured()) fail(503, 'Database not connected yet.');
+  const week = weekOf(utcDay());
+  const keys = period === 'all' ? LB.all : LB.week(week);
+  let top = lbCache.get(period);
+  if (!top || Date.now() - top.at > 60e3 || top.week !== week) {
+    const banned = new Set(await store.listRange(BANS_KEY, 5000));
+    const rows = (await store.zTop(keys.earned, 60)).filter(([a]) => !banned.has(a)).slice(0, 50);
+    const meters = await store.zScores(keys.meters, rows.map(([a]) => a));
+    top = { at: Date.now(), week, value: rows.map(([a, micro], i) => ({ rank: i + 1, address: a, earned: micro / MICRO, km: Math.round((meters[i] || 0) / 10) / 100 })) };
+    lbCache.set(period, top);
+  }
+  let me = null;
+  if (address && isAddress(address)) {
+    const a = address.toLowerCase();
+    const r = await store.zRank(keys.earned, a);
+    if (r) {
+      const [m] = await store.zScores(keys.meters, [a]);
+      me = { rank: r.rank + 1, address: a, earned: r.score / MICRO, km: Math.round((m || 0) / 10) / 100 };
+    }
+  }
+  const weekStart = week * 7 - 3; // Monday's UTC day number
+  return { period, weekStart: period === 'all' ? null : weekStart * 864e5, top: top.value, me, updatedAt: top.at };
+}
+
 async function publicStats() {
   if (statsCache && Date.now() - statsCache.at < 60e3) return statsCache.value;
   let earners = 0, runs = 0, earnedMicro = 0;
@@ -559,6 +614,12 @@ export default async function handler(req, res) {
     if (action === 'stats') {
       res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
       res.status(200).json(await publicStats());
+      return;
+    }
+    if (action === 'leaderboard') {
+      const q = req.method === 'POST' ? body : req.query || {};
+      res.setHeader('Cache-Control', q.address ? 'no-store' : 'public, s-maxage=60, stale-while-revalidate=300');
+      res.status(200).json(await leaderboard(q.period === 'all' ? 'all' : 'week', q.address));
       return;
     }
     if (action === 'status') {

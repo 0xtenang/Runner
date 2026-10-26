@@ -96,3 +96,46 @@ export async function listRemove(key, value) {
   }
   await redis('LREM', key, '0', value);
 }
+
+// Sorted sets (leaderboards): member → score.
+const zmem = (key) => { const e = memory.get(key); return e ? new Map(JSON.parse(e.v)) : new Map(); };
+const zsave = (key, m) => memory.set(key, { v: JSON.stringify([...m]) });
+
+/** Adds `n` to a member's score; the set expires `ms` after this write when `ms` is given. */
+export async function zIncrBy(key, member, n, ms = 0) {
+  if (memory) { const m = zmem(key); m.set(member, (m.get(member) || 0) + n); zsave(key, m); return; }
+  await redis('ZINCRBY', key, String(n), member);
+  if (ms) await redis('PEXPIRE', key, String(ms));
+}
+
+/** Highest scores first: [[member, score], …]. */
+export async function zTop(key, n) {
+  if (memory) return [...zmem(key)].sort((a, b) => b[1] - a[1]).slice(0, n);
+  const flat = (await redis('ZREVRANGE', key, '0', String(n - 1), 'WITHSCORES')) || [];
+  const out = [];
+  for (let i = 0; i < flat.length; i += 2) out.push([flat[i], Number(flat[i + 1])]);
+  return out;
+}
+
+/** Scores of several members (null where missing). */
+export async function zScores(key, members) {
+  if (!members.length) return [];
+  if (memory) { const m = zmem(key); return members.map((x) => (m.has(x) ? m.get(x) : null)); }
+  return ((await redis('ZMSCORE', key, ...members)) || []).map((v) => (v == null ? null : Number(v)));
+}
+
+/** A member's place (0 = first) and score, or null. */
+export async function zRank(key, member) {
+  if (memory) {
+    const sorted = [...zmem(key)].sort((a, b) => b[1] - a[1]);
+    const i = sorted.findIndex(([x]) => x === member);
+    return i < 0 ? null : { rank: i, score: sorted[i][1] };
+  }
+  const [rank, score] = await Promise.all([redis('ZREVRANK', key, member), redis('ZSCORE', key, member)]);
+  return rank == null ? null : { rank: Number(rank), score: Number(score) };
+}
+
+export async function zRem(key, member) {
+  if (memory) { const m = zmem(key); m.delete(member); zsave(key, m); return; }
+  await redis('ZREM', key, member);
+}

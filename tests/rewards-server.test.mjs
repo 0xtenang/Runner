@@ -31,7 +31,7 @@ const { default: handler, sessionMessage, settingsMessage, adminMessage } = awai
 let ipCounter = 0;
 const call = async (body, method = 'POST', ip = `10.0.${Math.floor(ipCounter / 250)}.${ipCounter++ % 250}`) => {
   let code = 200, out;
-  await handler({ method, body, query: method === 'GET' ? { action: body.action } : {}, headers: { 'x-forwarded-for': ip } }, { setHeader() {}, status(c) { code = c; return this; }, end() {}, json(o) { out = o; } });
+  await handler({ method, body, query: method === 'GET' ? { ...body } : {}, headers: { 'x-forwarded-for': ip } }, { setHeader() {}, status(c) { code = c; return this; }, end() {}, json(o) { out = o; } });
   return { code, ...out };
 };
 const results = []; const ok = (n, c, x = '') => results.push(`${c ? 'PASS' : 'FAIL'} ${n}${x ? ' — ' + x : ''}`);
@@ -492,6 +492,19 @@ process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO] });
   ok('stats: IMD paid to holders and its value (IMD → ETH → USD)', sv.holderImd === 24.85 && Math.abs(sv.imdUsd - 6) < 1e-9 && Math.abs(sv.holderUsd - 24.85 * 6) < 1e-9, JSON.stringify(sv));
   ok('stats: a wallet that earned counts once however many runs it makes', sv.earners >= 2 && sv.runs > sv.earners, `${sv.earners} earners, ${sv.runs} runs`);
 }
+// leaderboards: verified earnings this week and all time, top first, with your own place
+{
+  const wk = await call({ action: 'leaderboard', period: 'week' }, 'GET');
+  const all = await call({ action: 'leaderboard', period: 'all' }, 'GET');
+  const sorted = (rows) => rows.every((r, i) => i === 0 || rows[i - 1].earned >= r.earned);
+  ok('leaderboard: this week, highest RUNNER first, every earner listed with km', wk.code === 200 && wk.top.length >= 2 && sorted(wk.top) && wk.top[0].rank === 1 && wk.top.every((r) => r.km > 0 && /^0x[0-9a-f]{40}$/.test(r.address)), JSON.stringify(wk.top.slice(0, 3)));
+  const allOf = new Map(all.top.map((r) => [r.address, r]));
+  ok('leaderboard: all time includes every weekly runner with at least as much', all.code === 200 && sorted(all.top) && wk.top.every((r) => allOf.get(r.address)?.earned >= r.earned - 1e-6 && allOf.get(r.address).km >= r.km), `${wk.top.length} weekly, ${all.top.length} all-time`);
+  const pick = all.top[1].address;
+  const mine = await call({ action: 'leaderboard', period: 'all', address: pick }, 'GET');
+  ok('leaderboard: your own place is returned', mine.me?.rank === 2 && mine.me.address === pick && mine.me.earned === all.top[1].earned, JSON.stringify(mine.me));
+  ok('leaderboard: a bad period falls back to this week', (await call({ action: 'leaderboard', period: 'x' }, 'GET')).period === 'week');
+}
 // concurrency lock
 const [a, b] = await Promise.all([call({ action: 'state', session: S }), call({ action: 'state', session: S })]);
 ok('parallel requests: one waits (409) or both ok, never corrupt', [a.code, b.code].includes(200));
@@ -523,6 +536,8 @@ ok('parallel requests: one waits (409) or both ok, never corrupt', [a.code, b.co
   r = await call({ action: 'delete-account', accessToken: jwt(good), session: S });
   const after = await storeMod.get(`rw:u:${USER.toLowerCase()}`);
   ok('delete-account: a valid token deletes the account and the wallet\'s server record', r.code === 200 && r.deleted && r.serverRecord && before && !after, JSON.stringify(r));
+  const lbAfter = await storeMod.zRank('rw:lb:all', USER.toLowerCase());
+  ok('delete-account: the wallet leaves the leaderboards', lbAfter === null, JSON.stringify(lbAfter));
   delete process.env.PRIVY_VERIFICATION_KEY; delete process.env.PRIVY_APP_SECRET; delete process.env.REWARDS_FAKE_PRIVY_DELETE;
 }
 const fails = results.filter((x) => x.startsWith('FAIL'));

@@ -64,6 +64,14 @@ export async function deleteAccount() {
 }
 
 let statsCache = null; // { at, value }
+/** Leaderboard for 'week' or 'all': { top: [{ rank, address, earned, km }], me, weekStart }, or null. */
+export async function leaderboard(period, address) {
+  try {
+    const r = await fetch(`${API}?action=leaderboard&period=${period}${address ? `&address=${address}` : ''}`);
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
+
 /** Public totals for the front page: { runners, runs, earned, claimed }, or null if unavailable. Cached 1 min. */
 export async function publicStats() {
   if (statsCache && Date.now() - statsCache.at < 60e3) return statsCache.value;

@@ -341,6 +341,24 @@ body.immersive .topbar, body.immersive .tabbar { display: none; }
 .community-stats b { font-size: 26px; font-weight: 900; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .community-stats span { font-size: 13px; color: var(--muted); font-weight: 700; }
 .community-stats p { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--muted); }
+.community-stats .community-lb { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px solid var(--line); font-weight: 800; font-size: 15px; color: var(--text); }
+
+/* ---------- leaderboard ---------- */
+.lb { display: grid; gap: 14px; }
+.lb-seg { justify-self: center; }
+.lb-list { display: grid; gap: 2px; padding: 8px 12px; }
+.lb-note { margin: 4px 4px 8px; }
+.lb-row { display: grid; grid-template-columns: 34px 32px 1fr auto; align-items: center; gap: 10px; padding: 10px 4px; border-radius: 12px; }
+.lb-row + .lb-row { border-top: 1px solid var(--line); }
+.lb-row.me { background: color-mix(in srgb, var(--accent-strong) 14%, transparent); border-top-color: transparent; }
+.lb-rank { text-align: center; font-weight: 900; font-size: 17px; font-variant-numeric: tabular-nums; }
+.lb-who { display: grid; min-width: 0; }
+.lb-who b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-who small, .lb-earned small { color: var(--muted); font-size: 12px; font-weight: 700; }
+.lb-earned { display: grid; justify-items: end; font-weight: 900; font-variant-numeric: tabular-nums; }
+.lb-gap { text-align: center; color: var(--muted); letter-spacing: 3px; }
+.lb .empty { display: grid; gap: 6px; justify-items: center; text-align: center; padding: 20px 0; }
+.lb .empty p { margin: 0; }
 
 /* ---------- Android app banner (website only) ---------- */
 .app-banner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; background: var(--surface); border-radius: var(--radius); padding: 14px 12px 14px 16px; }
@@ -791,9 +809,10 @@ body.privy-open .onboard, body.privy-open .sheet-overlay, body.privy-open .revea
 
 /* ---------- share sheet (js/share-card.js) ---------- */
 .share-sheet .sheet-panel { gap: 12px; }
-.share-cards { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 2px 8px; scrollbar-width: none; }
+/* Side padding lets the first and last cards reach the center, so every card can be picked. */
+.share-cards { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px calc(50% - min(31vw, 130px)) 8px; scrollbar-width: none; }
 .share-cards::-webkit-scrollbar { display: none; }
-.share-card { flex: 0 0 62%; max-width: 280px; margin: 0; scroll-snap-align: center; display: grid; gap: 6px; }
+.share-card { flex: 0 0 min(62vw, 260px); margin: 0; scroll-snap-align: center; scroll-snap-stop: always; display: grid; gap: 6px; cursor: pointer; }
 .share-card img { width: 100%; aspect-ratio: 9 / 16; border-radius: 14px; display: block; background: #0b0b0c; }
 .share-card.checker img { background: repeating-conic-gradient(#3a3a3e 0 25%, #2a2a2e 0 50%) 0 0 / 24px 24px; }
 .share-card figcaption { text-align: center; font-size: 13px; font-weight: 700; color: var(--muted); }
