@@ -507,6 +507,24 @@ process.env.REWARDS_FAKE_OWNED = JSON.stringify({ [USER]: [JOG, TEMPO] });
   ok('leaderboard: last week is its own board, starting 7 days before this week', last.code === 200 && last.period === 'last' && last.weekStart === wk.weekStart - 7 * 864e5 && Array.isArray(last.top), JSON.stringify({ w: wk.weekStart, l: last.weekStart }));
   ok('leaderboard: a bad period falls back to this week', (await call({ action: 'leaderboard', period: 'x' }, 'GET')).period === 'week');
 }
+// wallet RUNNER for upgrades: a burn tx is credited once, spent before earnings, never claimable
+{
+  const h1 = '0x' + 'a1'.repeat(32), h2 = '0x' + 'b2'.repeat(32);
+  process.env.REWARDS_FAKE_BURNS = JSON.stringify({ [h1]: { from: USER, wei: (50000n * 10n ** 18n).toString() }, [h2]: { from: U2, wei: (10n ** 18n).toString() } });
+  const before = await call({ action: 'state', session: S });
+  r = await call({ action: 'deposit', session: S, txHash: h1 });
+  ok('deposit: a burn from this wallet adds to the in-app balance', r.code === 200 && Math.abs(r.balance - before.balance - 50000) < 1e-6 && r.deposit === 50000, JSON.stringify({ b0: before.balance, b1: r.balance, d: r.deposit, e: r.error }));
+  const again = await call({ action: 'deposit', session: S, txHash: h1 });
+  ok('deposit: the same burn can\'t be added twice', again.code === 409, again.error);
+  const other = await call({ action: 'deposit', session: S, txHash: h2 });
+  ok('deposit: a burn from another wallet is refused', other.code === 400, other.error);
+  const bad = await call({ action: 'deposit', session: S, txHash: '0x1234' });
+  ok('deposit: a malformed hash is refused', bad.code === 400, bad.error);
+  const lvl = await call({ action: 'levelup', session: S, tokenId: JOG });
+  const cost = r.deposit - lvl.deposit;
+  ok('deposit: level-ups spend wallet RUNNER first, so claimable earnings are untouched', lvl.code === 200 && cost > 0 && lvl.spent === r.spent && Math.abs(lvl.balance - (r.balance - cost)) < 1e-6, JSON.stringify({ cost, spent0: r.spent, spent1: lvl.spent, e: lvl.error }));
+  delete process.env.REWARDS_FAKE_BURNS;
+}
 // concurrency lock
 const [a, b] = await Promise.all([call({ action: 'state', session: S }), call({ action: 'state', session: S })]);
 ok('parallel requests: one waits (409) or both ok, never corrupt', [a.code, b.code].includes(200));

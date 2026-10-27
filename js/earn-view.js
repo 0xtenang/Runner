@@ -19,7 +19,7 @@ const ATTR_HINT = { efficiency: `more ${COIN} per run`, resilience: 'less wear' 
 // Sneaker illustrations live in sneaker-art.js (four lines + editions).
 export { sneakerSvg } from './sneaker-art.js';
 import { sneakerSvg, colorwayName } from './sneaker-art.js';
-import { rewardsActive, rewardsConnected, connectRewards, syncRewards, checkRewardsStatus, upgrade, claimRewards, tokenBalance, claimedOnChain, tokenExplorerTx, holderClaimable, claimHolderRewards, MIN_HOLDING, lockInfo, releaseRewards, releaseEarly, INSTANT_BURN, LOCK_DAYS } from './rewards.js';
+import { rewardsActive, rewardsConnected, connectRewards, syncRewards, checkRewardsStatus, upgrade, claimRewards, tokenBalance, burnForUpgrades, addDeposit, claimedOnChain, tokenExplorerTx, holderClaimable, claimHolderRewards, MIN_HOLDING, lockInfo, releaseRewards, releaseEarly, INSTANT_BURN, LOCK_DAYS } from './rewards.js';
 
 const coinIcon = '<svg class="coin-ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9"/><path d="M10 5v10M7.5 7.5h4a2 2 0 0 1 0 4h-3"/></svg>';
 export const coinTag = (n, sign = false) => `<span class="coin-amt">${coinIcon}${sign && n > 0 ? '+' : ''}${fmtCoins(n)}</span>`;
@@ -224,6 +224,53 @@ function openClaimSheet(amount, onDone) {
         showReveal({ kicker: instant ? 'Claimed' : 'Locked', title: instant ? `${fmtCoins(got * (1 - INSTANT_BURN))} ${COIN} is in your wallet` : `${fmtCoins(got)} ${COIN} unlocks in ${LOCK_DAYS} days`, coins: instant ? got * (1 - INSTANT_BURN) : got, note: `${instant ? `${fmtCoins(got * INSTANT_BURN)} ${COIN} was burned. ` : `Release it from the Earn tab after ${LOCK_DAYS} days — or take it early for ${100 - INSTANT_BURN * 100}%. `}${partial ? "Today's claim limit is nearly used up, so this was a partial claim — the rest stays in your balance for tomorrow. " : ''}<a href="${tokenExplorerTx(hash)}" target="_blank" rel="noopener">View transaction</a>` });
       } catch (e) {
         say(cancelled(e) ? 'Cancelled — you can claim any time.' : esc(String(e?.message || e)), !cancelled(e));
+        go.disabled = false;
+      }
+    };
+    render();
+  });
+}
+
+/** Wallet RUNNER → in-app balance: burned on-chain, then credited by the server for level-ups and repairs. */
+function openDepositSheet(max, onDone) {
+  openSheet(`
+    <h2 class="sheet-title">Use wallet ${COIN} for upgrades</h2>
+    <p class="muted">Add ${COIN} from your wallet to your in-app balance to level up and repair sneakers.</p>
+    <label class="small">Amount <span class="muted">· you have ${fmtCoins(max)} ${COIN}</span>
+      <div class="row" style="gap:8px"><input id="d-amt" class="input mono" inputmode="decimal" autocomplete="off" value="${Math.floor(max)}"><button class="btn pill sm" id="d-max">Max</button></div></label>
+    <dl class="tx-sum" id="d-sum"></dl>
+    <p class="muted small" style="margin:0">These ${COIN} are <b>burned</b> on-chain (removed from the supply) and added to your in-app balance. They can be spent on level-ups and repairs, but not claimed back to your wallet. The network fee is paid in ETH.</p>
+    <div class="buy-status small" id="d-status" role="status"></div>
+    <button class="btn primary pill block" id="d-go">Burn &amp; add</button>
+    <button class="btn pill block" data-close>Cancel</button>`, (el, close) => {
+    const $ = (q) => el.querySelector(q);
+    const go = $('#d-go'), status = $('#d-status'), input = $('#d-amt');
+    const say = (t, bad = false) => { status.innerHTML = t; status.classList.toggle('bad', bad); };
+    const amount = () => { const v = Number(String(input.value).replace(/,/g, '')); return Number.isFinite(v) && v > 0 ? Math.min(v, max) : 0; };
+    const render = () => {
+      const a = amount();
+      $('#d-sum').innerHTML = txRows([['Burned from your wallet', `${fmtCoins(a)} ${COIN}`, 'burn'], ['Added to your balance', `${fmtCoins(a)} ${COIN}`, 'total']]);
+      go.disabled = !a; go.textContent = a ? `Burn & add ${fmtCoins(a)} ${COIN}` : 'Enter an amount';
+    };
+    input.oninput = render;
+    $('#d-max').onclick = () => { input.value = String(max); render(); };
+    go.onclick = async () => {
+      const a = amount();
+      if (!a) return;
+      go.disabled = true;
+      try {
+        const wei = a >= max ? BigInt(Math.floor(max * 1e6)) * 10n ** 12n : BigInt(Math.round(a * 1e6)) * 10n ** 12n;
+        say('Confirm the burn in your wallet…');
+        const hash = await burnForUpgrades(wei);
+        say('Sent — waiting for the network…');
+        await waitForReceipt(hash);
+        say('Adding to your balance…');
+        await addDeposit(hash);
+        close();
+        onDone?.();
+        showReveal({ kicker: 'Added', title: `${fmtCoins(a)} ${COIN} added for upgrades`, coins: a, note: `Level up or repair your sneakers from the Earn tab. <a href="${tokenExplorerTx(hash)}" target="_blank" rel="noopener">View transaction</a>` });
+      } catch (e) {
+        say(cancelled(e) ? 'Cancelled — nothing was burned.' : `${esc(String(e?.message || e))}${/confirmed/.test(String(e?.message)) ? ' It will be added automatically on your next visit.' : ''}`, !cancelled(e));
         go.disabled = false;
       }
     };
@@ -644,6 +691,7 @@ function rewardsCard(st) {
     ${heldLine(st.server)}
     ${emissionLine(st.server?.emission)}
     <span class="small">In your wallet: <b>${claimInfo ? `${fmtCoins(claimInfo.wallet)} ${COIN}` : '…'}</b></span>
+    ${claimInfo?.wallet > 0 ? `<div class="row"><button class="btn pill sm" data-act="rw-deposit" data-max="${claimInfo.wallet}">Use wallet ${COIN} for upgrades</button></div>` : ''}
     ${claimable ? `<span class="small">Ready to claim: <b>${fmtCoins(claimable)} ${COIN}</b> — lock it ${LOCK_DAYS} days for 100%, or take it now with ${INSTANT_BURN * 100}% burned.</span>
     <div class="row"><button class="btn primary pill sm" data-act="rw-claim" data-amount="${claimable}">Claim ${fmtCoins(claimable)} ${COIN}</button></div>` : '<button class="btn pill sm" disabled>Nothing to claim yet</button>'}
     <span class="muted small" id="rw-status" role="status"></span>
@@ -772,6 +820,8 @@ export function renderEarn(view, { toast, onCleanup }) {
             Repair${repairCost(s, game.emissionFactor) ? ` · ${coinTag(repairCost(s, game.emissionFactor))}` : ''}
           </button>
         </div>
+        ${s.level < MAX_LEVEL && coins < levelUpCost(s, game.emissionFactor, game.settings) && rewardsActive() && rewardsConnected()
+          ? `<p class="small" style="margin:0">Your in-app balance pays for level-ups and repairs.${claimInfo?.wallet > 0 ? ` You have <b>${fmtCoins(claimInfo.wallet)} ${COIN}</b> in your wallet — <button class="link" data-act="rw-deposit" data-max="${claimInfo.wallet}">use it for upgrades</button>.` : ` Run to earn more, or add ${COIN} from your wallet below.`}</p>` : ''}
         <p class="muted small" style="margin:0">Each level gives ${POINTS_PER_LEVEL[s.rarity]} attribute point${POINTS_PER_LEVEL[s.rarity] === 1 ? '' : 's'} (${RARITIES[s.rarity].label}).</p>
       </div>`;
   }
@@ -863,6 +913,7 @@ export function renderEarn(view, { toast, onCleanup }) {
           toast('Connected — your runs now earn real RUNNER');
           break;
         case 'rw-claim': openClaimSheet(Number(b.dataset.amount), () => { claimInfo = null; draw(); }); break;
+        case 'rw-deposit': openDepositSheet(Number(b.dataset.max), () => { claimInfo = null; draw(); }); break;
         case 'lock-early': if (claimInfo?.locks) openEarlySheet(claimInfo.locks, toast, () => { claimInfo = null; draw(); }); break;
         case 'lock-release': {
           b.disabled = true;

@@ -151,9 +151,45 @@ export async function syncRewards({ prompt = false } = {}) {
       await game.dropPending(run); // rejected for good (too old, overlap, not owned)
     }
   }
+  await retryDeposits();
   const view = await post({ action: 'state' });
   await game.applyServer(view);
   return view;
+}
+
+// ------------------------------------------------------------------ wallet RUNNER → in-app balance
+// The wallet burns RUNNER on-chain (token.burn); the server checks the transaction and adds the same
+// amount to the in-app balance for level-ups and repairs. Spend-only: it can't be claimed back out.
+const DEPOSITS_KEY = 'runner.deposits.pending';
+const pendingDeposits = () => { try { return JSON.parse(localStorage.getItem(DEPOSITS_KEY) || '[]'); } catch { return []; } };
+const savePendingDeposits = (list) => { try { localStorage.setItem(DEPOSITS_KEY, JSON.stringify(list)); } catch { /* storage blocked */ } };
+
+/** Sends token.burn(amount) from the wallet; returns the transaction hash (remembered until credited). */
+export async function burnForUpgrades(amountWei) {
+  const hash = await auth.sendTx({ to: TOKEN_CONTRACT, data: `0x42966c68${word(amountWei)}`, chainId: TOKEN_CHAIN.id }); // burn(uint256)
+  savePendingDeposits([...pendingDeposits(), { hash, address: auth.state.address.toLowerCase(), at: Date.now() }]);
+  return hash;
+}
+
+/** Asks the server to credit a confirmed burn. Forgets it once credited (or already credited). */
+export async function addDeposit(hash) {
+  const forget = () => savePendingDeposits(pendingDeposits().filter((d) => d.hash !== hash));
+  try {
+    const view = await post({ action: 'deposit', txHash: hash });
+    await game.applyServer(view);
+    forget();
+    return view;
+  } catch (e) {
+    if (e.status === 409 && /already/i.test(e.message)) { forget(); return null; } // already credited (409 Busy is retried)
+    throw e; // not confirmed yet or offline: kept, retried on the next sync
+  }
+}
+
+/** Credits burns whose confirmation was interrupted (app closed, network). */
+async function retryDeposits() {
+  savePendingDeposits(pendingDeposits().filter((d) => Date.now() - (d.at || 0) < 7 * 864e5)); // give up after a week
+  const mine = pendingDeposits().filter((d) => d.address === auth.state.address?.toLowerCase());
+  for (const d of mine) { try { await addDeposit(d.hash); } catch { /* not confirmed yet: try next sync */ } }
 }
 
 /** Ask for the wallet signature now (from a button), then sync. */

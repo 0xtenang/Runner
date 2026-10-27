@@ -68,6 +68,7 @@ button { font: inherit; color: inherit; }
 .btn:focus-visible, .icon-btn:focus-visible, a:focus-visible, button:focus-visible { outline: 3px solid var(--accent-strong); outline-offset: 2px; }
 svg { stroke-linecap: round; stroke-linejoin: round; }
 .link { color: var(--text); font-weight: 700; text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+button.link { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 .lbl { display: block; font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }

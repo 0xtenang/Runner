@@ -37,7 +37,7 @@ import {
 } from '../js/rules.js';
 import { addressOfKey, claimDigest, signDigest, personalDigest, recoverAddress, keccak, toHex, isAddress } from './_lib/eth.js';
 import * as store from './_lib/store.js';
-import { ownedTokenIds, emissionSchedule, claimState, heldContracts, totalClaimed, genesisHolders, holderRewards, ethUsd } from './_lib/chain.js';
+import { ownedTokenIds, emissionSchedule, claimState, heldContracts, totalClaimed, genesisHolders, holderRewards, ethUsd, burnedBy } from './_lib/chain.js';
 import { trustScore, trackFingerprint, cleanSteps } from './_lib/trust.js';
 import { checkDevice, androidConfigured, iosConfigured } from './_lib/attest.js';
 import { privyConfigured, verifyAccessToken, deletePrivyUser } from './_lib/privy.js';
@@ -236,6 +236,8 @@ async function addStrike(address, u, reason) {
   return { until, forfeited: forfeited / MICRO };
 }
 const available = (u) => u.earned - u.spent - u.signed;
+// RUNNER burned from the wallet and added for level-ups and repairs: spent first, never claimable.
+const deposit = (u) => u.deposit || 0;
 
 async function view(address, u, owned) {
   const sneakers = {};
@@ -245,7 +247,8 @@ async function view(address, u, owned) {
   }
   return {
     address,
-    balance: available(u) / MICRO,
+    balance: (available(u) + deposit(u)) / MICRO,
+    deposit: deposit(u) / MICRO,
     earned: u.earned / MICRO,
     spent: u.spent / MICRO,
     withdrawn: u.signed / MICRO,
@@ -401,8 +404,23 @@ async function submitRun(address, { run }) {
 // ------------------------------------------------------------------ spending
 function spend(u, runner) {
   const micro = Math.round(runner * MICRO);
-  if (available(u) < micro) fail(400, `Not enough RUNNER — you need ${runner}.`);
-  u.spent += micro;
+  if (available(u) + deposit(u) < micro) fail(400, `Not enough RUNNER — you need ${runner}.`);
+  const fromDeposit = Math.min(deposit(u), micro); // wallet RUNNER first, so earnings stay claimable
+  u.deposit = deposit(u) - fromDeposit;
+  u.spent += micro - fromDeposit;
+}
+
+/** Credits RUNNER the wallet burned on-chain (token.burn) to its in-app balance, once per transaction. */
+async function addDeposit(address, body) {
+  const txHash = String(body.txHash || '').toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(txHash)) fail(400, 'Bad transaction hash.');
+  await assertNotBanned(address);
+  return withUser(address, async (u) => {
+    const wei = await burnedBy(txHash, address, TOKEN_CONTRACT);
+    if (wei <= 0n) fail(400, "That transaction didn't burn RUNNER from this wallet (or isn't confirmed yet).");
+    if (!(await store.setNX(`rw:dep:${txHash}`, address, 10 * 365 * 864e5))) fail(409, 'This burn was already added.');
+    u.deposit = deposit(u) + Number(wei / 10n ** 12n);
+  });
 }
 
 async function upgrade(address, body, action) {
@@ -647,6 +665,7 @@ export default async function handler(req, res) {
       else if (action === 'run') out = await submitRun(address, body);
       else if (action === 'levelup' || action === 'repair' || action === 'allocate') out = await upgrade(address, body, action);
       else if (action === 'claim') out = await claim(address, body.instant === true);
+      else if (action === 'deposit') out = await addDeposit(address, body);
       else fail(400, 'Unknown action');
     }
     res.status(200).json(out);

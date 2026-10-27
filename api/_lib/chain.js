@@ -120,6 +120,24 @@ export async function ethUsd() {
   return usd;
 }
 
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+/**
+ * RUNNER (wei) that `address` burned in transaction `txHash`: the token's Transfer(address → 0) logs,
+ * only if the transaction succeeded. 0n if none (or the transaction isn't mined yet).
+ */
+export async function burnedBy(txHash, address, token = TOKEN_CONTRACT) {
+  if (TESTING && env.REWARDS_FAKE_BURNS) {
+    const b = JSON.parse(env.REWARDS_FAKE_BURNS)[txHash];
+    return b && b.from.toLowerCase() === address.toLowerCase() ? BigInt(b.wei) : 0n;
+  }
+  const r = await rpc(TOKEN_CHAIN, 'eth_getTransactionReceipt', [txHash]);
+  if (!r || r.status !== '0x1') return 0n;
+  const from = `0x${addrWord(address)}`, zero = `0x${'0'.repeat(64)}`;
+  return (r.logs || [])
+    .filter((l) => l.address?.toLowerCase() === token.toLowerCase() && l.topics?.[0] === TRANSFER_TOPIC && l.topics[1]?.toLowerCase() === from && l.topics[2] === zero)
+    .reduce((t, l) => t + BigInt(l.data), 0n);
+}
+
 let scheduleCache = null; // { at, value }
 /**
  * The token's emission schedule in whole RUNNER: { startDay, current, next } (see
