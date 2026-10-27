@@ -118,7 +118,8 @@ function render() {
   $('#launch').hidden = kind !== 'token' || !TOKEN_CONTRACT || !HOOK_CONTRACT;
   $('#protocol').hidden = $('#launch').hidden;
   $('#ethpool').hidden = $('#launch').hidden;
-  if (!$('#protocol').hidden) { refreshProtocol(); refreshEthPool(); }
+  $('#imdpool').hidden = $('#launch').hidden;
+  if (!$('#protocol').hidden) { refreshProtocol(); refreshEthPool(); refreshImdPool(); }
   $('#controls').hidden = kind !== 'token';
   $('#review').hidden = kind !== 'token';
   if (kind === 'token') refreshServer();
@@ -656,6 +657,81 @@ $('#b-ethpool').onclick = async () => {
     return sendAsDev(tx.to, tx.data, TOKEN_CHAIN.id, tx.value);
   }, '✓ RUNNER/ETH liquidity added. The position (an NFT in the dev wallet) shows in the Uniswap app under Positions.');
   refreshEthPool();
+};
+
+// ----- RUNNER/IMD pool (Uniswap v4, 10%, no hook), filled from the dev wallet; both tokens go through Permit2
+let imdPool = null; // last imdStatus()
+
+async function refreshImdPool() {
+  const out = $('#imdpool-info');
+  out.textContent = 'Loading…';
+  try {
+    const xp = await import('./extra-pool.js');
+    imdPool = await xp.imdStatus(DEV_WALLET);
+    const gap = xp.imdPriceGapPct(imdPool);
+    out.innerHTML = `<table class="small" style="width:100%;border-collapse:collapse">
+      <tr><td>Pool</td><td style="text-align:right"><b>${imdPool.created ? 'Created' : 'Not created yet'}</b></td></tr>
+      <tr><td>Hook pool price</td><td style="text-align:right">${xp.imdPerRunner(imdPool.hookSqrtPrice).toPrecision(4)} IMD per RUNNER</td></tr>
+      ${imdPool.created ? `<tr><td>This pool's price</td><td style="text-align:right">${xp.imdPerRunner(imdPool.poolSqrtPrice).toPrecision(4)} IMD per RUNNER (${gap.toFixed(1)}% apart)</td></tr>` : ''}
+      <tr><td>Dev wallet holds</td><td style="text-align:right">${fmtWei(imdPool.runner.balance, 0)} RUNNER · ${fmtWei(imdPool.imd.balance, 4)} IMD</td></tr>
+    </table>${imdPool.created && gap > 3 ? '<p class="bad small" style="margin:6px 0 0">The pool already exists at a price far from the hook pool. Adding liquidity there would be arbitraged away — the button is disabled. Trades will bring it back in line first.</p>' : ''}`;
+  } catch (e) {
+    imdPool = null;
+    out.innerHTML = `<span class="bad">${esc(String(e.message || e).slice(0, 200))}</span>`;
+  }
+  return quoteImdPool();
+}
+
+/** Updates the quote and the button; returns null when ready to send, else the reason it isn't. */
+async function quoteImdPool() {
+  const btn = $('#b-imdpool'), q = $('#imdpool-quote');
+  const block = (why) => { btn.disabled = true; q.innerHTML = why; return why; };
+  if (!imdPool) return block('Couldn\'t read the pools — press Refresh.');
+  const xp = await import('./extra-pool.js');
+  const runnerWei = parseUnits18($('#imdpool-runner').value);
+  if (!runnerWei) return block('Enter how much RUNNER to add.');
+  const sqrtP = imdPool.created ? imdPool.poolSqrtPrice : imdPool.hookSqrtPrice;
+  const quote = xp.imdFullRangeQuote(runnerWei, sqrtP);
+  const imdMax = quote.imdWei + quote.imdWei / 100n + 1n;
+  const short = runnerWei > imdPool.runner.balance ? `<span class="bad">The dev wallet has only ${fmtWei(imdPool.runner.balance, 0)} RUNNER.</span>`
+    : imdMax > imdPool.imd.balance ? `<span class="bad">Not enough IMD (needs about ${fmtWei(imdMax, 4)}).</span>` : '';
+  q.innerHTML = `Adds ${fmtWei(runnerWei, 0)} RUNNER + about <b>${fmtWei(quote.imdWei, 4)} IMD</b> (at most ${fmtWei(imdMax, 4)}) as one full-range position. ${short}`;
+  btn.textContent = imdPool.created ? 'Add liquidity (dev wallet)' : 'Create RUNNER/IMD 10% pool + add liquidity (dev wallet)';
+  const why = short || (imdPool.created && xp.imdPriceGapPct(imdPool) > 3 ? '<span class="bad">The pool\'s price is more than 3% away from the hook pool.</span>' : '');
+  btn.disabled = Boolean(why);
+  return why || null;
+}
+
+$('#imdpool-runner').addEventListener('input', () => quoteImdPool());
+$('#b-imdpool-refresh').onclick = () => refreshImdPool();
+$('#b-imdpool').onclick = async () => {
+  const xp = await import('./extra-pool.js');
+  const out = $('#imdpool-out');
+  out.textContent = 'Checking the latest price…';
+  const why = await refreshImdPool(); // fresh price and balances right before sending
+  if (why) { out.innerHTML = why; return; }
+  out.textContent = '';
+  const runnerWei = parseUnits18($('#imdpool-runner').value);
+  const sqrtP = imdPool.created ? imdPool.poolSqrtPrice : imdPool.hookSqrtPrice;
+  const tx = await xp.imdMintTx({ owner: DEV_WALLET, runnerWei, sqrtP, create: !imdPool.created });
+  if (!confirm(`${imdPool.created ? 'Add liquidity to' : 'Create'} the RUNNER/IMD 10% pool (Uniswap v4, no hook)?\n\nFull-range position owned by the dev wallet:\n${fmtWei(runnerWei, 0)} RUNNER + up to ${fmtWei(tx.imdMax, 4)} IMD.\n\nYour wallet may ask up to five times: allow RUNNER and IMD for Permit2, allow the PositionManager for each, then add the liquidity.`)) return;
+  await runTx($('#b-imdpool'), out, async () => {
+    const steps = [];
+    for (const [token, name, st, need] of [[TOKEN_CONTRACT, 'RUNNER', imdPool.runner, tx.runnerMax], [IMD_TOKEN, 'IMD', imdPool.imd, tx.imdMax]]) {
+      if (st.toPermit2 < need) steps.push([`allow ${name} for Uniswap Permit2`, () => xp.approveTokenToPermit2Tx(token)]);
+      if (st.permit2Amount < need || st.permit2Expiration < Date.now() / 1000 + 600) steps.push([`allow the PositionManager to use ${name}`, () => xp.approveTokenToPositionManagerTx(token, need)]);
+    }
+    const total = steps.length + 1;
+    for (const [k, [label, make]] of steps.entries()) {
+      out.textContent = `Step ${k + 1} of ${total}: ${label}…`;
+      const a = await make();
+      const r = await waitForReceipt(await sendAsDev(a.to, a.data));
+      if (r.status !== '0x1') throw new Error(`Couldn't ${label}.`);
+    }
+    out.textContent = `Step ${total} of ${total}: adding the liquidity…`;
+    return sendAsDev(tx.to, tx.data, TOKEN_CHAIN.id, tx.value);
+  }, '✓ RUNNER/IMD 10% liquidity added. The position (an NFT in the dev wallet) shows in the Uniswap app under Positions.');
+  refreshImdPool();
 };
 
 render();

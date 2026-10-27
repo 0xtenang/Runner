@@ -107,6 +107,16 @@
       <div id="ethpool-out" class="small"></div>
       <button class="btn pill sm ghost" id="b-ethpool-refresh">Refresh</button>
     </section>
+    <section class="card step" id="imdpool" hidden>
+      <h3><i>+</i>RUNNER/IMD pool (Uniswap v4, 10%)</h3>
+      <p class="muted small" style="margin:0">A second RUNNER/IMD pool with a 10% fee and no hook (the RunnerHook refuses any pool but its own), created through Uniswap's PositionManager at the hook pool's price. The dev wallet adds a full-range position (RUNNER + IMD) and earns the 10% on trades there. Trades in this pool don't pay the 4% holder/protocol fee; routers prefer the 4% pool because it's cheaper, so this one mostly earns from arbitrage.</p>
+      <div id="imdpool-info" class="small"></div>
+      <label class="small">RUNNER to add <input id="imdpool-runner" class="input mono" inputmode="decimal" placeholder="e.g. 10000000" autocomplete="off"></label>
+      <div id="imdpool-quote" class="small"></div>
+      <button class="btn primary pill" id="b-imdpool" disabled>Create RUNNER/IMD 10% pool + add liquidity (dev wallet)</button>
+      <div id="imdpool-out" class="small"></div>
+      <button class="btn pill sm ghost" id="b-imdpool-refresh">Refresh</button>
+    </section>
     <section class="card step" id="controls" hidden>
       <h3><i>6</i>Controls after launch</h3>
       <div class="small"><b>Emission schedule</b> (on the token, dev wallet). The new schedule starts the next UTC day with a fresh halving clock; never above 20,000,000/day.</div>

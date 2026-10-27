@@ -180,3 +180,100 @@ export async function mintTx({ owner, runnerWei, sqrtP, create, slippageBps = 10
   calls.push(encodeFunctionData({ abi, functionName: 'modifyLiquidities', args: [encodeAbiParameters(parseAbiParameters('bytes, bytes[]'), [actions, params]), BigInt(Math.floor(Date.now() / 1000) + 1800)] }));
   return { to: POSITION_MANAGER, data: encodeFunctionData({ abi, functionName: 'multicall', args: [calls] }), value: ethMax, quote: q, ethMax, runnerMax };
 }
+
+// ---------------------------------------------------------------- RUNNER/IMD pool (10% LP fee, no hook)
+// A second RUNNER/IMD pool next to the hook pool: no hook (the RunnerHook refuses any pool but its own),
+// 10% fee to whoever provides liquidity. Created at the hook pool's price. Both tokens are ERC-20s, so
+// both go through Permit2; no ETH is sent.
+export const IMD_POOL_FEE = 100_000; // 10%
+const RUNNER_IS_0 = () => BigInt(TOKEN_CONTRACT) < BigInt(IMD_TOKEN);
+
+/** The pool key: RUNNER and IMD sorted by address, 10%, no hook. */
+export const imdPoolKey = () => (RUNNER_IS_0()
+  ? { currency0: TOKEN_CONTRACT, currency1: IMD_TOKEN, fee: IMD_POOL_FEE, tickSpacing: ETH_POOL_TICK_SPACING, hooks: ZERO }
+  : { currency0: IMD_TOKEN, currency1: TOKEN_CONTRACT, fee: IMD_POOL_FEE, tickSpacing: ETH_POOL_TICK_SPACING, hooks: ZERO });
+const hookPoolKey = () => (RUNNER_IS_0()
+  ? { currency0: TOKEN_CONTRACT, currency1: IMD_TOKEN, fee: 0, tickSpacing: 200, hooks: HOOK_CONTRACT }
+  : { currency0: IMD_TOKEN, currency1: TOKEN_CONTRACT, fee: 0, tickSpacing: 200, hooks: HOOK_CONTRACT });
+
+/** IMD per RUNNER at a sqrt price of a RUNNER/IMD pool (same currency order as both keys above). */
+export const imdPerRunner = (sqrtP) => {
+  const p = Number((sqrtP * sqrtP * 10n ** 12n) / (Q96 * Q96)) / 1e12; // token1 per token0
+  return RUNNER_IS_0() ? p : 1 / p;
+};
+
+/** Full-range position for `runnerWei` RUNNER at `sqrtP`: liquidity, IMD needed and RUNNER needed (rounded up). */
+export function imdFullRangeQuote(runnerWei, sqrtP) {
+  const sa = sqrtPriceAtTick(FULL_RANGE.lower), sb = sqrtPriceAtTick(FULL_RANGE.upper);
+  if (sqrtP <= sa || sqrtP >= sb) throw new Error('price outside the full range');
+  const amount0 = (L) => divUp(divUp(L * Q96 * (sb - sqrtP), sb), sqrtP); // SqrtPriceMath.getAmount0Delta, round up
+  const amount1 = (L) => divUp(L * (sqrtP - sa), Q96);                     // SqrtPriceMath.getAmount1Delta, round up
+  if (RUNNER_IS_0()) {
+    const liquidity = (runnerWei * sqrtP * sb) / (Q96 * (sb - sqrtP)); // LiquidityAmounts.getLiquidityForAmount0
+    return { liquidity, runnerNeeded: amount0(liquidity), imdWei: amount1(liquidity) };
+  }
+  const liquidity = (runnerWei * Q96) / (sqrtP - sa); // LiquidityAmounts.getLiquidityForAmount1
+  return { liquidity, runnerNeeded: amount1(liquidity), imdWei: amount0(liquidity) };
+}
+
+/** Pool status, the hook pool's price, and the wallet's balances and approvals for both tokens. */
+export async function imdStatus(owner) {
+  const { encodeFunctionData, decodeFunctionResult, parseAbi } = await viem();
+  const erc20 = parseAbi(['function balanceOf(address) view returns (uint256)', 'function allowance(address,address) view returns (uint256)']);
+  const permit2 = parseAbi(['function allowance(address,address,address) view returns (uint160 amount, uint48 expiration, uint48 nonce)']);
+  const call = async (to, abi, fn, args) => decodeFunctionResult({ abi, functionName: fn, data: await ethCall(to, encodeFunctionData({ abi, functionName: fn, args })) });
+  const token = async (addr) => {
+    if (!owner) return { balance: 0n, toPermit2: 0n, permit2Amount: 0n, permit2Expiration: 0 };
+    const [balance, toPermit2, p2] = await Promise.all([
+      call(addr, erc20, 'balanceOf', [owner]), call(addr, erc20, 'allowance', [owner, PERMIT2]), call(PERMIT2, permit2, 'allowance', [owner, addr, POSITION_MANAGER]),
+    ]);
+    return { balance, toPermit2, permit2Amount: p2[0], permit2Expiration: Number(p2[1]) };
+  };
+  const [pool, hook, runner, imd] = await Promise.all([slot0(imdPoolKey()), slot0(hookPoolKey()), token(TOKEN_CONTRACT), token(IMD_TOKEN)]);
+  if (!hook.sqrtPriceX96) throw new Error('The RUNNER/IMD hook pool has no price yet.');
+  return { created: pool.sqrtPriceX96 > 0n, poolSqrtPrice: pool.sqrtPriceX96, hookSqrtPrice: hook.sqrtPriceX96, runner, imd };
+}
+
+/** How far (in %) the 10% pool's price is from the hook pool's. */
+export const imdPriceGapPct = (s) => (s.created ? Math.abs(imdPerRunner(s.poolSqrtPrice) / imdPerRunner(s.hookSqrtPrice) - 1) * 100 : 0);
+
+/** token.approve(Permit2, max). */
+export async function approveTokenToPermit2Tx(token) {
+  const { encodeFunctionData, parseAbi, maxUint256 } = await viem();
+  return { to: token, data: encodeFunctionData({ abi: parseAbi(['function approve(address,uint256) returns (bool)']), functionName: 'approve', args: [PERMIT2, maxUint256] }) };
+}
+
+/** Permit2.approve(token, PositionManager, amount, 30 days). */
+export async function approveTokenToPositionManagerTx(token, amount) {
+  const { encodeFunctionData, parseAbi } = await viem();
+  const max160 = (1n << 160n) - 1n;
+  return {
+    to: PERMIT2,
+    data: encodeFunctionData({ abi: parseAbi(['function approve(address token, address spender, uint160 amount, uint48 expiration)']), functionName: 'approve', args: [token, POSITION_MANAGER, amount > max160 ? max160 : amount, Math.floor(Date.now() / 1000) + 30 * 86400] }),
+  };
+}
+
+/** One PositionManager.multicall: create the 10% pool at `sqrtP` (unless it exists) and mint a full-range position for `owner`. */
+export async function imdMintTx({ owner, runnerWei, sqrtP, create, slippageBps = 100 }) {
+  const { encodeFunctionData, encodeAbiParameters, parseAbiParameters, parseAbi, encodePacked } = await viem();
+  const key = imdPoolKey();
+  const q = imdFullRangeQuote(runnerWei, sqrtP);
+  const pad = (x) => x + (x * BigInt(slippageBps)) / 10_000n + 1n;
+  const runnerMax = pad(q.runnerNeeded), imdMax = pad(q.imdWei);
+  const [max0, max1] = RUNNER_IS_0() ? [runnerMax, imdMax] : [imdMax, runnerMax];
+  const actions = encodePacked(['uint8', 'uint8'], [0x02, 0x0d]); // MINT_POSITION, SETTLE_PAIR
+  const params = [
+    encodeAbiParameters(parseAbiParameters(`${KEY_TYPE}, int24, int24, uint256, uint128, uint128, address, bytes`),
+      [key, FULL_RANGE.lower, FULL_RANGE.upper, q.liquidity, max0, max1, owner, '0x']),
+    encodeAbiParameters(parseAbiParameters('address, address'), [key.currency0, key.currency1]),
+  ];
+  const abi = parseAbi([
+    `function initializePool(${KEY_TYPE} key, uint160 sqrtPriceX96) payable returns (int24)`,
+    'function modifyLiquidities(bytes unlockData, uint256 deadline) payable',
+    'function multicall(bytes[] data) payable returns (bytes[])',
+  ]);
+  const calls = [];
+  if (create) calls.push(encodeFunctionData({ abi, functionName: 'initializePool', args: [key, sqrtP] }));
+  calls.push(encodeFunctionData({ abi, functionName: 'modifyLiquidities', args: [encodeAbiParameters(parseAbiParameters('bytes, bytes[]'), [actions, params]), BigInt(Math.floor(Date.now() / 1000) + 1800)] }));
+  return { to: POSITION_MANAGER, data: encodeFunctionData({ abi, functionName: 'multicall', args: [calls] }), value: 0n, quote: q, runnerMax, imdMax };
+}
