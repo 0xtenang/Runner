@@ -805,8 +805,10 @@ body.privy-open .onboard, body.privy-open .sheet-overlay, body.privy-open .revea
 .cb-text { position: absolute; left: 0; right: 0; top: 52%; display: grid; justify-items: center; gap: 10px; text-align: center; }
 .cb-text b { font-size: clamp(44px, 13vw, 72px); font-weight: 900; letter-spacing: -0.03em; animation: cb-pop .5s .35s cubic-bezier(.2,1.4,.4,1) both; }
 .cb-text span { font-family: Anton, Impact, sans-serif; font-size: 34px; color: #E8483B; animation: cb-pop .5s .6s cubic-bezier(.2,1.4,.4,1) both; }
+.cb-text small { font-size: 17px; font-weight: 700; color: rgba(255,248,239,.75); animation: cb-pop .5s .75s cubic-bezier(.2,1.4,.4,1) both; }
+.usd-est { font-variant-numeric: tabular-nums; }
 @keyframes cb-pop { from { opacity: 0; transform: scale(.7); } }
-@media (prefers-reduced-motion: reduce) { .cb-swoosh path { animation: none; stroke-dashoffset: 0; } .cb-float, .cb-text b, .cb-text span { animation: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cb-swoosh path { animation: none; stroke-dashoffset: 0; } .cb-float, .cb-text b, .cb-text span, .cb-text small { animation: none; opacity: 1; } }
 
 /* ---------- share sheet (js/share-card.js) ---------- */
 .share-sheet .sheet-panel { gap: 12px; }

@@ -19,7 +19,7 @@ const ATTR_HINT = { efficiency: `more ${COIN} per run`, resilience: 'less wear' 
 // Sneaker illustrations live in sneaker-art.js (four lines + editions).
 export { sneakerSvg } from './sneaker-art.js';
 import { sneakerSvg, colorwayName } from './sneaker-art.js';
-import { rewardsActive, rewardsConnected, connectRewards, syncRewards, checkRewardsStatus, upgrade, claimRewards, tokenBalance, burnForUpgrades, addDeposit, claimedOnChain, tokenExplorerTx, holderClaimable, claimHolderRewards, MIN_HOLDING, lockInfo, releaseRewards, releaseEarly, INSTANT_BURN, LOCK_DAYS } from './rewards.js';
+import { rewardsActive, rewardsConnected, connectRewards, syncRewards, checkRewardsStatus, upgrade, claimRewards, tokenBalance, burnForUpgrades, addDeposit, claimedOnChain, tokenExplorerTx, holderClaimable, claimHolderRewards, MIN_HOLDING, lockInfo, fmtUsd as usdOf, runnerUsdNow, loadRunnerUsd, releaseRewards, releaseEarly, INSTANT_BURN, LOCK_DAYS } from './rewards.js';
 
 const coinIcon = '<svg class="coin-ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9"/><path d="M10 5v10M7.5 7.5h4a2 2 0 0 1 0 4h-3"/></svg>';
 export const coinTag = (n, sign = false) => `<span class="coin-amt">${coinIcon}${sign && n > 0 ? '+' : ''}${fmtCoins(n)}</span>`;
@@ -690,9 +690,9 @@ function rewardsCard(st) {
   return `<span class="muted small">Verified by the RUNNER server. Spend it on level-ups and repairs, or claim it to your wallet as real ${COIN} tokens.</span>
     ${heldLine(st.server)}
     ${emissionLine(st.server?.emission)}
-    <span class="small">In your wallet: <b>${claimInfo ? `${fmtCoins(claimInfo.wallet)} ${COIN}` : '…'}</b></span>
+    <span class="small">In your wallet: <b>${claimInfo ? `${fmtCoins(claimInfo.wallet)} ${COIN}` : '…'}</b>${claimInfo && usdOf(claimInfo.wallet) ? ` <span class="muted">(${usdOf(claimInfo.wallet)})</span>` : ''}</span>
     ${claimInfo?.wallet > 0 ? `<div class="row"><button class="btn pill sm" data-act="rw-deposit" data-max="${claimInfo.wallet}">Use wallet ${COIN} for upgrades</button></div>` : ''}
-    ${claimable ? `<span class="small">Ready to claim: <b>${fmtCoins(claimable)} ${COIN}</b> — lock it ${LOCK_DAYS} days for 100%, or take it now with ${INSTANT_BURN * 100}% burned.</span>
+    ${claimable ? `<span class="small">Ready to claim: <b>${fmtCoins(claimable)} ${COIN}</b>${usdOf(claimable) ? ` <span class="muted">(${usdOf(claimable)})</span>` : ''} — lock it ${LOCK_DAYS} days for 100%, or take it now with ${INSTANT_BURN * 100}% burned.</span>
     <div class="row"><button class="btn primary pill sm" data-act="rw-claim" data-amount="${claimable}">Claim ${fmtCoins(claimable)} ${COIN}</button></div>` : '<button class="btn pill sm" disabled>Nothing to claim yet</button>'}
     <span class="muted small" id="rw-status" role="status"></span>
     ${locksBlock()}
@@ -719,7 +719,7 @@ function heldLine(srv) {
   const strikes = srv?.strikes ? `<span class="small bad">Fair-play strikes: ${srv.strikes} / ${srv.strikeLimit} — runs that look fake earn nothing and add a strike; ${srv.strikeLimit} strikes in 30 days suspend the wallet. Strikes expire after 30 days.</span>` : '';
   if (!srv || (!srv.pending && !srv.underReview)) return strikes;
   const when = srv.nextRelease ? new Date(srv.nextRelease).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
-  return `<span class="small">${srv.pending ? `On hold: <b>${fmtCoins(srv.pending)} ${COIN}</b>${when ? ` · usable from ${when}` : ''}` : ''}${srv.pending && srv.underReview ? ' · ' : ''}${srv.underReview ? `Under review: <b>${fmtCoins(srv.underReview)} ${COIN}</b>` : ''}</span>
+  return `<span class="small">${srv.pending ? `On hold: <b>${fmtCoins(srv.pending)} ${COIN}</b>${usdOf(srv.pending) ? ` <span class="muted">(${usdOf(srv.pending)})</span>` : ''}${when ? ` · usable from ${when}` : ''}` : ''}${srv.pending && srv.underReview ? ' · ' : ''}${srv.underReview ? `Under review: <b>${fmtCoins(srv.underReview)} ${COIN}</b>` : ''}</span>
     <span class="muted small">New earnings are usable 24 hours after a run.</span>${strikes}`;
 }
 
@@ -826,7 +826,9 @@ export function renderEarn(view, { toast, onCleanup }) {
       </div>`;
   }
 
+  let usdAsked = false;
   const draw = () => {
+    if (!usdAsked && !runnerUsdNow()) { usdAsked = true; loadRunnerUsd().then((p) => { if (p && view.isConnected) draw(); }).catch(() => {}); }
     const st = game.state;
     const s = game.active;
     const energy = game.energy;
@@ -841,6 +843,7 @@ export function renderEarn(view, { toast, onCleanup }) {
           <div>
             <span class="lbl">${COIN} balance</span>
             <div class="wallet-amt">${coinTag(st.coins)} <small>${COIN}</small></div>
+            ${usdOf(st.coins) ? `<span class="muted small usd-est">${usdOf(st.coins)}</span>` : ''}
             ${rewardsCard(st)}
           </div>
           ${s ? `<div>

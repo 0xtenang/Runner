@@ -72,6 +72,24 @@ export async function leaderboard(period, address) {
   } catch { return null; }
 }
 
+// ------------------------------------------------------------------ USD estimates
+// RUNNER's price in USD from the public stats (RUNNER → IMD → ETH → USD, on-chain pools + CoinGecko).
+let usdPrice = null;
+/** RUNNER price in USD if already known (sync), else null. */
+export const runnerUsdNow = () => usdPrice;
+/** Loads RUNNER's USD price (cached 1 min with the stats). */
+export async function loadRunnerUsd() {
+  const s = await publicStats();
+  if (s?.runnerUsd) usdPrice = s.runnerUsd;
+  return usdPrice;
+}
+/** "≈ $1.23" for an amount of RUNNER, or '' when the price isn't known. */
+export function fmtUsd(runner, price = usdPrice) {
+  if (!price || !(runner > 0)) return '';
+  const v = runner * price;
+  return v < 0.01 ? '< $0.01' : `≈ $${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 /** Public totals for the front page: { runners, runs, earned, claimed }, or null if unavailable. Cached 1 min. */
 export async function publicStats() {
   if (statsCache && Date.now() - statsCache.at < 60e3) return statsCache.value;

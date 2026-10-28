@@ -8,7 +8,7 @@ import { renderEarn, sneakerSvg, coinTag, fmtCoins, paceRange, addressAvatar, sy
 import { PRICE_ETH } from './collection.js';
 import { auth, shortAddress, explorerUrl, SIGN_IN_METHODS } from './auth.js';
 import { runOnboarding } from './onboarding.js';
-import { settleRun, syncRewards, publicStats, deleteAccount, leaderboard } from './rewards.js';
+import { settleRun, syncRewards, publicStats, deleteAccount, leaderboard, fmtUsd, runnerUsdNow, loadRunnerUsd } from './rewards.js';
 import { renderRewards } from './rewards-view.js';
 import { celebrate } from './celebrate.js';
 import { openShareSheet } from './share-card.js';
@@ -338,7 +338,7 @@ async function fillCommunityStats() {
   if (!el || !s || s.since == null) return;
   el.innerHTML = `
     <div><b>${Number(s.runners || 0).toLocaleString()}</b><span>Runners</span></div>
-    <div><b>${fmtBig(Number(s.earned || 0))}</b><span>$${COIN} earned</span></div>
+    <div><b>${fmtBig(Number(s.earned || 0))}</b><span>$${COIN} earned${s.earnedUsd ? ` · ≈ $${s.earnedUsd < 1e4 ? Math.round(s.earnedUsd).toLocaleString() : fmtBig(s.earnedUsd)}` : ''}</span></div>
     ${s.holderImd != null ? `<div><b>${s.holderImd < 100 ? s.holderImd.toFixed(2) : fmtBig(s.holderImd)}</b><span>IMD to holders</span></div>
     <div><b>${s.holderUsd != null ? `≈ $${s.holderUsd < 1e4 ? Math.round(s.holderUsd).toLocaleString() : fmtBig(s.holderUsd)}` : '—'}</b><span>Holder rewards value</span></div>` : ''}
     <p>${Number(s.sneakers || 0).toLocaleString()} Genesis sneakers owned${s.claimed != null ? ` · ${fmtBig(Number(s.claimed))} ${COIN} claimed to wallets` : ''}</p>
@@ -774,7 +774,7 @@ async function finishRecording() {
   await db.saveActivity(act, points);
   await db.kvDel('inprogress').catch(() => {});
   rec.stopGps();
-  await celebrate({ coins: act.earn?.coins || 0 });
+  await celebrate({ coins: act.earn?.coins || 0, usd: fmtUsd(act.earn?.coins || 0, runnerUsdNow() || (await loadRunnerUsd().catch(() => null))) });
   toast(earnToast(act.earn, 'Run saved'), 4500);
   try { sessionStorage.setItem(SHARE_AFTER_KEY, act.id); } catch { /* the share sheet just won't open by itself */ }
   location.hash = `#/activity/${act.id}`;
@@ -815,6 +815,7 @@ function earnCard(a) {
         <span class="row">${e.hrVerified ? '<span class="badge">HR verified</span>' : ''}</span>
       </div>
       <div class="earn-total">${coinTag(e.coins, true)} <small>${COIN}</small></div>
+      ${fmtUsd(e.coins) ? `<div class="muted small usd-est">${fmtUsd(e.coins)} at today's price</div>` : ''}
       <div class="stats-grid">
         <div><span class="lbl">Energy used</span><b>⚡ ${(+e.energy).toFixed(2)}</b></div>
         <div><span class="lbl">Time earning</span><b>${fmtDur(e.zoneSec)}</b></div>
@@ -827,6 +828,7 @@ function earnCard(a) {
 async function renderActivity(id) {
   setTopbar({ left: backLink(), title: 'Run', right: `<button class="icon-btn" id="tb-share" aria-label="Share run">${ICON.share}</button>` });
   const a = await db.getActivity(id);
+  if (a?.earn?.coins > 0 && !runnerUsdNow()) await loadRunnerUsd().catch(() => null); // for the USD estimate
   if (!a) { view.innerHTML = '<section class="page"><div class="card">Run not found. <a class="link" href="#/home">Back home</a></div></section>'; return; }
   const pts = (await db.getStream(id)) || [];
   annotate(pts);

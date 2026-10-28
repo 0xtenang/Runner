@@ -3,8 +3,8 @@
 const SHOE = '<svg viewBox="0 0 48 48"><path d="M5 31c0-3 2-5 4-6l6-3 4-8c1-2 3-2 4-1l3 3 2-2c1-1 3-1 4 0 4 5 8 9 11 12 1 1 1 3 0 4l-2 2H9c-2 0-4-1-4-3z"/><path d="M5 33h38M19 22l3 3M23 19l3 3"/></svg>';
 const COIN = '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="17"/><path d="M24 14v20M19 18h7.5a4 4 0 0 1 0 8H20"/></svg>';
 
-/** Shows the celebration; resolves when it closes. `coins` > 0 adds "+N RUNNER". */
-export function celebrate({ coins = 0 } = {}) {
+/** Shows the celebration; resolves when it closes. `coins` > 0 adds "+N RUNNER" (and `usd`, e.g. "≈ $0.03"). */
+export function celebrate({ coins = 0, usd = '' } = {}) {
   return new Promise((resolve) => {
     const el = document.createElement('div');
     el.className = 'celebrate';
@@ -19,7 +19,7 @@ export function celebrate({ coins = 0 } = {}) {
       ${floaters}
       <div class="cb-text">
         <b>Nice work!</b>
-        ${coins > 0 ? `<span>+${(Math.round(coins * 100) / 100).toLocaleString()} RUNNER</span>` : ''}
+        ${coins > 0 ? `<span>+${(Math.round(coins * 100) / 100).toLocaleString()} RUNNER</span>${usd ? `<small>${usd}</small>` : ''}` : ''}
       </div>`;
     document.body.appendChild(el);
     let done = false;

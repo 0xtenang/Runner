@@ -607,10 +607,12 @@ async function publicStats() {
     ethUsd().catch(() => null),
   ]);
   const imdUsd = holders?.ethPerImd && usd ? holders.ethPerImd * usd : null;
+  const runnerUsd = imdUsd && holders?.imdPerRunner ? holders.imdPerRunner * imdUsd : null;
   const value = {
     runners: nft?.holders ?? 0, sneakers: nft?.sneakers ?? 0, earners, runs,
     earned: earnedMicro / MICRO, claimed,
-    holderImd: holders?.imd ?? null, holderUsd: holders && imdUsd ? holders.imd * imdUsd : null, imdUsd,
+    holderImd: holders?.imd ?? null, holderUsd: holders && imdUsd ? holders.imd * imdUsd : null, imdUsd, runnerUsd,
+    earnedUsd: runnerUsd ? (earnedMicro / MICRO) * runnerUsd : null,
     since: sch?.startDay || null, updatedAt: Date.now(),
   };
   statsCache = { at: Date.now(), value };

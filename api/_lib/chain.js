@@ -93,17 +93,24 @@ const toWhole = (raw) => Number(raw / 10n ** 12n) / 1e6; // 18-decimal amount â†
  * pool, so the stats can show a value. { imd, ethPerImd }.
  */
 export async function holderRewards(token = TOKEN_CONTRACT) {
-  if (TESTING) return { imd: Number(env.REWARDS_FAKE_HOLDER_IMD || 0), ethPerImd: 0.002 };
-  const poolId = Buffer.from(keccak_256(Buffer.from(addrWord('0x0') + addrWord(IMD_TOKEN) + word(IMD_ETH_POOL.fee) + word(IMD_ETH_POOL.tickSpacing) + addrWord(IMD_ETH_POOL.hooks), 'hex'))).toString('hex');
-  const [booked, pending, slot0] = await callBatch(TOKEN_CHAIN, [
+  if (TESTING) return { imd: Number(env.REWARDS_FAKE_HOLDER_IMD || 0), ethPerImd: 0.002, imdPerRunner: 0.000003 };
+  const id = (c0, c1, fee, spacing, hooks) => Buffer.from(keccak_256(Buffer.from(addrWord(c0) + addrWord(c1) + word(fee) + word(spacing) + addrWord(hooks), 'hex'))).toString('hex');
+  const imdEth = id('0x0', IMD_TOKEN, IMD_ETH_POOL.fee, IMD_ETH_POOL.tickSpacing, IMD_ETH_POOL.hooks);
+  const runnerIs0 = BigInt(token) < BigInt(IMD_TOKEN);
+  const hookPool = runnerIs0 ? id(token, IMD_TOKEN, 0, 200, HOOK_CONTRACT) : id(IMD_TOKEN, token, 0, 200, HOOK_CONTRACT);
+  const [booked, pending, slot0, hookSlot0] = await callBatch(TOKEN_CHAIN, [
     { to: token, data: '0xca0c8045' }, // totalHolderRewards()
     { to: HOOK_CONTRACT, data: `0x2f22b8a2${addrWord(token)}` }, // pendingHolderFees(token)
-    { to: STATE_VIEW, data: `0xc815641c${poolId}` }, // getSlot0(IMD/ETH pool): ETH is currency0
+    { to: STATE_VIEW, data: `0xc815641c${imdEth}` }, // getSlot0(IMD/ETH pool): ETH is currency0
+    { to: STATE_VIEW, data: `0xc815641c${hookPool}` }, // getSlot0(RUNNER/IMD hook pool)
   ]);
   const imd = toWhole(BigInt(booked || 0) + BigInt(pending || 0));
-  const sqrtP = BigInt(String(slot0 || '0x').slice(0, 66) || 0);
-  const imdPerEth = sqrtP ? Number((sqrtP * sqrtP * 10n ** 6n) >> 192n) / 1e6 : 0;
-  return { imd, ethPerImd: imdPerEth ? 1 / imdPerEth : null };
+  const price = (ret) => { // token1 per token0 from sqrtPriceX96
+    const sq = BigInt(String(ret || '0x').slice(0, 66) || 0);
+    return sq ? Number((sq * sq * 10n ** 18n) >> 192n) / 1e18 : 0;
+  };
+  const imdPerEth = price(slot0), hookP = price(hookSlot0);
+  return { imd, ethPerImd: imdPerEth ? 1 / imdPerEth : null, imdPerRunner: hookP ? (runnerIs0 ? hookP : 1 / hookP) : null };
 }
 
 let ethUsdCache = null; // { at, usd }
